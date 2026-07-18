@@ -1,0 +1,239 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================
+// SPRINT 1 TABLES
+// ============================================================
+
+model Tenant {
+  id_tenant       Int        @id @default(autoincrement())
+  name            String     @db.VarChar(100)
+  created_at      DateTime   @default(now()) @db.Timestamp()
+  
+  courts          Court[]
+  users           User[]
+  rates           Rate[]
+  tournaments     Tournament[]
+  teams           Team[]
+  
+  @@map("tenant")
+}
+
+model Court {
+  id_court        Int        @id @default(autoincrement())
+  id_tenant       Int
+  tenant          Tenant     @relation(fields: [id_tenant], references: [id_tenant], onDelete: Restrict, onUpdate: Cascade)
+  name            String     @db.VarChar(100)
+  is_active       Boolean    @default(true)
+  
+  reservations    Reservation[]
+  matches         Match[]
+  
+  @@unique([name])
+  @@map("cancha")
+}
+
+model User {
+  id_user         Int        @id @default(autoincrement())
+  id_tenant       Int?
+  tenant          Tenant?    @relation(fields: [id_tenant], references: [id_tenant], onDelete: Restrict, onUpdate: Cascade)
+  email           String     @unique @db.VarChar(150)
+  password        String     @db.VarChar(255)
+  role            String     @db.VarChar(50)
+  notifications_enabled Boolean @default(true)
+  created_at      DateTime   @default(now()) @db.Timestamp()
+  
+  reservations    Reservation[]
+  notifications   Notification[]
+  teams           Team[]
+  player_profile  PlayerProfile?
+  
+  @@map("usuario")
+}
+
+model Rate {
+  id_rate         Int        @id @default(autoincrement())
+  id_tenant       Int
+  tenant          Tenant     @relation(fields: [id_tenant], references: [id_tenant], onDelete: Restrict, onUpdate: Cascade)
+  name            String     @db.VarChar(100)
+  schedule_type   String     @db.VarChar(100)
+  amount          Decimal    @db.Decimal(10,2)
+  priority        Int        @default(1)
+  
+  reservations    Reservation[]
+  
+  @@map("tarifa")
+}
+
+model Tournament {
+  id_tournament   Int        @id @default(autoincrement())
+  id_tenant       Int
+  tenant          Tenant     @relation(fields: [id_tenant], references: [id_tenant], onDelete: Restrict, onUpdate: Cascade)
+  name            String     @db.VarChar(100)
+  min_teams       Int
+  start_date      DateTime   @db.Date()
+  end_date        DateTime   @db.Date()
+  start_time      DateTime   @db.Time()  // ✅ Corregido: String → DateTime
+  end_time        DateTime   @db.Time()  // ✅ Corregido: String → DateTime
+  
+  team_tournaments TeamTournament[]
+  matches         Match[]
+  standings       Standing[]
+  
+  @@map("torneo")
+}
+
+model Team {
+  id_team         Int        @id @default(autoincrement())
+  id_tenant       Int
+  tenant          Tenant     @relation(fields: [id_tenant], references: [id_tenant], onDelete: Restrict, onUpdate: Cascade)
+  id_user         Int
+  user            User       @relation(fields: [id_user], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
+  name            String     @db.VarChar(100)
+  
+  team_tournaments TeamTournament[]
+  team_players    TeamPlayer[]
+  home_matches    Match[]    @relation("home_team")
+  away_matches    Match[]    @relation("away_team")
+  standings       Standing[]
+  
+  @@map("equipo")
+}
+
+model PlayerProfile {
+  id_player       Int        @id @default(autoincrement())
+  id_user         Int        @unique
+  user            User       @relation(fields: [id_user], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
+  visibility      String     @default("public") @db.VarChar(20)
+  is_available    Boolean    @default(true)
+  
+  team_players    TeamPlayer[]
+  matches         Match[]
+  match_stats     MatchStat[]
+  
+  @@map("perfil_jugador")
+}
+
+model Notification {
+  id_notification Int        @id @default(autoincrement())
+  id_user         Int
+  user            User       @relation(fields: [id_user], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
+  type            String     @db.VarChar(80)
+  message         String     @db.Text()
+  sent_at         DateTime   @default(now()) @db.Timestamp()
+  is_read         Boolean    @default(false)
+  position        Int?
+  
+  @@map("notificaciones")
+}
+
+model Reservation {
+  id_reservation  Int        @id @default(autoincrement())
+  id_court        Int
+  court           Court      @relation(fields: [id_court], references: [id_court], onDelete: Restrict, onUpdate: Cascade)
+  id_user         Int
+  user            User       @relation(fields: [id_user], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
+  id_rate         Int?
+  rate            Rate?      @relation(fields: [id_rate], references: [id_rate], onDelete: SetNull, onUpdate: Cascade)
+  date            DateTime   @db.Date()
+  start_time      DateTime   @db.Time()  // ✅ Corregido: String → DateTime
+  end_time        DateTime   @db.Time()  // ✅ Corregido: String → DateTime
+  status          String     @default("confirmed") @db.VarChar(30)
+  created_at      DateTime   @default(now()) @db.Timestamp()
+  
+  payments        Payment[]
+  
+  @@map("reserva")
+}
+
+model Payment {
+  id_payment      Int        @id @default(autoincrement())
+  id_reservation  Int        @unique
+  reservation     Reservation @relation(fields: [id_reservation], references: [id_reservation], onDelete: Restrict, onUpdate: Cascade)
+  amount          Decimal    @db.Decimal(10,2)
+  payment_method  String     @db.VarChar(60)
+  payment_date    DateTime   @default(now()) @db.Timestamp()
+  
+  @@map("pago")
+}
+
+model TeamTournament {
+  id_team_tournament Int    @id @default(autoincrement())
+  id_team         Int
+  team            Team       @relation(fields: [id_team], references: [id_team], onDelete: Restrict, onUpdate: Cascade)
+  id_tournament   Int
+  tournament      Tournament @relation(fields: [id_tournament], references: [id_tournament], onDelete: Restrict, onUpdate: Cascade)
+  registration_date DateTime @default(now()) @db.Timestamp()
+  
+  @@map("equipo_torneo")
+}
+
+model TeamPlayer {
+  id_team_player  Int        @id @default(autoincrement())
+  id_team         Int
+  team            Team       @relation(fields: [id_team], references: [id_team], onDelete: Restrict, onUpdate: Cascade)
+  id_player       Int
+  player_profile  PlayerProfile @relation(fields: [id_player], references: [id_player], onDelete: Restrict, onUpdate: Cascade)
+  join_date       DateTime   @default(now()) @db.Timestamp()
+  is_active       Boolean    @default(true)
+  
+  @@map("jugador_equipo")
+}
+
+model Match {
+  id_match        Int        @id @default(autoincrement())
+  id_tournament   Int?
+  tournament      Tournament? @relation(fields: [id_tournament], references: [id_tournament], onDelete: SetNull, onUpdate: Cascade)
+  id_court        Int
+  court           Court      @relation(fields: [id_court], references: [id_court], onDelete: Restrict, onUpdate: Cascade)
+  id_home_team    Int
+  home_team       Team       @relation("home_team", fields: [id_home_team], references: [id_team], onDelete: Restrict, onUpdate: Cascade)
+  id_away_team    Int
+  away_team       Team       @relation("away_team", fields: [id_away_team], references: [id_team], onDelete: Restrict, onUpdate: Cascade)
+  id_player       Int
+  player          PlayerProfile @relation(fields: [id_player], references: [id_player], onDelete: Restrict, onUpdate: Cascade)
+  scheduled_at    DateTime   @db.Timestamp()
+  home_goals      Int        @default(0)
+  away_goals      Int        @default(0)
+  status          String     @default("scheduled") @db.VarChar(30)
+  yellow_card     String?    @db.VarChar(30)
+  red_card        String?    @db.VarChar(30)
+  assists         Int        @default(0)
+  
+  match_stats     MatchStat[]
+  
+  @@map("partido")
+}
+
+model MatchStat {
+  id_match_stat   Int        @id @default(autoincrement())
+  id_match        Int
+  match           Match      @relation(fields: [id_match], references: [id_match], onDelete: Restrict, onUpdate: Cascade)
+  id_player       Int
+  player_profile  PlayerProfile @relation(fields: [id_player], references: [id_player], onDelete: Restrict, onUpdate: Cascade)
+  goals           Int        @default(0)
+  assists         Int        @default(0)
+  yellow_cards    Int        @default(0)
+  red_cards       Int        @default(0)
+  
+  @@map("estadistica_partido")
+}
+
+model Standing {
+  id_standing     Int        @id @default(autoincrement())
+  id_tournament   Int
+  tournament      Tournament @relation(fields: [id_tournament], references: [id_tournament], onDelete: Restrict, onUpdate: Cascade)
+  id_team         Int
+  team            Team       @relation(fields: [id_team], references: [id_team], onDelete: Restrict, onUpdate: Cascade)
+  points          Int        @default(0)
+  matches_played  Int        @default(0)
+  goal_difference Int        @default(0)
+  position        Int        @default(0)
+  
+  @@map("tabla_posiciones")
+}
