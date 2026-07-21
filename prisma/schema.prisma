@@ -78,8 +78,8 @@ model Tournament {
   min_teams       Int
   start_date      DateTime   @db.Date()
   end_date        DateTime   @db.Date()
-  start_time      DateTime   @db.Time()  // ✅ Corregido: String → DateTime
-  end_time        DateTime   @db.Time()  // ✅ Corregido: String → DateTime
+  start_time      DateTime   @db.Time()  
+  end_time        DateTime   @db.Time()  
   
   team_tournaments TeamTournament[]
   matches         Match[]
@@ -141,8 +141,8 @@ model Reservation {
   id_rate         Int?
   rate            Rate?      @relation(fields: [id_rate], references: [id_rate], onDelete: SetNull, onUpdate: Cascade)
   date            DateTime   @db.Date()
-  start_time      DateTime   @db.Time()  // ✅ Corregido: String → DateTime
-  end_time        DateTime   @db.Time()  // ✅ Corregido: String → DateTime
+  start_time      DateTime   @db.Time()  
+  end_time        DateTime   @db.Time()  
   status          String     @default("confirmed") @db.VarChar(30)
   created_at      DateTime   @default(now()) @db.Timestamp()
   
