@@ -8,20 +8,32 @@ datasource db {
 
 // ============================================================
 // FIELD SYNC - COMPLETE DATABASE SCHEMA
-// Version: 2.0 (All relations properly defined)
+// Version: 3.0 (Tenant verification + image uploads added)
 // ============================================================
 
+enum TenantStatus {
+  pendiente
+  verificado
+  suspendido
+}
+
 model Tenant {
-  id_tenant       Int        @id @default(autoincrement())
-  name            String     @db.VarChar(100)
-  created_at      DateTime   @default(now()) @db.Timestamp()
-  
+  id_tenant       Int          @id @default(autoincrement())
+  name            String       @db.VarChar(100)
+  created_at      DateTime     @default(now()) @db.Timestamp()
+
+  // --- Control de onboarding / anti-fraude ---
+  status          TenantStatus @default(pendiente)
+  id_verifier     Int?
+  verifier        User?        @relation("TenantVerifier", fields: [id_verifier], references: [id_user], onDelete: SetNull, onUpdate: Cascade)
+  verified_at     DateTime?    @db.Timestamp()
+
   courts          Court[]
   users           User[]
   rates           Rate[]
   tournaments     Tournament[]
   teams           Team[]
-  
+
   @@map("tenant")
 }
 
@@ -31,12 +43,26 @@ model Court {
   tenant          Tenant     @relation(fields: [id_tenant], references: [id_tenant], onDelete: Restrict, onUpdate: Cascade)
   name            String     @db.VarChar(100)
   is_active       Boolean    @default(true)
-  
+
   reservations    Reservation[]
   matches         Match[]
-  rates           Rate[]     
-  
+  rates           Rate[]
+
+  // --- Fotos de la cancha (verificación anti-troll y UX) ---
+  images          CourtImage[]
+
   @@map("court")
+}
+
+model CourtImage {
+  id_court_image  Int        @id @default(autoincrement())
+  id_court        Int
+  court           Court      @relation(fields: [id_court], references: [id_court], onDelete: Cascade, onUpdate: Cascade)
+  url             String     @db.VarChar(500)
+  is_primary      Boolean    @default(false)
+  uploaded_at     DateTime   @default(now()) @db.Timestamp()
+
+  @@map("court_image")
 }
 
 model User {
@@ -48,12 +74,15 @@ model User {
   role                String     @db.VarChar(50)
   notifications_enabled Boolean  @default(true)
   created_at          DateTime   @default(now()) @db.Timestamp()
-  
+
   reservations        Reservation[]
   notifications       Notification[]
   teams               Team[]
   player_profile      PlayerProfile?
-  
+
+  // --- Tenants que este usuario (super-admin) ha verificado ---
+  verified_tenants     Tenant[]   @relation("TenantVerifier")
+
   @@map("user")
 }
 
@@ -67,9 +96,9 @@ model Rate {
   schedule_type   String     @db.VarChar(100)
   amount          Decimal    @db.Decimal(10,2)
   priority        Int        @default(1)
-  
+
   reservations    Reservation[]
-  
+
   @@map("rate")
 }
 
@@ -83,11 +112,11 @@ model Tournament {
   end_date        DateTime   @db.Date()
   start_time      DateTime
   end_time        DateTime
-  
+
   team_tournaments TeamTournament[]
   matches         Match[]
   standings       Standing[]
-  
+
   @@map("tournament")
 }
 
@@ -98,13 +127,16 @@ model Team {
   id_user         Int
   user            User       @relation(fields: [id_user], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
   name            String     @db.VarChar(100)
-  
+
+  // --- Logo del equipo ---
+  logo_url        String?    @db.VarChar(500)
+
   team_tournaments TeamTournament[]
   team_players    TeamPlayer[]
   home_matches    Match[]    @relation("home_team")
   away_matches    Match[]    @relation("away_team")
   standings       Standing[]
-  
+
   @@map("team")
 }
 
@@ -114,11 +146,14 @@ model PlayerProfile {
   user            User       @relation(fields: [id_user], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
   visibility      String     @default("public") @db.VarChar(20)
   is_available    Boolean    @default(true)
-  
+
+  // --- Foto de perfil del jugador ---
+  avatar_url      String?    @db.VarChar(500)
+
   team_players    TeamPlayer[]
   matches         Match[]
   match_stats     MatchStat[]
-  
+
   @@map("player_profile")
 }
 
@@ -131,7 +166,7 @@ model Notification {
   sent_at         DateTime   @default(now()) @db.Timestamp()
   is_read         Boolean    @default(false)
   position        Int?
-  
+
   @@map("notification")
 }
 
@@ -148,9 +183,9 @@ model Reservation {
   end_time        DateTime
   status          String     @default("confirmed") @db.VarChar(30)
   created_at      DateTime   @default(now()) @db.Timestamp()
-  
+
   payments        Payment[]
-  
+
   @@map("reservation")
 }
 
@@ -161,7 +196,7 @@ model Payment {
   amount          Decimal    @db.Decimal(10,2)
   payment_method  String     @db.VarChar(60)
   payment_date    DateTime   @default(now()) @db.Timestamp()
-  
+
   @@map("payment")
 }
 
@@ -172,7 +207,7 @@ model TeamTournament {
   id_tournament   Int
   tournament      Tournament @relation(fields: [id_tournament], references: [id_tournament], onDelete: Restrict, onUpdate: Cascade)
   registration_date DateTime @default(now()) @db.Timestamp()
-  
+
   @@map("team_tournament")
 }
 
@@ -184,7 +219,7 @@ model TeamPlayer {
   player_profile  PlayerProfile @relation(fields: [id_player], references: [id_player], onDelete: Restrict, onUpdate: Cascade)
   join_date       DateTime   @default(now()) @db.Timestamp()
   is_active       Boolean    @default(true)
-  
+
   @@map("team_player")
 }
 
@@ -207,9 +242,9 @@ model Match {
   yellow_card     String?    @db.VarChar(30)
   red_card        String?    @db.VarChar(30)
   assists         Int        @default(0)
-  
+
   match_stats     MatchStat[]
-  
+
   @@map("match")
 }
 
@@ -223,7 +258,7 @@ model MatchStat {
   assists         Int        @default(0)
   yellow_cards    Int        @default(0)
   red_cards       Int        @default(0)
-  
+
   @@map("match_stat")
 }
 
@@ -237,6 +272,6 @@ model Standing {
   matches_played  Int        @default(0)
   goal_difference Int        @default(0)
   position        Int        @default(0)
-  
+
   @@map("standing")
 }

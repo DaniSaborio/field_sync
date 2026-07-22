@@ -5,19 +5,30 @@ import { LoginBrand } from "./login/login-brand";
 import { LoginFooter } from "./login/login-footer";
 import { LoginForm } from "./login/login-form";
 import { LoginSocialButtons } from "./login/login-social-buttons";
+import { RegisterScreen } from "./register";
 
-export type Screen = "bookings" | "login";
+export type Screen = "bookings" | "login" | "register";
 
 type LoginScreenProps = {
 	onNavigate?: (screen: Screen) => void;
 };
 
 export function LoginScreen({ onNavigate }: LoginScreenProps) {
+	const [currentScreen, setCurrentScreen] = useState<Screen>("login");
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [showPassword, setShowPassword] = useState(false);
 	const [isLoading, setIsLoading] = useState(false);
 	const [rememberMe, setRememberMe] = useState(false);
+
+	if (currentScreen === "register") {
+		return (
+			<RegisterScreen
+				onBackToLogin={() => setCurrentScreen("login")}
+				onRegistered={() => setCurrentScreen("login")}
+			/>
+		);
+	}
 
 	const handleLogin = (event: React.FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
@@ -31,7 +42,7 @@ export function LoginScreen({ onNavigate }: LoginScreenProps) {
 
 	return (
 		<div
-			className="min-h-screen flex flex-col bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.16),_transparent_30%),linear-gradient(180deg,#0a1628_0%,#080e1a_100%)]"
+			className="min-h-screen flex flex-col bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.16),transparent_30%),linear-gradient(180deg,#0a1628_0%,#080e1a_100%)]"
 			style={{ fontFamily: "var(--font-geist-sans), sans-serif" }}
 		>
 			<div className="flex-1 flex flex-col justify-center px-6 py-12">
@@ -61,7 +72,7 @@ export function LoginScreen({ onNavigate }: LoginScreenProps) {
 
 					<LoginSocialButtons />
 
-					<LoginFooter />
+					<LoginFooter onRegisterClick={() => setCurrentScreen("register")} />
 				</div>
 			</div>
 
