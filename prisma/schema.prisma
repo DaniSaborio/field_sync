@@ -8,7 +8,7 @@ datasource db {
 
 // ============================================================
 // FIELD SYNC - COMPLETE DATABASE SCHEMA
-// Version: 3.0 (Tenant verification + image uploads added)
+// Version: 3.2 (Team logo as emoji, Rate.id_court renamed, Court location simplified)
 // ============================================================
 
 enum TenantStatus {
@@ -44,25 +44,15 @@ model Court {
   name            String     @db.VarChar(100)
   is_active       Boolean    @default(true)
 
+  // --- Ubicación (verificación anti-troll y navegación del cliente) ---
+  address         String?    @db.VarChar(255)
+  maps_url        String?    @db.VarChar(500)
+
   reservations    Reservation[]
   matches         Match[]
   rates           Rate[]
 
-  // --- Fotos de la cancha (verificación anti-troll y UX) ---
-  images          CourtImage[]
-
   @@map("court")
-}
-
-model CourtImage {
-  id_court_image  Int        @id @default(autoincrement())
-  id_court        Int
-  court           Court      @relation(fields: [id_court], references: [id_court], onDelete: Cascade, onUpdate: Cascade)
-  url             String     @db.VarChar(500)
-  is_primary      Boolean    @default(false)
-  uploaded_at     DateTime   @default(now()) @db.Timestamp()
-
-  @@map("court_image")
 }
 
 model User {
@@ -89,9 +79,9 @@ model User {
 model Rate {
   id_rate         Int        @id @default(autoincrement())
   id_tenant       Int
-  id_field        Int?       // NULL = applies to all courts of the tenant
+  id_court        Int?       // NULL = applies to all courts of the tenant
   tenant          Tenant     @relation(fields: [id_tenant], references: [id_tenant], onDelete: Restrict, onUpdate: Cascade)
-  field           Court?     @relation(fields: [id_field], references: [id_court], onDelete: SetNull, onUpdate: Cascade)
+  court           Court?     @relation(fields: [id_court], references: [id_court], onDelete: SetNull, onUpdate: Cascade)
   name            String     @db.VarChar(100)
   schedule_type   String     @db.VarChar(100)
   amount          Decimal    @db.Decimal(10,2)
@@ -128,8 +118,8 @@ model Team {
   user            User       @relation(fields: [id_user], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
   name            String     @db.VarChar(100)
 
-  // --- Logo del equipo ---
-  logo_url        String?    @db.VarChar(500)
+  // --- Logo del equipo (emoji, no imagen) ---
+  logo_emoji      String?    @db.VarChar(10)
 
   team_tournaments TeamTournament[]
   team_players    TeamPlayer[]
