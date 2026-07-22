@@ -7,7 +7,8 @@ datasource db {
 }
 
 // ============================================================
-// SPRINT 1 TABLES
+// FIELD SYNC - COMPLETE DATABASE SCHEMA
+// Version: 2.0 (All relations properly defined)
 // ============================================================
 
 model Tenant {
@@ -33,33 +34,35 @@ model Court {
   
   reservations    Reservation[]
   matches         Match[]
+  rates           Rate[]     
   
-  @@unique([name])
-  @@map("cancha")
+  @@map("court")
 }
 
 model User {
-  id_user         Int        @id @default(autoincrement())
-  id_tenant       Int?
-  tenant          Tenant?    @relation(fields: [id_tenant], references: [id_tenant], onDelete: Restrict, onUpdate: Cascade)
-  email           String     @unique @db.VarChar(150)
-  password        String     @db.VarChar(255)
-  role            String     @db.VarChar(50)
-  notifications_enabled Boolean @default(true)
-  created_at      DateTime   @default(now()) @db.Timestamp()
+  id_user             Int        @id @default(autoincrement())
+  id_tenant           Int?
+  tenant              Tenant?    @relation(fields: [id_tenant], references: [id_tenant], onDelete: Restrict, onUpdate: Cascade)
+  email               String     @unique @db.VarChar(150)
+  password            String     @db.VarChar(255)
+  role                String     @db.VarChar(50)
+  notifications_enabled Boolean  @default(true)
+  created_at          DateTime   @default(now()) @db.Timestamp()
   
-  reservations    Reservation[]
-  notifications   Notification[]
-  teams           Team[]
-  player_profile  PlayerProfile?
+  reservations        Reservation[]
+  notifications       Notification[]
+  teams               Team[]
+  player_profile      PlayerProfile?
   
-  @@map("usuario")
+  @@map("user")
 }
 
 model Rate {
   id_rate         Int        @id @default(autoincrement())
   id_tenant       Int
+  id_field        Int?       // NULL = applies to all courts of the tenant
   tenant          Tenant     @relation(fields: [id_tenant], references: [id_tenant], onDelete: Restrict, onUpdate: Cascade)
+  field           Court?     @relation(fields: [id_field], references: [id_court], onDelete: SetNull, onUpdate: Cascade)
   name            String     @db.VarChar(100)
   schedule_type   String     @db.VarChar(100)
   amount          Decimal    @db.Decimal(10,2)
@@ -67,7 +70,7 @@ model Rate {
   
   reservations    Reservation[]
   
-  @@map("tarifa")
+  @@map("rate")
 }
 
 model Tournament {
@@ -78,14 +81,14 @@ model Tournament {
   min_teams       Int
   start_date      DateTime   @db.Date()
   end_date        DateTime   @db.Date()
-  start_time      DateTime   @db.Time()  
-  end_time        DateTime   @db.Time()  
+  start_time      DateTime
+  end_time        DateTime
   
   team_tournaments TeamTournament[]
   matches         Match[]
   standings       Standing[]
   
-  @@map("torneo")
+  @@map("tournament")
 }
 
 model Team {
@@ -102,7 +105,7 @@ model Team {
   away_matches    Match[]    @relation("away_team")
   standings       Standing[]
   
-  @@map("equipo")
+  @@map("team")
 }
 
 model PlayerProfile {
@@ -116,7 +119,7 @@ model PlayerProfile {
   matches         Match[]
   match_stats     MatchStat[]
   
-  @@map("perfil_jugador")
+  @@map("player_profile")
 }
 
 model Notification {
@@ -129,7 +132,7 @@ model Notification {
   is_read         Boolean    @default(false)
   position        Int?
   
-  @@map("notificaciones")
+  @@map("notification")
 }
 
 model Reservation {
@@ -141,14 +144,14 @@ model Reservation {
   id_rate         Int?
   rate            Rate?      @relation(fields: [id_rate], references: [id_rate], onDelete: SetNull, onUpdate: Cascade)
   date            DateTime   @db.Date()
-  start_time      DateTime   @db.Time()  
-  end_time        DateTime   @db.Time()  
+  start_time      DateTime
+  end_time        DateTime
   status          String     @default("confirmed") @db.VarChar(30)
   created_at      DateTime   @default(now()) @db.Timestamp()
   
   payments        Payment[]
   
-  @@map("reserva")
+  @@map("reservation")
 }
 
 model Payment {
@@ -159,7 +162,7 @@ model Payment {
   payment_method  String     @db.VarChar(60)
   payment_date    DateTime   @default(now()) @db.Timestamp()
   
-  @@map("pago")
+  @@map("payment")
 }
 
 model TeamTournament {
@@ -170,7 +173,7 @@ model TeamTournament {
   tournament      Tournament @relation(fields: [id_tournament], references: [id_tournament], onDelete: Restrict, onUpdate: Cascade)
   registration_date DateTime @default(now()) @db.Timestamp()
   
-  @@map("equipo_torneo")
+  @@map("team_tournament")
 }
 
 model TeamPlayer {
@@ -182,7 +185,7 @@ model TeamPlayer {
   join_date       DateTime   @default(now()) @db.Timestamp()
   is_active       Boolean    @default(true)
   
-  @@map("jugador_equipo")
+  @@map("team_player")
 }
 
 model Match {
@@ -207,7 +210,7 @@ model Match {
   
   match_stats     MatchStat[]
   
-  @@map("partido")
+  @@map("match")
 }
 
 model MatchStat {
@@ -221,7 +224,7 @@ model MatchStat {
   yellow_cards    Int        @default(0)
   red_cards       Int        @default(0)
   
-  @@map("estadistica_partido")
+  @@map("match_stat")
 }
 
 model Standing {
@@ -235,5 +238,5 @@ model Standing {
   goal_difference Int        @default(0)
   position        Int        @default(0)
   
-  @@map("tabla_posiciones")
+  @@map("standing")
 }
