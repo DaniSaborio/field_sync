@@ -21,7 +21,7 @@ export function RegisterScreen({ onBackToLogin, onRegistered }: RegisterScreenPr
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleRegister = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleRegister = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     if (!acceptTerms || password !== confirmPassword) {
@@ -30,11 +30,27 @@ export function RegisterScreen({ onBackToLogin, onRegistered }: RegisterScreenPr
 
     setIsLoading(true);
 
-    window.setTimeout(() => {
-      setIsLoading(false);
+    try {
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fullName, email, password }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'No se pudo crear la cuenta');
+      }
+
       onRegistered?.();
       onBackToLogin();
-    }, 1500);
+    } catch (error) {
+      console.error('Register failed:', error);
+      window.alert(error instanceof Error ? error.message : 'No se pudo crear la cuenta');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

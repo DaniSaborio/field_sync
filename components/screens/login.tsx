@@ -20,6 +20,7 @@ export function LoginScreen({ onNavigate }: LoginScreenProps) {
 	const [showPassword, setShowPassword] = useState(false);
 	const [isLoading, setIsLoading] = useState(false);
 	const [rememberMe, setRememberMe] = useState(false);
+	const [errorMessage, setErrorMessage] = useState("");
 
 	if (currentScreen === "register") {
 		return (
@@ -30,14 +31,31 @@ export function LoginScreen({ onNavigate }: LoginScreenProps) {
 		);
 	}
 
-	const handleLogin = (event: React.FormEvent<HTMLFormElement>) => {
+	const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		setIsLoading(true);
+		setErrorMessage("");
 
-		window.setTimeout(() => {
+		try {
+			const response = await fetch('/api/auth/login', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ email, password }),
+			});
+
+			const data = await response.json();
+
+			if (!response.ok) {
+				throw new Error(data.error || 'No se pudo iniciar sesión');
+			}
+
+			onNavigate?.('bookings');
+		} catch (error) {
+			console.error('Login failed:', error);
+			setErrorMessage(error instanceof Error ? error.message : 'No se pudo iniciar sesión');
+		} finally {
 			setIsLoading(false);
-			onNavigate?.("bookings");
-		}, 1500);
+		}
 	};
 
 	return (
@@ -49,6 +67,12 @@ export function LoginScreen({ onNavigate }: LoginScreenProps) {
 				<LoginBrand />
 
 				<div className="mx-auto w-full max-w-md">
+					{errorMessage ? (
+						<div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+							{errorMessage}
+						</div>
+					) : null}
+
 					<LoginForm
 						email={email}
 						password={password}
