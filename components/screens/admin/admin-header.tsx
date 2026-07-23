@@ -1,10 +1,10 @@
 import { LayoutDashboard, LogOut } from "lucide-react";
- 
+
 type AdminHeaderProps = {
   tenantName: string;
   onLogout: () => void;
 };
- 
+
 export function AdminHeader({ tenantName, onLogout }: AdminHeaderProps) {
   return (
     <header className="mb-8 flex items-start justify-between gap-4">
@@ -18,7 +18,7 @@ export function AdminHeader({ tenantName, onLogout }: AdminHeaderProps) {
           Resumen de reservas, canchas y actividad reciente.
         </p>
       </div>
- 
+
       <button
         type="button"
         onClick={onLogout}

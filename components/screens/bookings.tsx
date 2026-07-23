@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import { AvailabilityFilters } from "./bookings/availability-filters";
 import { BookingsHeader } from "./bookings/bookings-header";
 import { FieldPreviewCard, type FieldPreview } from "./bookings/field-preview-card";
+// Pantalla del panel de administrador
+import { AdminScreen } from "./admin";
 
 type BookingsScreenProps = {
   onLogout: () => void;
@@ -75,6 +77,8 @@ export function BookingsScreen({ onLogout }: BookingsScreenProps) {
   const [date, setDate] = useState("");
   const [timeSlot, setTimeSlot] = useState("all");
   const [surface, setSurface] = useState("all");
+  // Controla si se muestra el panel de administrador
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
 
   const visibleFields = useMemo(() => {
     return mockFields
@@ -93,13 +97,34 @@ export function BookingsScreen({ onLogout }: BookingsScreenProps) {
       });
   }, [surface, timeSlot]);
 
+// Mostrar el panel de administrador
+if (showAdminPanel) {
+  return (
+    <AdminScreen
+      onLogout={() => setShowAdminPanel(false)}
+    />
+  );
+}
+
   return (
     <div
       className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.12),transparent_30%),linear-gradient(180deg,#0a1628_0%,#080e1a_100%)] px-4 py-8 sm:px-6 lg:px-8"
       style={{ fontFamily: "var(--font-geist-sans), sans-serif" }}
     >
       <div className="mx-auto w-full max-w-6xl">
-        <BookingsHeader onLogout={onLogout} />
+        <BookingsHeader
+       // Cierra la sesión y regresa al login
+          onLogout={onLogout}
+
+       // Abre el panel de administrador
+           onAdmin={() => setShowAdminPanel(true)}
+
+      // Por ahora siempre se muestra.
+     //Más adelante dependerá del rol del usuario.
+         showAdminButton={true}
+      />
+      
+        
 
         <AvailabilityFilters
           date={date}
