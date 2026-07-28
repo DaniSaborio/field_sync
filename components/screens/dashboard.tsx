@@ -18,7 +18,9 @@ export type AppUser = {
   fullName: string;
   email: string;
   role: string;
-  tenantId: number;
+  // Los jugadores y administradores de plataforma no pertenecen a un tenant fijo;
+  // solo los usuarios con rol "tenant" tienen id_user propio como identificador de cancha.
+  tenantId?: number | null;
   notificationsEnabled: boolean;
 };
 
@@ -71,12 +73,15 @@ type Standing = {
 
 type TournamentCard = {
   id: number;
+  createdByUserId: number;
   name: string;
   format: string;
   teamsRequired: number;
   startDate: string;
   endDate: string;
   status: "draft" | "active";
+  requestStatus: "pendiente" | "aprobado" | "rechazado";
+  rejectionReason: string | null;
   teamIds: number[];
   fixture: TournamentMatch[];
   standings: Standing[];
@@ -461,6 +466,7 @@ function TournamentsPanel({ user }: { user: AppUser }) {
       body: JSON.stringify({
         action: "create",
         tenantId: user.tenantId,
+        userId: user.id,
         ...createForm,
         teamsRequired: Number(createForm.teamsRequired),
         format: createForm.format,
@@ -468,10 +474,27 @@ function TournamentsPanel({ user }: { user: AppUser }) {
     });
     const payload = await readJson<ApiResponse<{ tournament?: TournamentCard }>>(response);
     if (!response.ok) {
-      setMessage(payload.error || "No pudimos crear el torneo");
+      setMessage(payload.error || "No pudimos solicitar el torneo");
       return;
     }
-    setMessage("Torneo creado y listo para inscribir equipos.");
+    setMessage("Solicitud enviada. Queda pendiente de aprobación del dueño de la cancha.");
+    await loadTournaments();
+  }
+
+  async function reviewTournament(tournamentId: number, decision: "aprobado" | "rechazado") {
+    setMessage("");
+    const reason = decision === "rechazado" ? window.prompt("Motivo del rechazo (opcional):") ?? undefined : undefined;
+    const response = await fetch("/api/tournaments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "review", tournamentId, reviewerUserId: user.id, decision, reason }),
+    });
+    const payload = await readJson<ApiResponse<{ tournament?: TournamentCard }>>(response);
+    if (!response.ok) {
+      setMessage(payload.error || "No pudimos revisar la solicitud");
+      return;
+    }
+    setMessage(decision === "aprobado" ? "Torneo aprobado." : "Torneo rechazado.");
     await loadTournaments();
   }
 
@@ -502,7 +525,7 @@ function TournamentsPanel({ user }: { user: AppUser }) {
       setMessage(payload.error || "No pudimos iniciar el torneo");
       return;
     }
-    setMessage("Fixture generado y notificaciones enviadas.");
+    setMessage("Calendario de partidos generado y notificaciones enviadas.");
     await loadTournaments();
   }
 
@@ -532,11 +555,15 @@ function TournamentsPanel({ user }: { user: AppUser }) {
     [data.tournaments, selectedTournamentId]
   );
 
+  function teamName(teamId: number) {
+    return teams.find((team) => team.id === teamId)?.name ?? `Equipo #${teamId}`;
+  }
+
   return (
     <div className="space-y-5">
       <PanelShell
         title="Gestión de torneos"
-        description="Crea torneos, inscribe equipos, inicia fixtures y actualiza la tabla de posiciones."
+        description="Solicita torneos, inscribe equipos, inicia el calendario de partidos y actualiza la tabla de posiciones."
         action={<StatusPill>{data.tournaments.length} torneos</StatusPill>}
       >
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
@@ -546,7 +573,7 @@ function TournamentsPanel({ user }: { user: AppUser }) {
             <option value="eliminatorio">Eliminatorio</option>
           </select>
           <input type="number" min={2} className="h-11 rounded-xl border border-white/10 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" value={createForm.teamsRequired} onChange={(event) => setCreateForm((current) => ({ ...current, teamsRequired: Number(event.target.value) }))} />
-          <button type="button" onClick={createTournament} className="rounded-xl bg-emerald-400 px-4 py-2 text-sm font-bold text-slate-950 transition hover:brightness-110">Crear torneo</button>
+          <button type="button" onClick={createTournament} className="rounded-xl bg-slate-700 px-4 py-2 text-sm font-bold text-slate-300 transition hover:brightness-110" title="Queda pendiente de aprobación del dueño de la cancha">Solicitar torneo</button>
         </div>
         <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <input type="date" className="h-11 rounded-xl border border-white/10 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" value={createForm.startDate} onChange={(event) => setCreateForm((current) => ({ ...current, startDate: event.target.value }))} />
@@ -555,13 +582,21 @@ function TournamentsPanel({ user }: { user: AppUser }) {
             <option value="">Selecciona un torneo</option>
             {data.tournaments.map((tournament) => <option key={tournament.id} value={tournament.id}>{tournament.name}</option>)}
           </select>
-          <button type="button" onClick={() => selectedTournamentId ? startTournament(selectedTournamentId) : null} className="rounded-xl border border-white/10 bg-slate-900/80 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-emerald-400/40">Iniciar torneo</button>
+          <button
+            type="button"
+            disabled={!currentTournament || currentTournament.requestStatus !== "aprobado"}
+            onClick={() => selectedTournamentId ? startTournament(selectedTournamentId) : null}
+            className="rounded-xl border border-white/10 bg-slate-900/80 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-emerald-400/40 disabled:cursor-not-allowed disabled:opacity-40"
+            title={currentTournament && currentTournament.requestStatus !== "aprobado" ? "El torneo debe ser aprobado por el dueño de la cancha antes de iniciarse" : undefined}
+          >
+            Iniciar torneo
+          </button>
         </div>
         {message ? <p className="mt-4 rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 text-sm text-slate-200">{message}</p> : null}
       </PanelShell>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <PanelShell title="Torneos existentes" description="Inscribe equipos y revisa el fixture generado.">
+        <PanelShell title="Torneos existentes" description="Inscribe equipos y revisa el calendario de partidos generado.">
           <div className="space-y-4">
             {data.tournaments.map((tournament) => (
               <article key={tournament.id} className="rounded-2xl border border-white/10 bg-slate-900/80 p-4">
@@ -570,14 +605,35 @@ function TournamentsPanel({ user }: { user: AppUser }) {
                     <h3 className="text-lg font-bold text-slate-100">{tournament.name}</h3>
                     <p className="text-sm text-slate-400">{tournament.format} · {tournament.startDate} a {tournament.endDate}</p>
                   </div>
-                  <Badge>{tournament.status}</Badge>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge>{tournament.status}</Badge>
+                    <Badge>{tournament.requestStatus}</Badge>
+                  </div>
                 </div>
+                {tournament.requestStatus === "pendiente" && user.role === "administrador" ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button type="button" onClick={() => reviewTournament(tournament.id, "aprobado")} className="rounded-xl bg-emerald-400 px-3 py-1.5 text-xs font-bold text-slate-950 transition hover:brightness-110">Aprobar</button>
+                    <button type="button" onClick={() => reviewTournament(tournament.id, "rechazado")} className="rounded-xl border border-red-400/40 bg-red-400/10 px-3 py-1.5 text-xs font-bold text-red-300 transition hover:bg-red-400/20">Rechazar</button>
+                  </div>
+                ) : null}
+                {tournament.requestStatus === "pendiente" && user.role !== "administrador" ? (
+                  <p className="mt-3 text-xs text-amber-300">Pendiente de aprobación del dueño de la cancha.</p>
+                ) : null}
+                {tournament.requestStatus === "rechazado" ? (
+                  <p className="mt-3 text-xs text-red-300">Solicitud rechazada: {tournament.rejectionReason}</p>
+                ) : null}
                 <div className="mt-3 flex flex-wrap gap-2">
                   {teams.map((team) => (
-                    <button key={team.id} type="button" onClick={() => {
-                      setSelectedTournamentId(tournament.id);
-                      void enrollTeam(team.id);
-                    }} className="rounded-full border border-white/10 bg-slate-950 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:border-emerald-400/40">
+                    <button
+                      key={team.id}
+                      type="button"
+                      disabled={tournament.requestStatus !== "aprobado"}
+                      onClick={() => {
+                        setSelectedTournamentId(tournament.id);
+                        void enrollTeam(team.id);
+                      }}
+                      className="rounded-full border border-white/10 bg-slate-950 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:border-emerald-400/40 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
                       + {team.name}
                     </button>
                   ))}
@@ -588,7 +644,7 @@ function TournamentsPanel({ user }: { user: AppUser }) {
           </div>
         </PanelShell>
 
-        <PanelShell title="Fixture y tabla" description="Resultados inmediatos con actualización de posiciones y auditoría.">
+        <PanelShell title="Calendario de partidos y tabla" description="Resultados inmediatos con actualización de posiciones y auditoría.">
           {currentTournament ? (
             <div className="space-y-4">
               <div className="grid gap-3 md:grid-cols-2">
@@ -611,7 +667,7 @@ function TournamentsPanel({ user }: { user: AppUser }) {
                       <p className="font-semibold text-slate-100">Partido #{match.id}</p>
                       <Badge>{match.status}</Badge>
                     </div>
-                    <p className="mt-1">{match.homeTeamId} vs {match.awayTeamId} · {formatDateTime(match.scheduledAt)}</p>
+                    <p className="mt-1">{teamName(match.homeTeamId)} vs {teamName(match.awayTeamId)} · {formatDateTime(match.scheduledAt)}</p>
                     <p className="mt-2">Resultado: {match.homeGoals ?? "-"} / {match.awayGoals ?? "-"}</p>
                     {match.auditTrail.length > 0 ? <p className="mt-2 text-xs text-slate-500">{match.auditTrail[match.auditTrail.length - 1]}</p> : null}
                   </div>
@@ -631,7 +687,7 @@ function TournamentsPanel({ user }: { user: AppUser }) {
                   <tbody>
                     {currentTournament.standings.map((standing) => (
                       <tr key={`${standing.teamId}-${standing.tournamentId}`} className="border-t border-white/5 bg-slate-950/70">
-                        <td className="px-3 py-2">Equipo #{standing.teamId}</td>
+                        <td className="px-3 py-2">{teamName(standing.teamId)}</td>
                         <td className="px-3 py-2">{standing.played}</td>
                         <td className="px-3 py-2">{standing.points}</td>
                         <td className="px-3 py-2">{standing.goalsFor - standing.goalsAgainst}</td>
@@ -642,7 +698,7 @@ function TournamentsPanel({ user }: { user: AppUser }) {
               </div>
             </div>
           ) : (
-            <p className="text-sm text-slate-400">Crea o selecciona un torneo para ver el fixture.</p>
+            <p className="text-sm text-slate-400">Crea o selecciona un torneo para ver el calendario de partidos.</p>
           )}
         </PanelShell>
       </div>
@@ -867,7 +923,8 @@ export function DashboardScreen({ user, onLogout }: DashboardScreenProps) {
             <StatusPill>Sesión activa</StatusPill>
             <h1 className="mt-3 text-3xl font-black tracking-tight text-slate-50">Hola, {user.fullName}</h1>
             <p className="mt-2 text-sm text-slate-400">
-              {humanRole(user.role)} · {user.email} · tenant #{user.tenantId}
+              {humanRole(user.role)} · {user.email}
+              {user.tenantId ? ` · tenant #${user.tenantId}` : ""}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">

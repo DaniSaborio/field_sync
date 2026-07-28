@@ -12,63 +12,69 @@ const prisma = new PrismaClient({ adapter });
 async function main() {
   console.log("Seeding FieldSync database...");
 
-  const hashedAdmin = await bcrypt.hash("Admin1234!", 10);
-  const hashedRecepcion = await bcrypt.hash("Recepcion1234!", 10);
+  const rolesData = [
+    { name: "admin_plataforma", label: "Administrador de plataforma" },
+    { name: "tenant", label: "Tenant (Dueño de cancha)" },
+    { name: "jugador", label: "Jugador" },
+  ];
+  const roles: Record<string, Awaited<ReturnType<typeof prisma.role.upsert>>> = {};
+  for (const r of rolesData) {
+    roles[r.name] = await prisma.role.upsert({
+      where: { name: r.name },
+      update: { label: r.label },
+      create: { name: r.name, label: r.label },
+    });
+  }
+  console.log(`Roles creados: ${Object.keys(roles).length}`);
+
+  const hashedPlataforma = await bcrypt.hash("Plataforma1234!", 10);
+  const hashedTenant = await bcrypt.hash("Tenant1234!", 10);
   const hashedCapitan = await bcrypt.hash("Capitan1234!", 10);
   const hashedJugador = await bcrypt.hash("Jugador1234!", 10);
 
-  const tenant = await prisma.tenant.upsert({
-    where: { id_tenant: 1 },
-    update: { name: "FieldSync Demo" },
+  // Administrador de plataforma: no pertenece a ningún tenant, verifica canchas nuevas (HU-11)
+  const plataforma = await prisma.user.upsert({
+    where: { email: "plataforma@fieldsync.test" },
+    update: {},
     create: {
-      id_tenant: 1,
-      name: "FieldSync Demo",
+      full_name: "Admin Plataforma",
+      email: "plataforma@fieldsync.test",
+      password: hashedPlataforma,
+      id_role: roles.admin_plataforma.id_role,
+      notifications_enabled: true,
+    },
+  });
+  console.log(`Administrador de plataforma: ${plataforma.email}`);
+
+
+  const tenantOwner = await prisma.user.upsert({
+    where: { email: "tenant@fieldsync.test" },
+    update: {},
+    create: {
+      full_name: "Dueño Cancha Demo",
+      email: "tenant@fieldsync.test",
+      password: hashedTenant,
+      id_role: roles.tenant.id_role,
       status: "verificado",
-    },
-  });
-  console.log(`Tenant: ${tenant.name}`);
-
-  const admin = await prisma.user.upsert({
-    where: { email: "admin@fieldsync.test" },
-    update: {},
-    create: {
-      full_name: "Admin FieldSync",
-      email: "admin@fieldsync.test",
-      password: hashedAdmin,
-      role: "administrador",
-      id_tenant: tenant.id_tenant,
+      id_verifier: plataforma.id_user,
+      verified_at: new Date("2026-05-01T12:00:00.000Z"),
       notifications_enabled: true,
     },
   });
-  console.log(`Admin: ${admin.email}`);
+  console.log(`Tenant: ${tenantOwner.email}`);
 
-  const recepcionista = await prisma.user.upsert({
-    where: { email: "recepcion@fieldsync.test" },
-    update: {},
-    create: {
-      full_name: "Recepcion Principal",
-      email: "recepcion@fieldsync.test",
-      password: hashedRecepcion,
-      role: "recepcionista",
-      id_tenant: tenant.id_tenant,
-      notifications_enabled: true,
-    },
-  });
-  console.log(`Recepcionista: ${recepcionista.email}`);
-
-  const organizador = await prisma.user.upsert({
+  const capitan = await prisma.user.upsert({
     where: { email: "capitan@fieldsync.test" },
     update: {},
     create: {
       full_name: "Capitan Deportivo",
       email: "capitan@fieldsync.test",
       password: hashedCapitan,
-      role: "organizador",
-      id_tenant: tenant.id_tenant,
+      id_role: roles.jugador.id_role,
       notifications_enabled: true,
     },
   });
-  console.log(`Organizador: ${organizador.email}`);
+  console.log(`Jugador (capitán): ${capitan.email}`);
 
   const jugador = await prisma.user.upsert({
     where: { email: "jugador@fieldsync.test" },
@@ -77,17 +83,15 @@ async function main() {
       full_name: "Jugador Demo",
       email: "jugador@fieldsync.test",
       password: hashedJugador,
-      role: "jugador",
-      id_tenant: tenant.id_tenant,
+      id_role: roles.jugador.id_role,
       notifications_enabled: true,
     },
   });
   console.log(`Jugador: ${jugador.email}`);
 
+  // Solo los usuarios con rol "jugador" mantienen Perfil Global (HU-06)
   const profiles = [
-    { id_user: admin.id_user, goals: 0, assists: 0, matches_played: 0 },
-    { id_user: recepcionista.id_user, goals: 0, assists: 0, matches_played: 0 },
-    { id_user: organizador.id_user, goals: 3, assists: 5, matches_played: 6 },
+    { id_user: capitan.id_user, goals: 3, assists: 5, matches_played: 6 },
     { id_user: jugador.id_user, goals: 4, assists: 2, matches_played: 5 },
   ];
   for (const p of profiles) {
@@ -148,7 +152,7 @@ async function main() {
       where: { id_court: i + 1 },
       update: {},
       create: {
-        id_tenant: tenant.id_tenant,
+        id_tenant: tenantOwner.id_user,
         name: c.name,
         address: c.address,
         surface: c.surface,
@@ -163,9 +167,9 @@ async function main() {
   console.log(`Canchas creadas: ${courts.length}`);
 
   const teamsData = [
-    { name: "Tigres del Barrio", captain: organizador, players: [organizador, jugador], logo: "TIG" },
-    { name: "Norte FC", captain: organizador, players: [organizador], logo: "NFC" },
-    { name: "Arena United", captain: organizador, players: [organizador, jugador], logo: "AUN" },
+    { name: "Tigres del Barrio", captain: capitan, players: [capitan, jugador], logo: "TIG" },
+    { name: "Norte FC", captain: capitan, players: [capitan], logo: "NFC" },
+    { name: "Arena United", captain: capitan, players: [capitan, jugador], logo: "AUN" },
   ];
   const teams = [];
   for (let i = 0; i < teamsData.length; i += 1) {
@@ -174,7 +178,7 @@ async function main() {
       where: { id_team: i + 1 },
       update: {},
       create: {
-        id_tenant: tenant.id_tenant,
+        id_tenant: tenantOwner.id_user,
         id_user: t.captain.id_user,
         name: t.name,
         logo_emoji: t.logo,
@@ -204,16 +208,20 @@ async function main() {
     where: { id_tournament: 1 },
     update: {},
     create: {
-      id_tenant: tenant.id_tenant,
+      id_tenant: tenantOwner.id_user,
       name: "Torneo Apertura 2026",
       min_teams: 3,
       start_date: new Date("2026-07-25"),
       end_date: new Date("2026-08-15"),
       start_time: new Date("2026-07-25T19:00:00.000Z"),
       end_time: new Date("2026-08-15T22:00:00.000Z"),
+      // Solicitud ya revisada y aprobada por el tenant en el ambiente demo
+      status: "aprobado",
+      id_approved_by: tenantOwner.id_user,
+      approved_at: new Date("2026-07-20T12:00:00.000Z"),
     },
   });
-  console.log(`Torneo creado: ${tournament.name}`);
+  console.log(`Torneo creado: ${tournament.name} (${tournament.status})`);
 
   for (let i = 0; i < teams.length; i += 1) {
     await prisma.teamTournament.upsert({
@@ -279,7 +287,8 @@ async function main() {
   const notificationsData = [
     { user: jugador, type: "reservation", message: "Reserva confirmada para Complejo Norte - Cancha A a las 18:00." },
     { user: jugador, type: "reservation", message: "Reserva confirmada para Arena Indoor Center a las 15:00." },
-    { user: organizador, type: "tournament", message: "Fixture disponible para el Torneo Apertura 2026." },
+    { user: capitan, type: "tournament", message: "Fixture disponible para el Torneo Apertura 2026." },
+    { user: tenantOwner, type: "tournament", message: "Nueva solicitud de torneo pendiente de aprobación." },
   ];
   for (let i = 0; i < notificationsData.length; i += 1) {
     const n = notificationsData[i];
@@ -299,10 +308,10 @@ async function main() {
 
   console.log("\nSeed completado!");
   console.log("Credenciales de prueba:");
-  console.log("  admin@fieldsync.test / Admin1234!");
-  console.log("  recepcion@fieldsync.test / Recepcion1234!");
-  console.log("  capitan@fieldsync.test / Capitan1234!");
-  console.log("  jugador@fieldsync.test / Jugador1234!");
+  console.log("  plataforma@fieldsync.test / Plataforma1234!  (admin_plataforma)");
+  console.log("  tenant@fieldsync.test     / Tenant1234!       (tenant - dueño de cancha)");
+  console.log("  capitan@fieldsync.test    / Capitan1234!      (jugador)");
+  console.log("  jugador@fieldsync.test    / Jugador1234!      (jugador)");
 }
 
 main()

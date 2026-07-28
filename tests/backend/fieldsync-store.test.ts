@@ -9,6 +9,7 @@ import {
   registerUser,
   reserveCourt,
   resetFieldSyncStore,
+  reviewTournamentRequest,
   sendConvocation,
   startTournament,
   toggleNotifications,
@@ -90,6 +91,7 @@ describe("FieldSync store", () => {
   it("creates a tournament, generates fixtures and updates standings", () => {
     const tournament = createTournament({
       tenantId: 1,
+      createdByUserId: 3,
       name: "Copa de Verano",
       format: "todos-contra-todos",
       teamsRequired: 3,
@@ -101,6 +103,18 @@ describe("FieldSync store", () => {
     if (!tournament.ok) {
       throw new Error(tournament.error);
     }
+
+    expect(tournament.tournament.requestStatus).toBe("pendiente");
+
+    const blockedEnroll = enrollTeamToTournament({ tournamentId: tournament.tournament.id, teamId: 1 });
+    expect(blockedEnroll.ok).toBe(false);
+
+    const review = reviewTournamentRequest({
+      tournamentId: tournament.tournament.id,
+      reviewerUserId: 1,
+      decision: "aprobado",
+    });
+    expect(review.ok).toBe(true);
 
     enrollTeamToTournament({ tournamentId: tournament.tournament.id, teamId: 1 });
     enrollTeamToTournament({ tournamentId: tournament.tournament.id, teamId: 2 });

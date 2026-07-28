@@ -8,7 +8,8 @@ datasource db {
 
 // ============================================================
 // FIELD SYNC - COMPLETE DATABASE SCHEMA
-// Version: 3.2 (Team logo as emoji, Rate.id_court renamed, Court location simplified)
+// Version: 4.0 (Tenant table removed — tenants are Users with role "tenant";
+//               Role normalized into its own table; Tournament requests need approval)
 // ============================================================
 
 enum TenantStatus {
@@ -17,36 +18,74 @@ enum TenantStatus {
   suspendido
 }
 
-model Tenant {
-  id_tenant       Int          @id @default(autoincrement())
-  name            String       @db.VarChar(100)
-  created_at      DateTime     @default(now()) @db.Timestamp()
+enum TournamentStatus {
+  pendiente
+  aprobado
+  rechazado
+}
 
-  // --- Control de onboarding / anti-fraude ---
-  status          TenantStatus @default(pendiente)
-  id_verifier     Int?
-  verifier        User?        @relation("TenantVerifier", fields: [id_verifier], references: [id_user], onDelete: SetNull, onUpdate: Cascade)
-  verified_at     DateTime?    @db.Timestamp()
+model Role {
+  id_role   Int     @id @default(autoincrement())
+  name      String  @unique @db.VarChar(50) // admin_plataforma | tenant | jugador
+  label     String  @db.VarChar(80)         // "Administrador de plataforma", "Tenant (Dueño de cancha)", "Jugador"
 
-  courts          Court[]
-  users           User[]
-  rates           Rate[]
-  tournaments     Tournament[]
-  teams           Team[]
+  users     User[]
 
-  @@map("tenant")
+  @@map("role")
+}
+
+model User {
+  id_user             Int        @id @default(autoincrement())
+  full_name           String     @db.VarChar(150)
+  email               String     @unique @db.VarChar(150)
+  password            String     @db.VarChar(255)
+  id_role             Int
+  role                Role       @relation(fields: [id_role], references: [id_role], onDelete: Restrict, onUpdate: Cascade)
+  notifications_enabled Boolean  @default(true)
+  created_at          DateTime   @default(now()) @db.Timestamp()
+
+  // --- Onboarding / anti-fraude: solo aplica a usuarios con rol "tenant" (HU-11) ---
+  status              TenantStatus @default(pendiente)
+  id_verifier         Int?
+  verifier            User?      @relation("TenantVerifier", fields: [id_verifier], references: [id_user], onDelete: SetNull, onUpdate: Cascade)
+  verified_at         DateTime?  @db.Timestamp()
+  verified_tenants    User[]     @relation("TenantVerifier")
+
+  reservations        Reservation[]
+  notifications       Notification[]
+  player_profile      PlayerProfile?
+
+  // --- Equipos que este usuario capitanea ---
+  captained_teams     Team[]       @relation("TeamCaptain")
+
+  // --- Recursos que pertenecen a este usuario cuando su rol es "tenant" (dueño de cancha) ---
+  owned_courts        Court[]
+  owned_rates         Rate[]
+  owned_tournaments   Tournament[] @relation("TournamentTenant")
+  owned_teams         Team[]       @relation("TeamTenant")
+
+  // --- Torneos que este usuario (tenant) ha aprobado/rechazado ---
+  approved_tournaments Tournament[] @relation("TournamentApprover")
+
+  @@map("user")
 }
 
 model Court {
   id_court        Int        @id @default(autoincrement())
   id_tenant       Int
-  tenant          Tenant     @relation(fields: [id_tenant], references: [id_tenant], onDelete: Restrict, onUpdate: Cascade)
+  tenant          User       @relation(fields: [id_tenant], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
   name            String     @db.VarChar(100)
   is_active       Boolean    @default(true)
 
   // --- Ubicación (verificación anti-troll y navegación del cliente) ---
   address         String?    @db.VarChar(255)
   maps_url        String?    @db.VarChar(500)
+
+  // --- Datos de presentación para el listado de reservas (HU-01) ---
+  surface         String?    @db.VarChar(20)
+  capacity        String?    @db.VarChar(20)
+  price_per_hour  Decimal?   @db.Decimal(10,2)
+  rating          Decimal?   @db.Decimal(3,2)
 
   reservations    Reservation[]
   matches         Match[]
@@ -55,32 +94,11 @@ model Court {
   @@map("court")
 }
 
-model User {
-  id_user             Int        @id @default(autoincrement())
-  id_tenant           Int?
-  tenant              Tenant?    @relation(fields: [id_tenant], references: [id_tenant], onDelete: Restrict, onUpdate: Cascade)
-  email               String     @unique @db.VarChar(150)
-  password            String     @db.VarChar(255)
-  role                String     @db.VarChar(50)
-  notifications_enabled Boolean  @default(true)
-  created_at          DateTime   @default(now()) @db.Timestamp()
-
-  reservations        Reservation[]
-  notifications       Notification[]
-  teams               Team[]
-  player_profile      PlayerProfile?
-
-  // --- Tenants que este usuario (super-admin) ha verificado ---
-  verified_tenants     Tenant[]   @relation("TenantVerifier")
-
-  @@map("user")
-}
-
 model Rate {
   id_rate         Int        @id @default(autoincrement())
   id_tenant       Int
   id_court        Int?       // NULL = applies to all courts of the tenant
-  tenant          Tenant     @relation(fields: [id_tenant], references: [id_tenant], onDelete: Restrict, onUpdate: Cascade)
+  tenant          User       @relation(fields: [id_tenant], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
   court           Court?     @relation(fields: [id_court], references: [id_court], onDelete: SetNull, onUpdate: Cascade)
   name            String     @db.VarChar(100)
   schedule_type   String     @db.VarChar(100)
@@ -95,13 +113,20 @@ model Rate {
 model Tournament {
   id_tournament   Int        @id @default(autoincrement())
   id_tenant       Int
-  tenant          Tenant     @relation(fields: [id_tenant], references: [id_tenant], onDelete: Restrict, onUpdate: Cascade)
+  tenant          User       @relation("TournamentTenant", fields: [id_tenant], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
   name            String     @db.VarChar(100)
   min_teams       Int
   start_date      DateTime   @db.Date()
   end_date        DateTime   @db.Date()
   start_time      DateTime
   end_time        DateTime
+
+  // --- Solicitud de torneo sujeta a aprobación de horarios por el tenant ---
+  status          TournamentStatus @default(pendiente)
+  id_approved_by  Int?
+  approved_by     User?      @relation("TournamentApprover", fields: [id_approved_by], references: [id_user], onDelete: SetNull, onUpdate: Cascade)
+  approved_at     DateTime?  @db.Timestamp()
+  rejection_reason String?  @db.VarChar(255)
 
   team_tournaments TeamTournament[]
   matches         Match[]
@@ -113,9 +138,9 @@ model Tournament {
 model Team {
   id_team         Int        @id @default(autoincrement())
   id_tenant       Int
-  tenant          Tenant     @relation(fields: [id_tenant], references: [id_tenant], onDelete: Restrict, onUpdate: Cascade)
+  tenant          User       @relation("TeamTenant", fields: [id_tenant], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
   id_user         Int
-  user            User       @relation(fields: [id_user], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
+  user            User       @relation("TeamCaptain", fields: [id_user], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
   name            String     @db.VarChar(100)
 
   // --- Logo del equipo (emoji, no imagen) ---
@@ -139,6 +164,11 @@ model PlayerProfile {
 
   // --- Foto de perfil del jugador ---
   avatar_url      String?    @db.VarChar(500)
+
+  // --- Estadísticas acumuladas del Perfil Global (HU-06) ---
+  goals           Int        @default(0)
+  assists         Int        @default(0)
+  matches_played  Int        @default(0)
 
   team_players    TeamPlayer[]
   matches         Match[]

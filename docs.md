@@ -235,7 +235,7 @@ Una historia de usuario se considera **completamente terminada** cuando cumple c
 - **Hashing de contraseñas**: bcrypt (rondas de costo = 10)
 
 ### Decisiones de seguridad
-- **Registro de usuarios (HU-03)**: El formulario de registro **no permite seleccionar el rol**. Todas las cuentas nuevas reciben el rol `jugador` por defecto en el endpoint `/api/auth/register`, independientemente de cualquier dato que envíe el cliente. Roles superiores (`administrador`, `recepcionista`, `organizador`) solo pueden asignarse desde la BD o por un admin.
+- **Registro de usuarios (HU-03)**: El formulario de registro **no permite seleccionar el rol**. Todas las cuentas nuevas reciben el rol `jugador` por defecto en el endpoint `/api/auth/register` (resuelto contra la tabla `Role`), independientemente de cualquier dato que envíe el cliente. Los roles `tenant` y `admin_plataforma` solo pueden asignarse desde la BD o por un admin.
 - Las contraseñas nunca se almacenan en texto plano; siempre se les aplica hash antes de persistir.
 - El endpoint de login aplica `bcrypt.compare()` para verificar credenciales contra la BD.
 
@@ -272,14 +272,174 @@ npm run db:seed       # Puebla la BD con datos demo
 npm run db:setup      # generate + push + seed (todo en uno)
 ```
 
+### Modelo de roles y tenants (actualizado)
+- Se eliminó el modelo `Tenant` como tabla independiente. Un "tenant" (dueño de cancha) ahora **es** un `User` con `role.name = "tenant"`; sus canchas, tarifas, equipos y torneos referencian `id_tenant` apuntando directamente a `User.id_user`.
+- `User.role` dejó de ser un `String` libre: ahora es una relación (`id_role`) hacia la tabla `Role`, con exactamente 3 valores posibles: `admin_plataforma`, `tenant`, `jugador`.
+- `User` ya no tiene `id_tenant`: los jugadores y el administrador de plataforma no están atados a una única cancha (pueden reservar en cualquier tenant). La verificación de onboarding (HU-11: `status`, `id_verifier`, `verified_at`) vive ahora en `User`, aplicable solo a cuentas con rol `tenant`.
+- Los torneos (`Tournament`) incluyen `status` (`pendiente` / `aprobado` / `rechazado`), `id_approved_by`, `approved_at` y `rejection_reason`: quedan como solicitud hasta que el tenant dueño de la cancha los aprueba.
+
 ### Credenciales de prueba
-| Email                        | Contraseña       | Rol            |
-|------------------------------|------------------|----------------|
-| admin@fieldsync.test         | Admin1234!       | administrador  |
-| recepcion@fieldsync.test     | Recepcion1234!   | recepcionista  |
-| capitan@fieldsync.test       | Capitan1234!     | organizador    |
-| jugador@fieldsync.test       | Jugador1234!     | jugador        |
+| Email                        | Contraseña       | Rol                                |
+|------------------------------|------------------|-------------------------------------|
+| plataforma@fieldsync.test    | Plataforma1234!  | admin_plataforma                    |
+| tenant@fieldsync.test        | Tenant1234!      | tenant (dueño de cancha)             |
+| capitan@fieldsync.test       | Capitan1234!     | jugador (capitán de equipo)          |
+| jugador@fieldsync.test       | Jugador1234!     | jugador                             |
 
 ### Notas adicionales
 - Todos los endpoints cuentan con un fallback `in-memory store` (`lib/fieldsync-store.ts`) para mantener compatibilidad si la BD temporalmente no está disponible. Esto preserva tests unitarios y modo offline básico.
 - El cliente Prisma singleton se exporta desde `lib/prisma.ts` y reutiliza la instancia global en desarrollo para evitar conexiones excesivas durante HMR.
+
+---
+
+## 🧭 Cambios Propuestos — Refinamiento post Sprint 2
+
+Los siguientes 4 cambios fueron solicitados tras la demo del Sprint 2. Aquí se documenta el estado actual, el problema detectado y el cambio técnico propuesto para cada uno.
+
+> **Actualización:** la capa de base de datos de los cambios #2 y #3 ya se implementó (ver "Modelo de roles y tenants (actualizado)" más arriba): existe la tabla `Role` con los 3 roles definidos, `Tournament.status` con el flujo pendiente/aprobado/rechazado, y además se eliminó por completo la tabla `Tenant` (un tenant ahora es un `User` con rol `tenant`). Lo que **falta** de cada cambio se detalla en su propia sección: para #2 falta la UI de aprobar/rechazar y las acciones `approve`/`reject` en el endpoint; para #3 falta actualizar `lib/fieldsync-store.ts` (el fallback en memoria sigue usando el modelo de 4 roles viejo). Los cambios #1 y #4 siguen sin implementar.
+
+### 1. Botón "Crear torneo" debe verse deshabilitado/apagado
+
+**Estado actual:**
+En [dashboard.tsx:549](components/screens/dashboard.tsx#L549), el botón "Crear torneo" usa `bg-emerald-400` (el mismo verde de acento de acciones primarias habilitadas), lo que comunica visualmente que la creación es una acción directa e inmediata.
+
+**Problema:**
+Con el cambio #2 (torneos como solicitudes), crear un torneo ya no es una acción que se ejecuta al instante — queda sujeta a aprobación del tenant. Mantener el botón con el estilo de "acción primaria disponible" confunde al usuario, que espera que el torneo quede activo de inmediato.
+
+**Cambio propuesto:**
+- Cambiar la clase del botón de `bg-emerald-400 text-slate-950` a un tono apagado, por ejemplo `bg-slate-700 text-slate-300 cursor-not-allowed` (o mantener habilitado el click pero con estética "secundaria" en vez de acento).
+- Es una señal visual, no un bloqueo funcional: el botón sigue siendo clickeable (el usuario sí puede *solicitar* un torneo), pero su apariencia ya no debe leerse como "esto se activa al instante".
+- Añadir un texto de ayuda debajo del formulario, ej. *"El torneo quedará pendiente de aprobación de horarios por parte de la cancha."*
+- Opcional: cambiar el label del botón de "Crear torneo" a "Solicitar torneo" para reforzar la semántica del cambio #2.
+
+**Archivos afectados:** `components/screens/dashboard.tsx` (sección `TournamentsPanel`).
+
+---
+
+### 2. Los torneos deben ser solicitudes sujetas a aprobación del tenant
+
+**Estado actual:**
+`POST /api/tournaments` con `action: "create"` ([route.ts:19-34](app/api/tournaments/route.ts#L19-L34)) crea el torneo de forma inmediata y lo deja disponible para inscripción de equipos. No existe ningún estado intermedio ni actor que apruebe fechas/horarios.
+
+**Problema:**
+Un torneo reserva horarios y canchas del tenant (dueño de la cancha). Si cualquier organizador puede crear un torneo y que quede activo al instante, se pueden generar conflictos de horario con reservas existentes o con la disponibilidad real de la cancha, sin que el tenant tenga oportunidad de validarlo.
+
+**Cambio propuesto:**
+- **Modelo de datos:** agregar un campo de estado al modelo `Tournament` en `prisma/schema.prisma`, por ejemplo:
+  ```prisma
+  enum TournamentStatus {
+    pendiente
+    aprobado
+    rechazado
+  }
+
+  model Tournament {
+    ...
+    status          TournamentStatus @default(pendiente)
+    id_approved_by  Int?
+    approved_by     User?      @relation("TournamentApprover", fields: [id_approved_by], references: [id_user], onDelete: SetNull)
+    approved_at     DateTime?  @db.Timestamp()
+    rejection_reason String?  @db.VarChar(255)
+  }
+  ```
+- **Flujo:**
+  1. Un organizador/jugador con permisos "solicita" un torneo (nombre, formato, equipos requeridos, fechas y horario deseado). Se crea con `status = pendiente`.
+  2. El tenant (dueño de la cancha) recibe una notificación de "nueva solicitud de torneo" y ve la solicitud en un panel nuevo (ej. pestaña "Solicitudes" dentro del dashboard del tenant).
+  3. El tenant puede **aprobar** (verifica que el horario/fechas no chocan con reservas o tarifas existentes) o **rechazar** (con motivo) la solicitud.
+  4. Solo cuando `status = aprobado` se habilita la inscripción de equipos (`action: "enroll"`) y el inicio del torneo (`action: "start"`). Si está `pendiente` o `rechazado`, esas acciones deben responder `409`.
+- **API:** agregar dos nuevas acciones a `POST /api/tournaments`: `"approve"` y `"reject"` (solo accesibles por el rol tenant del tenant dueño del torneo), y filtrar `GET /api/tournaments` para que el listado muestre el estado de cada torneo.
+- **UI:** en `TournamentsPanel` ([dashboard.tsx](components/screens/dashboard.tsx)), mostrar el estado (`pendiente` / `aprobado` / `rechazado`) como badge en cada tarjeta de torneo, y añadir botones de "Aprobar" / "Rechazar" visibles solo para el rol tenant.
+- **Notificaciones:** al crear la solicitud, notificar al tenant; al aprobar/rechazar, notificar al organizador que la solicitó (reutiliza el cambio #4).
+
+**Archivos afectados:** `prisma/schema.prisma`, `lib/fieldsync-store.ts` (`createTournament`, `enrollTeamToTournament`, `startTournament`), `app/api/tournaments/route.ts`, `components/screens/dashboard.tsx`.
+
+---
+
+### 3. La tabla de roles debe normalizarse en base de datos
+
+**Estado actual:**
+En `prisma/schema.prisma`, `User.role` es un campo de texto libre (`String @db.VarChar(50)`), sin restricción a nivel de BD. Los valores usados hoy en el seed y en el código (`humanRole` en [dashboard.tsx:155](components/screens/dashboard.tsx#L155)) son: `administrador`, `recepcionista`, `organizador`, `jugador`.
+
+**Problema:**
+- No hay integridad referencial: cualquier string puede guardarse como rol (typos, valores inconsistentes entre entornos).
+- El modelo de roles actual (4 roles ligados al tenant) no refleja la jerarquía real del negocio multi-tenant: se necesita distinguir entre quien administra **toda la plataforma** (super-admin, ve todos los tenants) y quien administra **una cancha específica** (tenant/dueño de cancha).
+- El negocio pidió reducir/consolidar a 3 roles: **Administrador de plataforma**, **Tenant (Dueño de cancha)** y **Jugador**.
+
+**Cambio propuesto:**
+- **Nueva tabla `Role`:**
+  ```prisma
+  model Role {
+    id_role   Int    @id @default(autoincrement())
+    name      String @unique @db.VarChar(50) // admin_plataforma | tenant | jugador
+    label     String @db.VarChar(80)         // "Administrador de plataforma", etc.
+
+    users     User[]
+
+    @@map("role")
+  }
+  ```
+- **Modificar `User`:** reemplazar `role String` por una relación:
+  ```prisma
+  model User {
+    ...
+    id_role   Int
+    role      Role   @relation(fields: [id_role], references: [id_role], onDelete: Restrict, onUpdate: Cascade)
+  }
+  ```
+- **Semántica de los 3 roles:**
+  - `admin_plataforma`: no pertenece a ningún tenant específico (`id_tenant = null`), gestiona el alta/verificación de tenants (HU-11) y tiene visibilidad global.
+  - `tenant`: dueño/administrador de una cancha (`id_tenant` obligatorio), gestiona torneos (aprobación, cambio #2), tarifas, reservas y reportes de su propio tenant.
+  - `jugador`: usuario final, reserva canchas, se inscribe en equipos/torneos y mantiene su Perfil Global (HU-06).
+- **Migración de datos:** los roles actuales `recepcionista` y `organizador` deben remapearse. Recomendación: `administrador` → `tenant` (es quien opera la cancha), `recepcionista` → `tenant` o un permiso secundario dentro del mismo tenant (a definir con negocio), `organizador`/capitán de equipo → sigue siendo `jugador` con el atributo de "capitán" a nivel de `Team.id_user`, no a nivel de rol global.
+- **Impacto en código:** actualizar `prisma/seed.ts` (crear las 3 filas de `Role` primero, referenciarlas por `id_role`), `humanRole()` en `dashboard.tsx`, el endpoint `/api/auth/register` (que asigna `jugador` por defecto) y cualquier verificación de permisos (`role === "..."`) para comparar contra el `name` de la tabla `Role` o usar el `id_role`.
+- **Nota:** esto es un cambio de esquema con migración de datos (no solo agregar columnas), por lo que conviene escribir un script de migración explícito en vez de `db:push --force-reset` para no perder datos ya cargados en ambientes compartidos.
+
+**Archivos afectados:** `prisma/schema.prisma`, `prisma/seed.ts`, `lib/fieldsync-store.ts`, `app/api/auth/register/route.ts`, `app/api/auth/login/route.ts`, `components/screens/dashboard.tsx`.
+
+---
+
+### 4. Notificaciones push funcionales
+
+**Estado actual:**
+El modelo `Notification` y el endpoint `GET /api/notifications` ([route.ts](app/api/notifications/route.ts)) solo **persisten y listan** notificaciones en base de datos; el usuario las ve al consultar la pestaña correspondiente dentro de la app (polling manual, no push real). No existe Service Worker, no hay registro de `PushSubscription`, y aunque el stack tecnológico documentado menciona Firebase Cloud Messaging (FCM), no está integrado en el código — es una notificación "in-app", no una notificación push del sistema operativo/navegador.
+
+**Problema:**
+Las historias HU-01, HU-07 y HU-10 prometen notificaciones push reales (confirmaciones de reserva, convocatorias, resultados) que lleguen "sin necesidad de ingresar a la aplicación". Hoy eso no ocurre: si el usuario no tiene la app abierta, no se entera del evento.
+
+**Cambio propuesto:**
+- **PWA base:** registrar un Service Worker (`public/sw.js`) desde `app/layout.tsx`, requisito para poder recibir push en background.
+- **Suscripción del navegador:** al iniciar sesión (o desde el perfil), solicitar permiso de notificaciones (`Notification.requestPermission()`) y generar una `PushSubscription` vía `pushManager.subscribe()` con la clave pública VAPID.
+- **Nueva tabla `PushSubscription`:**
+  ```prisma
+  model PushSubscription {
+    id_subscription Int      @id @default(autoincrement())
+    id_user         Int
+    user            User     @relation(fields: [id_user], references: [id_user], onDelete: Cascade, onUpdate: Cascade)
+    endpoint        String   @db.VarChar(500)
+    p256dh          String   @db.VarChar(255)
+    auth            String   @db.VarChar(255)
+    created_at      DateTime @default(now()) @db.Timestamp()
+
+    @@unique([endpoint])
+    @@map("push_subscription")
+  }
+  ```
+- **Envío real de push:** usar `web-push` (VAPID, sin costo, no requiere cuenta de Firebase) o Firebase Cloud Messaging como indica el stack. En el servidor, cada vez que hoy se llama a `createNotification(...)` en `lib/fieldsync-store.ts` (reservas, cancelaciones, convocatorias, resultados de partido, aprobación/rechazo de torneo del cambio #2), además de insertar la fila en `Notification`, disparar el envío push a todas las `PushSubscription` del usuario destino.
+- **Respeto a la preferencia del usuario:** ya existe `User.notifications_enabled` — el envío push debe verificar ese flag antes de despachar (cumple el criterio de aceptación de HU-10 sobre desactivar notificaciones).
+- **Manejo de fallos:** si el `endpoint` de una suscripción responde `410 Gone` (navegador desinstaló/expiró la suscripción), eliminar esa fila de `PushSubscription` automáticamente.
+- **Frontend:** manejar el evento `push` en el Service Worker para mostrar la notificación del sistema (`self.registration.showNotification(...)`) y el evento `notificationclick` para enfocar/abrir la app en la sección relevante.
+
+**Archivos afectados:** `app/layout.tsx`, nuevo `public/sw.js`, `prisma/schema.prisma`, `lib/fieldsync-store.ts` (función central `createNotification`), nuevo helper (ej. `lib/push.ts`) para el envío VAPID/FCM, variables de entorno nuevas (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`).
+
+---
+
+### Resumen de impacto
+
+| # | Cambio | Tipo | Requiere migración de BD | Estado |
+|---|--------|------|---------------------------|--------|
+| 1 | Botón "Crear torneo" apagado | UI | No | Pendiente |
+| 2 | Torneos como solicitudes aprobables | Producto + Backend | Sí (`Tournament.status`) | ✅ Schema listo · falta UI y acciones `approve`/`reject` |
+| 3 | Tabla de roles normalizada | Backend + BD | Sí (tabla `Role`, `Tenant` eliminada) | ✅ Schema, seed y rutas de auth listos · falta actualizar `fieldsync-store.ts` |
+| 4 | Notificaciones push funcionales | Backend + Frontend + Infra | Sí (tabla `PushSubscription`) | Pendiente (requiere Service Worker + VAPID/FCM) |
+
+El cambio #3 era prerrequisito conceptual del #2 (la aprobación de torneos la hace el rol `tenant`), por eso se implementó primero a nivel de base de datos.

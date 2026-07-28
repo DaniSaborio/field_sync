@@ -36,18 +36,19 @@ export async function POST(req: NextRequest) {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const tenant = await prisma.tenant.findFirst();
-    const tenantId = tenant?.id_tenant ?? 1;
+    // El registro público siempre asigna el rol "jugador", sin importar lo que envíe el cliente.
+    // Los jugadores no pertenecen a un tenant fijo: pueden reservar en cualquier cancha.
+    const jugadorRole = await prisma.role.findUniqueOrThrow({ where: { name: "jugador" } });
 
     const createdUser = await prisma.user.create({
       data: {
         full_name: fullName,
         email,
         password: hashedPassword,
-        role: "jugador",
-        id_tenant: tenantId,
+        id_role: jugadorRole.id_role,
         notifications_enabled: true,
       },
+      include: { role: true },
     });
 
     await prisma.playerProfile.create({
@@ -68,8 +69,7 @@ export async function POST(req: NextRequest) {
           id: createdUser.id_user,
           email: createdUser.email,
           fullName: createdUser.full_name,
-          role: createdUser.role,
-          tenantId: createdUser.id_tenant,
+          role: createdUser.role.name,
           notificationsEnabled: createdUser.notifications_enabled,
         },
       },
