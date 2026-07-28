@@ -1,56 +1,27 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AvailabilityFilters } from "./bookings/availability-filters";
 import { BookingsHeader } from "./bookings/bookings-header";
 import { FieldPreviewCard, type FieldPreview } from "./bookings/field-preview-card";
 
 type BookingsScreenProps = {
   onLogout: () => void;
+  userId?: number;
 };
 
-const mockFields: FieldPreview[] = [
-  {
-    id: "field-1",
-    name: "Complejo Norte - Cancha A",
-    location: "Av. Central 1420",
-    surface: "synthetic",
-    capacity: "5 vs 5",
-    pricePerHour: 55,
-    availableSlots: ["08:00", "09:30", "18:00", "20:00"],
-    rating: 4.8,
-  },
-  {
-    id: "field-2",
-    name: "Estadio Barrial - Cancha 2",
-    location: "Calle 25 #430",
-    surface: "natural",
-    capacity: "7 vs 7",
-    pricePerHour: 68,
-    availableSlots: ["11:00", "13:00", "17:30"],
-    rating: 4.6,
-  },
-  {
-    id: "field-3",
-    name: "Arena Indoor Center",
-    location: "Boulevard Sur 990",
-    surface: "indoor",
-    capacity: "6 vs 6",
-    pricePerHour: 72,
-    availableSlots: ["09:00", "15:00", "19:00", "21:00"],
-    rating: 4.9,
-  },
-  {
-    id: "field-4",
-    name: "Canchas del Lago - C",
-    location: "Ruta 3 km 5",
-    surface: "synthetic",
-    capacity: "8 vs 8",
-    pricePerHour: 64,
-    availableSlots: ["10:30", "12:00", "16:30"],
-    rating: 4.5,
-  },
-];
+type CourtApiResponse = {
+  courts: Array<{
+    id: number;
+    name: string;
+    location: string;
+    surface: "synthetic" | "natural" | "indoor";
+    capacity: string;
+    pricePerHour: number;
+    rating: number;
+    availableSlots: string[];
+  }>;
+};
 
 function slotMatchesTimeRange(slot: string, timeSlot: string) {
   if (timeSlot === "all") {
@@ -71,13 +42,61 @@ function slotMatchesTimeRange(slot: string, timeSlot: string) {
   return hour >= 18;
 }
 
-export function BookingsScreen({ onLogout }: BookingsScreenProps) {
+export function BookingsScreen({ onLogout, userId }: BookingsScreenProps) {
   const [date, setDate] = useState("");
   const [timeSlot, setTimeSlot] = useState("all");
   const [surface, setSurface] = useState("all");
+  const [courts, setCourts] = useState<FieldPreview[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const loadCourts = useCallback(async () => {
+    setIsLoading(true);
+    setErrorMessage("");
+    try {
+      const params = new URLSearchParams();
+      if (date) params.set("date", date);
+      if (timeSlot) params.set("timeSlot", timeSlot);
+      if (surface) params.set("surface", surface);
+      if (userId) params.set("userId", String(userId));
+
+      const response = await fetch(`/api/courts?${params.toString()}`);
+      if (!response.ok) {
+        throw new Error("No pudimos cargar las canchas");
+      }
+      const payload = (await response.json()) as CourtApiResponse;
+      const mapped: FieldPreview[] = payload.courts.map((court) => ({
+        id: `field-${court.id}`,
+        name: court.name,
+        location: court.location,
+        surface: court.surface,
+        capacity: court.capacity,
+        pricePerHour: court.pricePerHour,
+        rating: court.rating,
+        availableSlots: court.availableSlots,
+      }));
+      setCourts(mapped);
+    } catch (error) {
+      console.error("Failed to load courts:", error);
+      setErrorMessage(error instanceof Error ? error.message : "No pudimos cargar las canchas");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [date, timeSlot, surface, userId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (cancelled) return;
+      await loadCourts();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadCourts]);
 
   const visibleFields = useMemo(() => {
-    return mockFields
+    return courts
       .map((field) => ({
         ...field,
         availableSlots: field.availableSlots.filter((slot) =>
@@ -91,7 +110,7 @@ export function BookingsScreen({ onLogout }: BookingsScreenProps) {
 
         return field.availableSlots.length > 0;
       });
-  }, [surface, timeSlot]);
+  }, [courts, surface, timeSlot]);
 
   return (
     <div
@@ -112,14 +131,25 @@ export function BookingsScreen({ onLogout }: BookingsScreenProps) {
 
         <div className="mb-4 flex items-center justify-between gap-3">
           <p className="text-sm font-medium text-slate-300">
-            {visibleFields.length} canchas disponibles
+            {isLoading ? "Cargando canchas..." : `${visibleFields.length} canchas disponibles`}
           </p>
           <p className="text-xs text-slate-500">
             {date ? `Fecha seleccionada: ${date}` : "Sin fecha seleccionada"}
           </p>
         </div>
 
-        {visibleFields.length > 0 ? (
+        {errorMessage ? (
+          <div className="mb-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">
+            {errorMessage}
+          </div>
+        ) : null}
+
+        {isLoading ? (
+          <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-8 text-center">
+            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-transparent border-t-emerald-400" />
+            <p className="text-sm text-slate-400">Consultando disponibilidad...</p>
+          </div>
+        ) : visibleFields.length > 0 ? (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {visibleFields.map((field) => (
               <FieldPreviewCard key={field.id} field={field} />

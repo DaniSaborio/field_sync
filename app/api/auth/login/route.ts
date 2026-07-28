@@ -1,62 +1,74 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { NextRequest, NextResponse } from "next/server";
+import bcrypt from "bcrypt";
+import { prisma } from "@/lib/prisma";
+import { loginUser as loginUserMemory } from "@/lib/fieldsync-store";
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
-    const password = typeof body?.password === 'string' ? body.password : '';
+    const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
+    const password = typeof body?.password === "string" ? body.password : "";
 
     if (!email || !password) {
       return NextResponse.json(
-        { error: 'Email and password are required' },
+        { error: "Email y contraseña son obligatorios" },
         { status: 400 }
       );
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email },
-      select: {
-        id_user: true,
-        email: true,
-        password: true,
-        role: true,
-      },
-    });
-
-    if (!user) {
-      return NextResponse.json(
-        { error: 'No encontramos una cuenta con ese correo. Revisa tus datos o regístrate.' },
-        { status: 401 }
-      );
+    let dbUser = null;
+    try {
+      dbUser = await prisma.user.findUnique({
+        where: { email },
+      });
+    } catch (dbError) {
+      console.warn("Prisma login query failed, falling back to in-memory store:", dbError);
     }
 
-    const isPasswordValid = user.password === password;
+    if (dbUser) {
+      const passwordMatch = await bcrypt.compare(password, dbUser.password);
+      if (!passwordMatch) {
+        return NextResponse.json(
+          { error: "No encontramos una cuenta con ese correo o la contraseña es incorrecta." },
+          { status: 401 }
+        );
+      }
 
-    if (!isPasswordValid) {
       return NextResponse.json(
-        { error: 'La contraseña es incorrecta. Intenta de nuevo.' },
-        { status: 401 }
-      );
-    }
-
-    return NextResponse.json(
-      {
-        message: 'Login successful',
-        user: {
-          id: user.id_user,
-          email: user.email,
-          role: user.role,
+        {
+          message: "Login successful",
+          user: {
+            id: dbUser.id_user,
+            email: dbUser.email,
+            fullName: dbUser.full_name,
+            role: dbUser.role,
+            tenantId: dbUser.id_tenant,
+            notificationsEnabled: dbUser.notifications_enabled,
+          },
         },
-      },
-      { status: 200 }
-    );
-  } 
-  
-  catch (error) {
-    console.error('Login error:', error);
+        { status: 200 }
+      );
+    }
+
+    const memoryUser = loginUserMemory(email, password);
+    if (memoryUser) {
+      return NextResponse.json(
+        {
+          message: "Login successful",
+          user: memoryUser,
+        },
+        { status: 200 }
+      );
+    }
+
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: "No encontramos una cuenta con ese correo o la contraseña es incorrecta." },
+      { status: 401 }
+    );
+  } catch (error) {
+    console.error("Login error:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
       { status: 500 }
     );
   }

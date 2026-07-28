@@ -1,21 +1,31 @@
 "use client";
 
 import { useState } from "react";
-import { BookingsScreen } from "@/components/screens/bookings";
+import { DashboardScreen, type AppUser } from "@/components/screens/dashboard";
 import { LoginScreen } from "@/components/screens/login";
 
 export default function Home() {
-  const [screen, setScreen] = useState<"login" | "bookings">("login");
+  const [screen, setScreen] = useState<"login" | "dashboard">("login");
+  const [user, setUser] = useState<AppUser | null>(null);
 
-  if (screen === "bookings") {
-    return <BookingsScreen onLogout={() => setScreen("login")} />;
+  if (screen === "dashboard" && user) {
+    return (
+      <DashboardScreen
+        user={user}
+        onLogout={() => {
+          setUser(null);
+          setScreen("login");
+        }}
+      />
+    );
   }
 
   return (
     <LoginScreen
-      onNavigate={(nextScreen) => {
-        if (nextScreen === "bookings") {
-          setScreen("bookings");
+      onNavigate={(nextScreen, nextUser) => {
+        if (nextScreen === "dashboard" && nextUser) {
+          setUser(nextUser);
+          setScreen("dashboard");
         }
       }}
     />

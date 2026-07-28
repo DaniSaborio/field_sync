@@ -1,5 +1,6 @@
 "use client";
 
+import type { FormEvent } from "react";
 import { useState } from "react";
 import { LoginBrand } from "./login/login-brand";
 import { LoginSocialButtons } from "./login/login-social-buttons";
@@ -21,7 +22,7 @@ export function RegisterScreen({ onBackToLogin, onRegistered }: RegisterScreenPr
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleRegister = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleRegister = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     if (!acceptTerms || password !== confirmPassword) {

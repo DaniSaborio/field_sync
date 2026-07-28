@@ -1,16 +1,18 @@
 "use client";
 
+import type { FormEvent } from "react";
 import { useState } from "react";
 import { LoginBrand } from "./login/login-brand";
 import { LoginFooter } from "./login/login-footer";
 import { LoginForm } from "./login/login-form";
 import { LoginSocialButtons } from "./login/login-social-buttons";
 import { RegisterScreen } from "./register";
+import type { AppUser } from "./dashboard";
 
-export type Screen = "bookings" | "login" | "register";
+export type Screen = "dashboard" | "login" | "register";
 
 type LoginScreenProps = {
-	onNavigate?: (screen: Screen) => void;
+	onNavigate?: (screen: Screen, user?: AppUser) => void;
 };
 
 export function LoginScreen({ onNavigate }: LoginScreenProps) {
@@ -31,7 +33,7 @@ export function LoginScreen({ onNavigate }: LoginScreenProps) {
 		);
 	}
 
-	const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
+	const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		setIsLoading(true);
 		setErrorMessage("");
@@ -49,7 +51,7 @@ export function LoginScreen({ onNavigate }: LoginScreenProps) {
 				throw new Error(data.error || 'No se pudo iniciar sesión');
 			}
 
-			onNavigate?.('bookings');
+			onNavigate?.('dashboard', data.user);
 		} catch (error) {
 			console.error('Login failed:', error);
 			setErrorMessage(error instanceof Error ? error.message : 'No se pudo iniciar sesión');

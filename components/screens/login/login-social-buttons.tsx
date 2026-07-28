@@ -1,4 +1,3 @@
-import react from "react";
 import { FaGoogle } from "react-icons/fa";
 import { FaApple } from "react-icons/fa";
 export function LoginSocialButtons() {
