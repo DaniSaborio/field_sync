@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   BadgeCheck,
+  Bell,
   CalendarDays,
   Clock3,
   LogOut,
@@ -129,11 +130,21 @@ type ApiResponse<T> = {
   error?: string;
 } & T;
 
+type NotificationCard = {
+  id: number;
+  userId: number;
+  type: string;
+  message: string;
+  createdAt: string;
+  read: boolean;
+};
+
 const tabButtons = [
   { id: "reservas", label: "Reservas", icon: MapPin },
   { id: "torneos", label: "Torneos", icon: Trophy },
   { id: "perfil", label: "Perfil", icon: Settings2 },
   { id: "plantilla", label: "Plantilla", icon: Users },
+  { id: "notificaciones", label: "Notificaciones", icon: Bell },
 ] as const;
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -142,6 +153,14 @@ async function readJson<T>(response: Response): Promise<T> {
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function nextHourDateTimeLocal() {
+  const date = new Date();
+  date.setMinutes(0, 0, 0);
+  date.setHours(date.getHours() + 1);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function formatDateTime(value: string) {
@@ -206,6 +225,7 @@ function BookingPanel({ user }: { user: AppUser }) {
   const [date, setDate] = useState(todayIso());
   const [timeSlot, setTimeSlot] = useState("all");
   const [surface, setSurface] = useState("all");
+  const [courtSearch, setCourtSearch] = useState("");
   const [courts, setCourts] = useState<CourtCard[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>("");
@@ -296,6 +316,16 @@ function BookingPanel({ user }: { user: AppUser }) {
 
   const myReservations = useMemo(() => courts.flatMap((court) => court.reservations.map((reservation) => ({ ...reservation, courtName: court.name }))), [courts]);
 
+  const filteredCourts = useMemo(() => {
+    const query = courtSearch.trim().toLowerCase();
+    if (!query) return courts;
+    return courts.filter(
+      (court) =>
+        court.name.toLowerCase().includes(query) ||
+        court.location.toLowerCase().includes(query)
+    );
+  }, [courts, courtSearch]);
+
   return (
     <div className="space-y-5">
       <PanelShell
@@ -308,6 +338,19 @@ function BookingPanel({ user }: { user: AppUser }) {
           </div>
         }
       >
+        <label className="mb-3 block space-y-2">
+          <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+            <MapPin size={13} />
+            Buscar cancha
+          </span>
+          <input
+            type="search"
+            placeholder="Nombre o ubicación..."
+            value={courtSearch}
+            onChange={(event) => setCourtSearch(event.target.value)}
+            className="h-11 w-full rounded-xl border border-white/10 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400"
+          />
+        </label>
         <div className="grid gap-3 md:grid-cols-3">
           <label className="space-y-2">
             <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
@@ -358,7 +401,7 @@ function BookingPanel({ user }: { user: AppUser }) {
       </PanelShell>
 
       <div className="grid gap-4 xl:grid-cols-3">
-        {courts.map((court) => (
+        {filteredCourts.length > 0 ? filteredCourts.map((court) => (
           <article key={court.id} className="rounded-[24px] border border-white/10 bg-slate-950/70 p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -392,7 +435,7 @@ function BookingPanel({ user }: { user: AppUser }) {
               )) : <p className="text-xs text-slate-500">Sin horarios libres</p>}
             </div>
           </article>
-        ))}
+        )) : <p className="text-sm text-slate-400">No encontramos canchas que coincidan con la búsqueda.</p>}
       </div>
 
       <PanelShell title="Mis reservas" description="Las cancelaciones requieren más de 24 horas de anticipación.">
@@ -797,14 +840,45 @@ function ProfilePanel({ user }: { user: AppUser }) {
   );
 }
 
-function TeamsPanel() {
+function TeamsPanel({ user }: { user: AppUser }) {
   const [teams, setTeams] = useState<TeamCard[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState<number | null>(null);
-  const [scheduledAt, setScheduledAt] = useState(todayIso());
+  const [playerSearch, setPlayerSearch] = useState("");
+  const [newTeamName, setNewTeamName] = useState("");
+  const [scheduledAt, setScheduledAt] = useState(nextHourDateTimeLocal());
   const [courtName, setCourtName] = useState("Complejo Norte - Cancha A");
   const [message, setMessage] = useState("");
+
+  const myTeams = useMemo(
+    () => teams.filter((team) => team.playerIds.includes(user.id)),
+    [teams, user.id]
+  );
+
+  const selectedTeam = useMemo(
+    () => myTeams.find((team) => team.id === selectedTeamId) ?? null,
+    [myTeams, selectedTeamId]
+  );
+  const isCaptainOfSelected = selectedTeam?.captainUserId === user.id;
+
+  const filteredUsers = useMemo(() => {
+    const query = playerSearch.trim().toLowerCase();
+    if (!query) return users;
+    return users.filter(
+      (candidate) =>
+        candidate.fullName.toLowerCase().includes(query) ||
+        candidate.email.toLowerCase().includes(query)
+    );
+  }, [users, playerSearch]);
+
+  function captainName(team: TeamCard) {
+    return (
+      team.players.find((player) => player?.id === team.captainUserId)?.fullName ??
+      users.find((candidate) => candidate.id === team.captainUserId)?.fullName ??
+      `Jugador #${team.captainUserId}`
+    );
+  }
 
   async function loadTeams() {
     const response = await fetch("/api/teams");
@@ -827,6 +901,27 @@ function TeamsPanel() {
     void loadTeams().catch((error) => setMessage(error instanceof Error ? error.message : "No pudimos cargar la plantilla"));
   }, []);
 
+  async function createNewTeam() {
+    if (!newTeamName.trim()) return;
+    setMessage("");
+    const response = await fetch("/api/teams", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "create", tenantId: user.tenantId ?? 1, captainUserId: user.id, name: newTeamName }),
+    });
+    const payload = await readJson<ApiResponse<{ team?: TeamCard }>>(response);
+    if (!response.ok) {
+      setMessage(payload.error || "No pudimos crear la plantilla");
+      return;
+    }
+    setMessage("Plantilla creada. Ya eres el capitán.");
+    setNewTeamName("");
+    if (payload.team) {
+      setSelectedTeamId(payload.team.id);
+    }
+    await loadTeams();
+  }
+
   async function changeRoster(action: "add" | "remove") {
     if (!selectedTeamId || !selectedPlayerId) return;
     const response = await fetch("/api/teams", {
@@ -848,7 +943,7 @@ function TeamsPanel() {
     const response = await fetch("/api/teams", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "convocation", teamId: selectedTeamId, scheduledAt, courtName }),
+      body: JSON.stringify({ action: "convocation", teamId: selectedTeamId, userId: user.id, scheduledAt, courtName }),
     });
     const payload = await readJson<ApiResponse<Record<string, never>>>(response);
     if (!response.ok) {
@@ -861,18 +956,34 @@ function TeamsPanel() {
   return (
     <PanelShell title="Plantilla y convocatorias" description="Agrega o elimina jugadores y notifica al equipo de forma inmediata.">
       {message ? <p className="mb-4 rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 text-sm text-slate-200">{message}</p> : null}
+      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-white/10 bg-slate-900/80 p-4">
+        <input
+          value={newTeamName}
+          onChange={(event) => setNewTeamName(event.target.value)}
+          placeholder="Nombre de tu nueva plantilla"
+          className="h-11 flex-1 min-w-50 rounded-xl border border-white/10 bg-slate-950 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400"
+        />
+        <button type="button" onClick={createNewTeam} className="rounded-xl bg-emerald-400 px-4 py-2 text-sm font-bold text-slate-950 transition hover:brightness-110">Crear plantilla</button>
+      </div>
       <div className="grid gap-4 xl:grid-cols-2">
         <div className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/80 p-4">
           <div className="grid gap-3 md:grid-cols-2">
             <select className="h-11 rounded-xl border border-white/10 bg-slate-950 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" value={selectedTeamId ?? ""} onChange={(event) => setSelectedTeamId(event.target.value ? Number(event.target.value) : null)}>
               <option value="">Selecciona un equipo</option>
-              {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+              {myTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
             </select>
-            <select className="h-11 rounded-xl border border-white/10 bg-slate-950 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" value={selectedPlayerId ?? ""} onChange={(event) => setSelectedPlayerId(event.target.value ? Number(event.target.value) : null)}>
-              <option value="">Selecciona un jugador</option>
-              {users.map((user) => <option key={user.id} value={user.id}>{user.fullName} · {humanRole(user.role)}</option>)}
-            </select>
+            <input
+              type="search"
+              placeholder="Buscar jugador por nombre o correo..."
+              value={playerSearch}
+              onChange={(event) => setPlayerSearch(event.target.value)}
+              className="h-11 rounded-xl border border-white/10 bg-slate-950 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400"
+            />
           </div>
+          <select className="h-11 w-full rounded-xl border border-white/10 bg-slate-950 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" value={selectedPlayerId ?? ""} onChange={(event) => setSelectedPlayerId(event.target.value ? Number(event.target.value) : null)}>
+            <option value="">Selecciona un jugador ({filteredUsers.length} resultados)</option>
+            {filteredUsers.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.fullName} · {humanRole(candidate.role)}</option>)}
+          </select>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => changeRoster("add")} className="rounded-xl bg-emerald-400 px-3 py-2 text-xs font-bold text-slate-950">Agregar jugador</button>
             <button type="button" onClick={() => changeRoster("remove")} className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-xs font-bold text-slate-200">Eliminar jugador</button>
@@ -884,29 +995,108 @@ function TeamsPanel() {
             <input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} className="h-11 rounded-xl border border-white/10 bg-slate-950 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" />
             <input value={courtName} onChange={(event) => setCourtName(event.target.value)} className="h-11 rounded-xl border border-white/10 bg-slate-950 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" placeholder="Cancha" />
           </div>
-          <button type="button" onClick={sendConvocation} className="rounded-xl bg-emerald-400 px-3 py-2 text-xs font-bold text-slate-950">Enviar convocatoria</button>
+          <button
+            type="button"
+            onClick={sendConvocation}
+            disabled={!selectedTeam || !isCaptainOfSelected}
+            title={selectedTeam && !isCaptainOfSelected ? "Solo el capitán del equipo puede enviar convocatorias" : undefined}
+            className="rounded-xl bg-emerald-400 px-3 py-2 text-xs font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Enviar convocatoria
+          </button>
+          {selectedTeam && !isCaptainOfSelected ? (
+            <p className="text-xs text-amber-300">Solo el capitán ({captainName(selectedTeam)}) puede enviar convocatorias para este equipo.</p>
+          ) : null}
         </div>
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
-        {teams.map((team) => (
+        {myTeams.length > 0 ? myTeams.map((team) => (
           <article key={team.id} className="rounded-2xl border border-white/10 bg-slate-900/80 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h3 className="text-lg font-bold text-slate-100">{team.name}</h3>
-                <p className="text-sm text-slate-400">Capitán #{team.captainUserId}</p>
+                <p className="text-sm text-slate-400">Capitán: {captainName(team)}</p>
               </div>
               <Badge>{team.playerIds.length} jugadores</Badge>
             </div>
             <ul className="mt-3 space-y-2 text-sm text-slate-300">
               {team.players.map((player) => (
                 <li key={player?.id ?? `${team.id}-empty`} className="rounded-lg bg-slate-950/80 px-3 py-2">
-                  {player ? `${player.fullName} · ${player.email}` : "Vacante"}
+                  {player ? player.fullName : "Vacante"}
                 </li>
               ))}
             </ul>
           </article>
-        ))}
+        )) : <p className="text-sm text-slate-400">No perteneces a ninguna plantilla todavía.</p>}
+      </div>
+    </PanelShell>
+  );
+}
+
+function notificationTypeLabel(type: string) {
+  switch (type) {
+    case "reservation":
+      return "Reserva";
+    case "cancellation":
+      return "Cancelación";
+    case "tournament":
+      return "Torneo";
+    case "convocation":
+      return "Convocatoria";
+    case "match-result":
+      return "Resultado";
+    default:
+      return type;
+  }
+}
+
+function NotificationsPanel({ user }: { user: AppUser }) {
+  const [notifications, setNotifications] = useState<NotificationCard[]>([]);
+  const [message, setMessage] = useState("");
+
+  async function loadNotifications() {
+    const response = await fetch(`/api/notifications?userId=${user.id}`);
+    const payload = await readJson<ApiResponse<{ notifications: NotificationCard[] }>>(response);
+    if (!response.ok) {
+      throw new Error(payload.error || "No pudimos cargar las notificaciones");
+    }
+    setNotifications(
+      [...payload.notifications].sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    );
+  }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadNotifications().catch((error) => setMessage(error instanceof Error ? error.message : "No pudimos cargar las notificaciones"));
+    const interval = setInterval(() => {
+      void loadNotifications().catch(() => undefined);
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [user.id]);
+
+  return (
+    <PanelShell
+      title="Notificaciones"
+      description="Confirmaciones de reserva, resultados de partidos y convocatorias."
+      action={<StatusPill>{notifications.length} en total</StatusPill>}
+    >
+      {message ? <p className="mb-4 rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 text-sm text-slate-200">{message}</p> : null}
+      {!user.notificationsEnabled ? (
+        <p className="mb-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
+          Tienes las notificaciones desactivadas desde tu perfil. Actívalas para recibir nuevos avisos.
+        </p>
+      ) : null}
+      <div className="space-y-3">
+        {notifications.length > 0 ? notifications.map((notification) => (
+          <div key={notification.id} className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-100">{notification.message}</p>
+              <p className="mt-1 text-xs text-slate-500">{formatDateTime(notification.createdAt)}</p>
+            </div>
+            <Badge>{notificationTypeLabel(notification.type)}</Badge>
+          </div>
+        )) : <p className="text-sm text-slate-400">No tienes notificaciones todavía.</p>}
       </div>
     </PanelShell>
   );
@@ -957,7 +1147,8 @@ export function DashboardScreen({ user, onLogout }: DashboardScreenProps) {
         {activeTab === "reservas" ? <BookingPanel user={user} /> : null}
         {activeTab === "torneos" ? <TournamentsPanel user={user} /> : null}
         {activeTab === "perfil" ? <ProfilePanel user={user} /> : null}
-        {activeTab === "plantilla" ? <TeamsPanel /> : null}
+        {activeTab === "plantilla" ? <TeamsPanel user={user} /> : null}
+        {activeTab === "notificaciones" ? <NotificationsPanel user={user} /> : null}
       </div>
     </div>
   );

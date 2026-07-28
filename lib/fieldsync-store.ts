@@ -178,6 +178,16 @@ export type MatchResultUpdate =
       auditTrail?: string[];
     };
 
+export type TeamResult =
+  | {
+      ok: true;
+      team: TeamRecord;
+    }
+  | {
+      ok: false;
+      error: string;
+    };
+
 export type TeamRosterUpdate =
   | {
       ok: true;
@@ -1119,6 +1129,38 @@ export function updateProfileVisibility(input: { userId: number; visibility: "pu
   return { ok: true as const, profile: clone(profile) };
 }
 
+export function createTeam(input: {
+  tenantId: number;
+  name: string;
+  captainUserId: number;
+}) : TeamResult {
+  const captain = findUserById(input.captainUserId);
+  if (!captain) {
+    return { ok: false, error: "No pudimos identificar al usuario" };
+  }
+
+  if (!input.name.trim()) {
+    return { ok: false, error: "El nombre del equipo es obligatorio" };
+  }
+
+  const normalizedName = input.name.trim().toLowerCase();
+  if (store.teams.some((team) => team.tenantId === input.tenantId && team.name.toLowerCase() === normalizedName)) {
+    return { ok: false, error: "Ya existe un equipo con ese nombre" };
+  }
+
+  const team: TeamRecord = {
+    id: nextId("team"),
+    tenantId: input.tenantId,
+    name: input.name.trim(),
+    captainUserId: input.captainUserId,
+    // El creador queda automáticamente como capitán y primer jugador de la plantilla.
+    playerIds: [input.captainUserId],
+  };
+
+  store.teams.push(team);
+  return { ok: true, team: clone(team) };
+}
+
 export function updateTeamRoster(input: {
   teamId: number;
   action: "add" | "remove";
@@ -1144,12 +1186,17 @@ export function updateTeamRoster(input: {
 
 export function sendConvocation(input: {
   teamId: number;
+  senderUserId: number;
   scheduledAt: string;
   courtName: string;
 }) : ConvocationResult {
   const team = store.teams.find((item) => item.id === input.teamId) ?? null;
   if (!team) {
     return { ok: false, error: "No encontramos el equipo" };
+  }
+
+  if (team.captainUserId !== input.senderUserId) {
+    return { ok: false, error: "Solo el capitán del equipo puede enviar convocatorias" };
   }
 
   const notifications = team.playerIds.flatMap((playerId) => {

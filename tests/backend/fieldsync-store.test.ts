@@ -164,8 +164,18 @@ describe("FieldSync store", () => {
 
     expect(rosterUpdate.ok).toBe(true);
 
+    const blockedConvocation = sendConvocation({
+      teamId: 1,
+      senderUserId: 4,
+      scheduledAt: "2026-08-01T19:00",
+      courtName: "Arena Indoor Center",
+    });
+
+    expect(blockedConvocation.ok).toBe(false);
+
     const convocation = sendConvocation({
       teamId: 1,
+      senderUserId: 3,
       scheduledAt: "2026-08-01T19:00",
       courtName: "Arena Indoor Center",
     });
