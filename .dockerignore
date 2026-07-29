@@ -1,0 +1,16 @@
+node_modules
+.next
+.git
+.claude
+tests
+coverage
+*.tsbuildinfo
+npm-debug.log*
+.env
+.env*.local
+Dockerfile
+.dockerignore
+docker-compose.yml
+DOCKER.md
+README.md
+docs.md
