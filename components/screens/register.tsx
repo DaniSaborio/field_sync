@@ -2,7 +2,7 @@
 
 import type { FormEvent } from "react";
 import { useState } from "react";
-import { LoginBrand } from "./login/login-brand";
+import { AuthShell } from "./auth/auth-shell";
 import { LoginSocialButtons } from "./login/login-social-buttons";
 import { RegisterFooter } from "./register/register-footer";
 import { RegisterForm } from "./register/register-form";
@@ -55,48 +55,40 @@ export function RegisterScreen({ onBackToLogin, onRegistered }: RegisterScreenPr
   };
 
   return (
-    <div
-      className="min-h-screen flex flex-col bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.16),transparent_30%),linear-gradient(180deg,#0a1628_0%,#080e1a_100%)]"
-      style={{ fontFamily: "var(--font-geist-sans), sans-serif" }}
-    >
-      <div className="flex-1 flex flex-col justify-center px-6 py-12">
-        <LoginBrand />
+    <AuthShell tagline="Crea tu cuenta y empieza a reservar canchas en minutos.">
+      <p className="text-base font-semibold text-slate-100">Crea tu cuenta</p>
+      <p className="mb-6 mt-1 text-xs text-slate-500">Únete y empieza a gestionar tus canchas</p>
 
-        <div className="mx-auto w-full max-w-md">
-          <RegisterForm
-            fullName={fullName}
-            email={email}
-            password={password}
-            confirmPassword={confirmPassword}
-            showPassword={showPassword}
-            showConfirmPassword={showConfirmPassword}
-            acceptTerms={acceptTerms}
-            isLoading={isLoading}
-            onFullNameChange={setFullName}
-            onEmailChange={setEmail}
-            onPasswordChange={setPassword}
-            onConfirmPasswordChange={setConfirmPassword}
-            onTogglePassword={() => setShowPassword((current) => !current)}
-            onToggleConfirmPassword={() => setShowConfirmPassword((current) => !current)}
-            onToggleTerms={() => setAcceptTerms((current) => !current)}
-            onSubmit={handleRegister}
-          />
+      <RegisterForm
+        fullName={fullName}
+        email={email}
+        password={password}
+        confirmPassword={confirmPassword}
+        showPassword={showPassword}
+        showConfirmPassword={showConfirmPassword}
+        acceptTerms={acceptTerms}
+        isLoading={isLoading}
+        onFullNameChange={setFullName}
+        onEmailChange={setEmail}
+        onPasswordChange={setPassword}
+        onConfirmPasswordChange={setConfirmPassword}
+        onTogglePassword={() => setShowPassword((current) => !current)}
+        onToggleConfirmPassword={() => setShowConfirmPassword((current) => !current)}
+        onToggleTerms={() => setAcceptTerms((current) => !current)}
+        onSubmit={handleRegister}
+      />
 
-          <div className="flex items-center gap-4 my-8">
-            <div className="h-px flex-1 bg-white/10" />
-            <span className="text-xs font-semibold tracking-[0.2em] text-slate-500">O</span>
-            <div className="h-px flex-1 bg-white/10" />
-          </div>
-
-          <LoginSocialButtons />
-
-          <RegisterFooter onLoginClick={onBackToLogin} />
-        </div>
+      <div className="my-6 flex items-center gap-4">
+        <div className="h-px flex-1 bg-white/10" />
+        <span className="text-[10px] font-semibold tracking-[0.2em] text-slate-500">
+          O CONTINUA CON
+        </span>
+        <div className="h-px flex-1 bg-white/10" />
       </div>
 
-      <div className="px-6 pb-8 text-center">
-        <p className="text-xs text-slate-600">FieldSync v1.0.0</p>
-      </div>
-    </div>
+      <LoginSocialButtons />
+
+      <RegisterFooter onLoginClick={onBackToLogin} />
+    </AuthShell>
   );
 }
