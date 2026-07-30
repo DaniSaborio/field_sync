@@ -25,7 +25,7 @@ El proyecto ya incluye un archivo `.env.local` en la raíz con la conexión a la
 Confirma que el archivo existe:
 
 ```bash
-ls .env.local
+ls .env.local 
 ```
 
 Debe contener una línea `DATABASE_URL="postgresql://..."`. Si no existe, pide ese archivo a quien te compartió el proyecto — sin él la app no podrá conectarse a la base de datos.

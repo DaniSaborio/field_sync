@@ -13,6 +13,7 @@ RUN npm ci
 FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+COPY .env.local .env.local
 RUN npx prisma generate
 RUN npm run build
 
