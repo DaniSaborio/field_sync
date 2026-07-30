@@ -75,6 +75,7 @@ type Standing = {
 type TournamentCard = {
   id: number;
   createdByUserId: number;
+  courtId: number;
   name: string;
   format: string;
   teamsRequired: number;
@@ -179,14 +180,21 @@ function surfaceLabel(surface: CourtCard["surface"]) {
 function humanRole(role: string) {
   switch (role) {
     case "administrador":
+    case "admin_plataforma":
       return "Administrador";
     case "recepcionista":
       return "Recepcionista";
     case "organizador":
       return "Organizador";
+    case "tenant":
+      return "Dueño de cancha";
     default:
       return "Jugador";
   }
+}
+
+function isAdmin(user: AppUser) {
+  return user.role === "administrador" || user.role === "admin_plataforma";
 }
 
 function StatusPill({ children }: { children: React.ReactNode }) {
@@ -465,15 +473,33 @@ function BookingPanel({ user }: { user: AppUser }) {
 function TournamentsPanel({ user }: { user: AppUser }) {
   const [data, setData] = useState<{ tournaments: TournamentCard[]; matches: TournamentMatch[]; standings: Standing[] }>({ tournaments: [], matches: [], standings: [] });
   const [teams, setTeams] = useState<TeamCard[]>([]);
+  const [courts, setCourts] = useState<CourtCard[]>([]);
   const [message, setMessage] = useState("");
   const [selectedTournamentId, setSelectedTournamentId] = useState<number | null>(null);
-  const [createForm, setCreateForm] = useState({
+  const [createForm, setCreateForm] = useState<{
+    name: string;
+    format: string;
+    courtId: number | null;
+    teamIds: number[];
+    startDate: string;
+    endDate: string;
+  }>({
     name: "",
     format: "todos-contra-todos",
-    teamsRequired: 3,
+    courtId: null,
+    teamIds: [],
     startDate: todayIso(),
     endDate: todayIso(),
   });
+
+  function toggleCreateFormTeam(teamId: number) {
+    setCreateForm((current) => ({
+      ...current,
+      teamIds: current.teamIds.includes(teamId)
+        ? current.teamIds.filter((id) => id !== teamId)
+        : [...current.teamIds, teamId],
+    }));
+  }
   const [resultForm, setResultForm] = useState({ matchId: "", homeGoals: "", awayGoals: "", confirmSecondAuth: false });
 
   async function loadTournaments() {
@@ -494,15 +520,36 @@ function TournamentsPanel({ user }: { user: AppUser }) {
     setTeams(payload.teams);
   }
 
+  async function loadCourts() {
+    const response = await fetch("/api/courts");
+    const payload = await readJson<ApiResponse<{ courts: CourtCard[] }>>(response);
+    if (!response.ok) {
+      throw new Error(payload.error || "No pudimos cargar las canchas");
+    }
+    setCourts(payload.courts);
+  }
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void Promise.all([loadTournaments(), loadTeams()]).catch((error) => {
+    void Promise.all([loadTournaments(), loadTeams(), loadCourts()]).catch((error) => {
       setMessage(error instanceof Error ? error.message : "No pudimos cargar los torneos");
     });
   }, []);
 
+  function courtName(courtId: number) {
+    return courts.find((court) => court.id === courtId)?.name ?? `Cancha #${courtId}`;
+  }
+
   async function createTournament() {
     setMessage("");
+    if (!createForm.courtId) {
+      setMessage("Selecciona la cancha donde se jugará el torneo");
+      return;
+    }
+    if (createForm.teamIds.length < 2) {
+      setMessage("Agrega al menos dos equipos participantes");
+      return;
+    }
     const response = await fetch("/api/tournaments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -511,33 +558,15 @@ function TournamentsPanel({ user }: { user: AppUser }) {
         tenantId: user.tenantId,
         userId: user.id,
         ...createForm,
-        teamsRequired: Number(createForm.teamsRequired),
-        format: createForm.format,
       }),
     });
     const payload = await readJson<ApiResponse<{ tournament?: TournamentCard }>>(response);
     if (!response.ok) {
-      setMessage(payload.error || "No pudimos solicitar el torneo");
+      setMessage(payload.error || "No pudimos crear el torneo");
       return;
     }
-    setMessage("Solicitud enviada. Queda pendiente de aprobación del dueño de la cancha.");
-    await loadTournaments();
-  }
-
-  async function reviewTournament(tournamentId: number, decision: "aprobado" | "rechazado") {
-    setMessage("");
-    const reason = decision === "rechazado" ? window.prompt("Motivo del rechazo (opcional):") ?? undefined : undefined;
-    const response = await fetch("/api/tournaments", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "review", tournamentId, reviewerUserId: user.id, decision, reason }),
-    });
-    const payload = await readJson<ApiResponse<{ tournament?: TournamentCard }>>(response);
-    if (!response.ok) {
-      setMessage(payload.error || "No pudimos revisar la solicitud");
-      return;
-    }
-    setMessage(decision === "aprobado" ? "Torneo aprobado." : "Torneo rechazado.");
+    setMessage("Torneo creado correctamente.");
+    setCreateForm((current) => ({ ...current, name: "", courtId: null, teamIds: [] }));
     await loadTournaments();
   }
 
@@ -606,17 +635,38 @@ function TournamentsPanel({ user }: { user: AppUser }) {
     <div className="space-y-5">
       <PanelShell
         title="Gestión de torneos"
-        description="Solicita torneos, inscribe equipos, inicia el calendario de partidos y actualiza la tabla de posiciones."
+        description="Crea torneos, inscribe equipos, inicia el calendario de partidos y actualiza la tabla de posiciones."
         action={<StatusPill>{data.tournaments.length} torneos</StatusPill>}
       >
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-          <input className="h-11 rounded-xl border border-white/10 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400 xl:col-span-2" placeholder="Nombre del torneo" value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} />
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <input className="h-11 rounded-xl border border-white/10 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" placeholder="Nombre del torneo" value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} />
           <select className="h-11 rounded-xl border border-white/10 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" value={createForm.format} onChange={(event) => setCreateForm((current) => ({ ...current, format: event.target.value }))}>
             <option value="todos-contra-todos">Todos contra todos</option>
             <option value="eliminatorio">Eliminatorio</option>
           </select>
-          <input type="number" min={2} className="h-11 rounded-xl border border-white/10 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" value={createForm.teamsRequired} onChange={(event) => setCreateForm((current) => ({ ...current, teamsRequired: Number(event.target.value) }))} />
-          <button type="button" onClick={createTournament} className="rounded-xl bg-slate-700 px-4 py-2 text-sm font-bold text-slate-300 transition hover:brightness-110" title="Queda pendiente de aprobación del dueño de la cancha">Solicitar torneo</button>
+          <select className="h-11 rounded-xl border border-white/10 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" value={createForm.courtId ?? ""} onChange={(event) => setCreateForm((current) => ({ ...current, courtId: event.target.value ? Number(event.target.value) : null }))}>
+            <option value="">Selecciona la cancha</option>
+            {courts.map((court) => <option key={court.id} value={court.id}>{court.name}</option>)}
+          </select>
+          <button type="button" onClick={createTournament} className="rounded-xl bg-emerald-400 px-4 py-2 text-sm font-bold text-slate-950 transition hover:brightness-110">Crear torneo</button>
+        </div>
+        <div className="mt-3">
+          <p className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Equipos participantes ({createForm.teamIds.length} seleccionados)</p>
+          <div className="flex flex-wrap gap-2">
+            {teams.length > 0 ? teams.map((team) => {
+              const isSelected = createForm.teamIds.includes(team.id);
+              return (
+                <button
+                  key={team.id}
+                  type="button"
+                  onClick={() => toggleCreateFormTeam(team.id)}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${isSelected ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200" : "border-white/10 bg-slate-950 text-slate-300 hover:border-white/20"}`}
+                >
+                  {isSelected ? "✓ " : "+ "}{team.name}
+                </button>
+              );
+            }) : <p className="text-xs text-slate-500">No hay equipos creados todavía. Crea equipos en la pestaña Plantilla.</p>}
+          </div>
         </div>
         <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <input type="date" className="h-11 rounded-xl border border-white/10 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" value={createForm.startDate} onChange={(event) => setCreateForm((current) => ({ ...current, startDate: event.target.value }))} />
@@ -627,10 +677,9 @@ function TournamentsPanel({ user }: { user: AppUser }) {
           </select>
           <button
             type="button"
-            disabled={!currentTournament || currentTournament.requestStatus !== "aprobado"}
+            disabled={!currentTournament}
             onClick={() => selectedTournamentId ? startTournament(selectedTournamentId) : null}
             className="rounded-xl border border-white/10 bg-slate-900/80 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-emerald-400/40 disabled:cursor-not-allowed disabled:opacity-40"
-            title={currentTournament && currentTournament.requestStatus !== "aprobado" ? "El torneo debe ser aprobado por el dueño de la cancha antes de iniciarse" : undefined}
           >
             Iniciar torneo
           </button>
@@ -647,30 +696,17 @@ function TournamentsPanel({ user }: { user: AppUser }) {
                   <div>
                     <h3 className="text-lg font-bold text-slate-100">{tournament.name}</h3>
                     <p className="text-sm text-slate-400">{tournament.format} · {tournament.startDate} a {tournament.endDate}</p>
+                    <p className="mt-1 text-sm text-emerald-300">📍 {courtName(tournament.courtId)}</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge>{tournament.status}</Badge>
-                    <Badge>{tournament.requestStatus}</Badge>
                   </div>
                 </div>
-                {tournament.requestStatus === "pendiente" && user.role === "administrador" ? (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button type="button" onClick={() => reviewTournament(tournament.id, "aprobado")} className="rounded-xl bg-emerald-400 px-3 py-1.5 text-xs font-bold text-slate-950 transition hover:brightness-110">Aprobar</button>
-                    <button type="button" onClick={() => reviewTournament(tournament.id, "rechazado")} className="rounded-xl border border-red-400/40 bg-red-400/10 px-3 py-1.5 text-xs font-bold text-red-300 transition hover:bg-red-400/20">Rechazar</button>
-                  </div>
-                ) : null}
-                {tournament.requestStatus === "pendiente" && user.role !== "administrador" ? (
-                  <p className="mt-3 text-xs text-amber-300">Pendiente de aprobación del dueño de la cancha.</p>
-                ) : null}
-                {tournament.requestStatus === "rechazado" ? (
-                  <p className="mt-3 text-xs text-red-300">Solicitud rechazada: {tournament.rejectionReason}</p>
-                ) : null}
                 <div className="mt-3 flex flex-wrap gap-2">
                   {teams.map((team) => (
                     <button
                       key={team.id}
                       type="button"
-                      disabled={tournament.requestStatus !== "aprobado"}
                       onClick={() => {
                         setSelectedTournamentId(tournament.id);
                         void enrollTeam(team.id);
@@ -690,6 +726,7 @@ function TournamentsPanel({ user }: { user: AppUser }) {
         <PanelShell title="Calendario de partidos y tabla" description="Resultados inmediatos con actualización de posiciones y auditoría.">
           {currentTournament ? (
             <div className="space-y-4">
+              <p className="text-sm text-emerald-300">📍 Sede del torneo: {courtName(currentTournament.courtId)}</p>
               <div className="grid gap-3 md:grid-cols-2">
                 <input className="h-11 rounded-xl border border-white/10 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" placeholder="ID partido" value={resultForm.matchId} onChange={(event) => setResultForm((current) => ({ ...current, matchId: event.target.value }))} />
                 <div className="grid grid-cols-2 gap-3">
@@ -711,6 +748,7 @@ function TournamentsPanel({ user }: { user: AppUser }) {
                       <Badge>{match.status}</Badge>
                     </div>
                     <p className="mt-1">{teamName(match.homeTeamId)} vs {teamName(match.awayTeamId)} · {formatDateTime(match.scheduledAt)}</p>
+                    <p className="mt-1 text-xs text-emerald-300">📍 {courtName(currentTournament.courtId)}</p>
                     <p className="mt-2">Resultado: {match.homeGoals ?? "-"} / {match.awayGoals ?? "-"}</p>
                     {match.auditTrail.length > 0 ? <p className="mt-2 text-xs text-slate-500">{match.auditTrail[match.auditTrail.length - 1]}</p> : null}
                   </div>
@@ -746,6 +784,125 @@ function TournamentsPanel({ user }: { user: AppUser }) {
         </PanelShell>
       </div>
     </div>
+  );
+}
+
+function MyTournamentsPanel({ user }: { user: AppUser }) {
+  const [tournaments, setTournaments] = useState<TournamentCard[]>([]);
+  const [teams, setTeams] = useState<TeamCard[]>([]);
+  const [courts, setCourts] = useState<CourtCard[]>([]);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    async function load() {
+      const [tournamentsResponse, teamsResponse, courtsResponse] = await Promise.all([
+        fetch("/api/tournaments"),
+        fetch("/api/teams"),
+        fetch("/api/courts"),
+      ]);
+      const tournamentsPayload = await readJson<ApiResponse<{ tournaments: TournamentCard[] }>>(tournamentsResponse);
+      const teamsPayload = await readJson<ApiResponse<{ teams: TeamCard[] }>>(teamsResponse);
+      const courtsPayload = await readJson<ApiResponse<{ courts: CourtCard[] }>>(courtsResponse);
+      if (!tournamentsResponse.ok) {
+        throw new Error(tournamentsPayload.error || "No pudimos cargar los torneos");
+      }
+      if (!teamsResponse.ok) {
+        throw new Error(teamsPayload.error || "No pudimos cargar los equipos");
+      }
+      if (!courtsResponse.ok) {
+        throw new Error(courtsPayload.error || "No pudimos cargar las canchas");
+      }
+      setTournaments(tournamentsPayload.tournaments);
+      setTeams(teamsPayload.teams);
+      setCourts(courtsPayload.courts);
+    }
+    void load().catch((error) => setMessage(error instanceof Error ? error.message : "No pudimos cargar los torneos"));
+  }, []);
+
+  const myTeamIds = useMemo(
+    () => teams.filter((team) => team.playerIds.includes(user.id)).map((team) => team.id),
+    [teams, user.id]
+  );
+
+  const myTournaments = useMemo(
+    () => tournaments.filter((tournament) => tournament.teamIds.some((teamId) => myTeamIds.includes(teamId))),
+    [tournaments, myTeamIds]
+  );
+
+  function teamName(teamId: number) {
+    return teams.find((team) => team.id === teamId)?.name ?? `Equipo #${teamId}`;
+  }
+
+  function courtName(courtId: number) {
+    return courts.find((court) => court.id === courtId)?.name ?? `Cancha #${courtId}`;
+  }
+
+  return (
+    <PanelShell
+      title="Mis torneos"
+      description="Torneos en los que participas junto con el calendario de partidos y la tabla de posiciones."
+      action={<StatusPill>{myTournaments.length} torneos</StatusPill>}
+    >
+      {message ? <p className="mb-4 rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 text-sm text-slate-200">{message}</p> : null}
+      {myTournaments.length > 0 ? (
+        <div className="space-y-5">
+          {myTournaments.map((tournament) => (
+            <article key={tournament.id} className="rounded-2xl border border-white/10 bg-slate-900/80 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-100">{tournament.name}</h3>
+                  <p className="text-sm text-slate-400">{tournament.format} · {tournament.startDate} a {tournament.endDate}</p>
+                  <p className="mt-1 text-sm text-emerald-300">📍 {courtName(tournament.courtId)}</p>
+                </div>
+                <Badge>{tournament.status}</Badge>
+              </div>
+
+              <div className="mt-3 space-y-2">
+                {tournament.fixture.length > 0 ? (
+                  tournament.fixture.map((match) => (
+                    <div key={match.id} className="rounded-xl border border-white/10 bg-slate-950/70 p-3 text-sm text-slate-300">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="font-semibold text-slate-100">{teamName(match.homeTeamId)} vs {teamName(match.awayTeamId)}</p>
+                        <Badge>{match.status}</Badge>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-400">{formatDateTime(match.scheduledAt)} · 📍 {courtName(tournament.courtId)}</p>
+                      <p className="mt-1">Resultado: {match.homeGoals ?? "-"} / {match.awayGoals ?? "-"}</p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-slate-500">Aún no hay partidos programados.</p>
+                )}
+              </div>
+
+              <div className="mt-4 overflow-hidden rounded-2xl border border-white/10">
+                <table className="w-full text-left text-sm text-slate-300">
+                  <thead className="bg-slate-900/80 text-xs uppercase tracking-[0.18em] text-slate-400">
+                    <tr>
+                      <th className="px-3 py-2">Equipo</th>
+                      <th className="px-3 py-2">PJ</th>
+                      <th className="px-3 py-2">PTS</th>
+                      <th className="px-3 py-2">DG</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tournament.standings.map((standing) => (
+                      <tr key={`${standing.teamId}-${standing.tournamentId}`} className="border-t border-white/5 bg-slate-950/70">
+                        <td className="px-3 py-2">{teamName(standing.teamId)}</td>
+                        <td className="px-3 py-2">{standing.played}</td>
+                        <td className="px-3 py-2">{standing.points}</td>
+                        <td className="px-3 py-2">{standing.goalsFor - standing.goalsAgainst}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-slate-400">Todavía no participas en ningún torneo.</p>
+      )}
+    </PanelShell>
   );
 }
 
@@ -1145,7 +1302,7 @@ export function DashboardScreen({ user, onLogout }: DashboardScreenProps) {
         </header>
 
         {activeTab === "reservas" ? <BookingPanel user={user} /> : null}
-        {activeTab === "torneos" ? <TournamentsPanel user={user} /> : null}
+        {activeTab === "torneos" ? (isAdmin(user) ? <TournamentsPanel user={user} /> : <MyTournamentsPanel user={user} />) : null}
         {activeTab === "perfil" ? <ProfilePanel user={user} /> : null}
         {activeTab === "plantilla" ? <TeamsPanel user={user} /> : null}
         {activeTab === "notificaciones" ? <NotificationsPanel user={user} /> : null}

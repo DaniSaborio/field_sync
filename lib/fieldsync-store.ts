@@ -60,6 +60,7 @@ export type TournamentRecord = {
   id: number;
   tenantId: number;
   createdByUserId: number;
+  courtId: number;
   name: string;
   format: TournamentFormat;
   teamsRequired: number;
@@ -379,6 +380,7 @@ const seedState = (): StoreState => ({
       id: 1,
       tenantId: 1,
       createdByUserId: 3,
+      courtId: 1,
       name: "Torneo Apertura 2026",
       format: "todos-contra-todos",
       teamsRequired: 3,
@@ -881,9 +883,10 @@ export function listTeams() {
 export function createTournament(input: {
   tenantId: number;
   createdByUserId: number;
+  courtId: number;
   name: string;
   format: TournamentFormat;
-  teamsRequired: number;
+  teamIds: number[];
   startDate: string;
   endDate: string;
 }) : TournamentResult {
@@ -891,71 +894,45 @@ export function createTournament(input: {
     return { ok: false, error: "El nombre del torneo es obligatorio" };
   }
 
+  const creator = findUserById(input.createdByUserId);
+  if (!creator || creator.role !== "administrador") {
+    return { ok: false, error: "Solo un administrador puede crear torneos" };
+  }
+
+  if (!store.courts.some((court) => court.id === input.courtId)) {
+    return { ok: false, error: "Selecciona una cancha válida para el torneo" };
+  }
+
+  const teamIds = Array.from(new Set(input.teamIds));
+  if (teamIds.length < 2) {
+    return { ok: false, error: "Selecciona al menos dos equipos participantes" };
+  }
+
+  const unknownTeamId = teamIds.find((teamId) => !store.teams.some((team) => team.id === teamId));
+  if (unknownTeamId !== undefined) {
+    return { ok: false, error: `No encontramos el equipo #${unknownTeamId}` };
+  }
+
   const tournament: TournamentRecord = {
     id: nextId("tournament"),
     tenantId: input.tenantId,
     createdByUserId: input.createdByUserId,
+    courtId: input.courtId,
     name: input.name.trim(),
     format: input.format,
-    teamsRequired: input.teamsRequired,
+    teamsRequired: teamIds.length,
     startDate: input.startDate,
     endDate: input.endDate,
     status: "draft",
-    requestStatus: "pendiente",
+    requestStatus: "aprobado",
     rejectionReason: null,
-    teamIds: [],
+    teamIds,
     fixture: [],
   };
 
   store.tournaments.push(tournament);
 
-  // Notifica al dueño de la cancha (rol "administrador") para que revise la solicitud.
-  const tenantOwner = store.users.find((user) => user.tenantId === tournament.tenantId && user.role === "administrador");
-  const notifications = tenantOwner?.notificationsEnabled
-    ? [createNotification(tenantOwner.id, "tournament", `Nueva solicitud de torneo "${tournament.name}" pendiente de aprobación.`)]
-    : [];
-
-  return { ok: true, tournament: clone(tournament), notifications: clone(notifications) };
-}
-
-export function reviewTournamentRequest(input: {
-  tournamentId: number;
-  reviewerUserId: number;
-  decision: "aprobado" | "rechazado";
-  reason?: string;
-}) : TournamentResult {
-  const tournament = store.tournaments.find((item) => item.id === input.tournamentId) ?? null;
-  const reviewer = findUserById(input.reviewerUserId);
-
-  if (!tournament) {
-    return { ok: false, error: "No encontramos el torneo" };
-  }
-
-  if (!reviewer || reviewer.role !== "administrador" || reviewer.tenantId !== tournament.tenantId) {
-    return { ok: false, error: "Solo el dueño de la cancha puede aprobar o rechazar esta solicitud" };
-  }
-
-  if (tournament.requestStatus !== "pendiente") {
-    return { ok: false, error: "Esta solicitud ya fue revisada" };
-  }
-
-  tournament.requestStatus = input.decision;
-  tournament.rejectionReason = input.decision === "rechazado" ? (input.reason?.trim() || "Sin motivo especificado") : null;
-
-  const requester = findUserById(tournament.createdByUserId);
-  const notifications = requester?.notificationsEnabled
-    ? [
-        createNotification(
-          requester.id,
-          "tournament",
-          input.decision === "aprobado"
-            ? `Tu solicitud de torneo "${tournament.name}" fue aprobada. Ya puedes inscribir equipos.`
-            : `Tu solicitud de torneo "${tournament.name}" fue rechazada: ${tournament.rejectionReason}`,
-        ),
-      ]
-    : [];
-
-  return { ok: true, tournament: clone(tournament), notifications: clone(notifications) };
+  return { ok: true, tournament: clone(tournament), notifications: [] };
 }
 
 export function enrollTeamToTournament(input: {

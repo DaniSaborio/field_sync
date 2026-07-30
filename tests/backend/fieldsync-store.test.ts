@@ -2,14 +2,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   cancelReservation,
   createTournament,
-  enrollTeamToTournament,
   getPlayerProfile,
   loginUser,
   recordMatchResult,
   registerUser,
   reserveCourt,
   resetFieldSyncStore,
-  reviewTournamentRequest,
   sendConvocation,
   startTournament,
   toggleNotifications,
@@ -91,10 +89,11 @@ describe("FieldSync store", () => {
   it("creates a tournament, generates fixtures and updates standings", () => {
     const tournament = createTournament({
       tenantId: 1,
-      createdByUserId: 3,
+      createdByUserId: 1,
+      courtId: 1,
       name: "Copa de Verano",
       format: "todos-contra-todos",
-      teamsRequired: 3,
+      teamIds: [1, 2, 3],
       startDate: "2026-08-01",
       endDate: "2026-08-21",
     });
@@ -104,21 +103,33 @@ describe("FieldSync store", () => {
       throw new Error(tournament.error);
     }
 
-    expect(tournament.tournament.requestStatus).toBe("pendiente");
+    expect(tournament.tournament.requestStatus).toBe("aprobado");
+    expect(tournament.tournament.teamIds).toEqual([1, 2, 3]);
+    expect(tournament.tournament.courtId).toBe(1);
 
-    const blockedEnroll = enrollTeamToTournament({ tournamentId: tournament.tournament.id, teamId: 1 });
-    expect(blockedEnroll.ok).toBe(false);
-
-    const review = reviewTournamentRequest({
-      tournamentId: tournament.tournament.id,
-      reviewerUserId: 1,
-      decision: "aprobado",
+    const blockedCreate = createTournament({
+      tenantId: 1,
+      createdByUserId: 3,
+      courtId: 1,
+      name: "Torneo no autorizado",
+      format: "todos-contra-todos",
+      teamIds: [1, 2],
+      startDate: "2026-08-01",
+      endDate: "2026-08-21",
     });
-    expect(review.ok).toBe(true);
+    expect(blockedCreate.ok).toBe(false);
 
-    enrollTeamToTournament({ tournamentId: tournament.tournament.id, teamId: 1 });
-    enrollTeamToTournament({ tournamentId: tournament.tournament.id, teamId: 2 });
-    enrollTeamToTournament({ tournamentId: tournament.tournament.id, teamId: 3 });
+    const invalidCourt = createTournament({
+      tenantId: 1,
+      createdByUserId: 1,
+      courtId: 9999,
+      name: "Torneo cancha inexistente",
+      format: "todos-contra-todos",
+      teamIds: [1, 2],
+      startDate: "2026-08-01",
+      endDate: "2026-08-21",
+    });
+    expect(invalidCourt.ok).toBe(false);
 
     const started = startTournament({ tournamentId: tournament.tournament.id });
     expect(started.ok).toBe(true);

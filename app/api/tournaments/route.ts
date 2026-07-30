@@ -4,7 +4,6 @@ import {
   enrollTeamToTournament,
   getTournamentSnapshot,
   recordMatchResult,
-  reviewTournamentRequest,
   startTournament,
 } from "@/lib/fieldsync-store";
 
@@ -21,9 +20,10 @@ export async function POST(request: NextRequest) {
       const result = createTournament({
         tenantId: Number(body?.tenantId ?? 1),
         createdByUserId: Number(body?.userId ?? 0),
+        courtId: Number(body?.courtId ?? 0),
         name: String(body?.name ?? ""),
         format: body?.format === "eliminatorio" ? "eliminatorio" : "todos-contra-todos",
-        teamsRequired: Number(body?.teamsRequired ?? 3),
+        teamIds: Array.isArray(body?.teamIds) ? body.teamIds.map((id: unknown) => Number(id)) : [],
         startDate: String(body?.startDate ?? ""),
         endDate: String(body?.endDate ?? ""),
       });
@@ -33,21 +33,6 @@ export async function POST(request: NextRequest) {
       }
 
       return NextResponse.json(result, { status: 201 });
-    }
-
-    if (action === "review") {
-      const result = reviewTournamentRequest({
-        tournamentId: Number(body?.tournamentId),
-        reviewerUserId: Number(body?.reviewerUserId),
-        decision: body?.decision === "rechazado" ? "rechazado" : "aprobado",
-        reason: typeof body?.reason === "string" ? body.reason : undefined,
-      });
-
-      if (!result.ok) {
-        return NextResponse.json(result, { status: 409 });
-      }
-
-      return NextResponse.json(result);
     }
 
     if (action === "enroll") {
