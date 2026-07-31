@@ -3,12 +3,13 @@
 import type { FormEvent } from "react";
 import { useState } from "react";
 import { AuthShell } from "./auth/auth-shell";
-import { ForgotPasswordScreen } from "./forgot-password";
+import { ForgotPasswordScreen } from "./forgot-password"; 
 import { LoginFooter } from "./login/login-footer";
 import { LoginForm } from "./login/login-form";
 import { LoginSocialButtons } from "./login/login-social-buttons";
 import { RegisterScreen } from "./register";
 import type { AppUser } from "./dashboard";
+
 
 export type Screen = "dashboard" | "login" | "register" | "forgot-password";
 
@@ -67,8 +68,12 @@ export function LoginScreen({ onNavigate }: LoginScreenProps) {
 
   return (
     <AuthShell>
-      <p className="text-base font-semibold text-slate-100">Bienvenido de nuevo</p>
-      <p className="mb-6 mt-1 text-xs text-slate-500">Ingresa tus datos para continuar</p>
+      <p className="text-center text-base font-semibold text-slate-100 sm:text-left">
+        Bienvenido de nuevo
+      </p>
+      <p className="mb-6 mt-1 text-center text-xs text-slate-500 sm:text-left">
+        Ingresa tus datos para continuar
+      </p>
 
       {errorMessage ? (
         <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">

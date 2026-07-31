@@ -1,4 +1,7 @@
-import { FaApple, FaGoogle } from "react-icons/fa";
+"use client";
+
+import { GoogleLogin } from "@react-oauth/google";
+import { FaApple } from "react-icons/fa";
 
 export function LoginSocialButtons() {
   const buttonClassName =
@@ -6,10 +9,14 @@ export function LoginSocialButtons() {
 
   return (
     <div className="grid grid-cols-2 gap-3">
-      <button type="button" className={buttonClassName}>
-        <FaGoogle className="text-base" />
-        <span>Google</span>
-      </button>
+      <GoogleLogin
+        onSuccess={(credentialResponse) => {
+          console.log("Google Login:", credentialResponse);
+        }}
+        onError={() => {
+          console.log("Error al iniciar sesión con Google");
+        }}
+      />
 
       <button type="button" className={buttonClassName}>
         <FaApple className="text-base" />

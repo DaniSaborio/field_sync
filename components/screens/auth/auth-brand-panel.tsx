@@ -13,7 +13,7 @@ export function AuthBrandPanel({
 }: AuthBrandPanelProps) {
   return (
     <div
-      className="relative hidden flex-col justify-between overflow-hidden px-10 py-12 lg:flex"
+      className="relative hidden min-h-screen flex-col justify-between overflow-hidden px-10 py-12 lg:flex"
       style={{
         backgroundImage:
           "linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px), radial-gradient(circle at 20% 15%, rgba(16,185,129,0.16), transparent 55%), radial-gradient(circle at 85% 80%, rgba(16,185,129,0.10), transparent 50%), linear-gradient(160deg, #0b1830 0%, #060b15 100%)",

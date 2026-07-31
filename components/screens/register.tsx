@@ -56,8 +56,12 @@ export function RegisterScreen({ onBackToLogin, onRegistered }: RegisterScreenPr
 
   return (
     <AuthShell tagline="Crea tu cuenta y empieza a reservar canchas en minutos.">
-      <p className="text-base font-semibold text-slate-100">Crea tu cuenta</p>
-      <p className="mb-6 mt-1 text-xs text-slate-500">Únete y empieza a gestionar tus canchas</p>
+      <p className="text-center text-base font-semibold text-slate-100 sm:text-left">
+        Crea tu cuenta
+      </p>
+      <p className="mb-6 mt-1 text-center text-xs text-slate-500 sm:text-left">
+        Únete y empieza a gestionar tus canchas
+      </p>
 
       <RegisterForm
         fullName={fullName}
