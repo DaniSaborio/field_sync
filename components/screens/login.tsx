@@ -57,7 +57,9 @@ export function LoginScreen({ onNavigate }: LoginScreenProps) {
         throw new Error(data.error || 'No se pudo iniciar sesión');
       }
 
-      onNavigate?.('dashboard', data.user);
+      localStorage.setItem("user", JSON.stringify(data.user));
+
+      onNavigate?.("dashboard", data.user);
     } catch (error) {
       console.error('Login failed:', error);
       setErrorMessage(error instanceof Error ? error.message : 'No se pudo iniciar sesión');

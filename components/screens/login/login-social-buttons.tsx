@@ -36,6 +36,8 @@ export function LoginSocialButtons({
               return;
             }
 
+            localStorage.setItem("user", JSON.stringify(data.user));
+
             onLogin?.(data.user);
           } catch (error) {
             console.error("Error iniciando sesión con Google:", error);
