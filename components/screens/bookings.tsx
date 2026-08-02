@@ -114,7 +114,7 @@ export function BookingsScreen({ onLogout, userId }: BookingsScreenProps) {
 
   return (
     <div
-      className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.12),transparent_30%),linear-gradient(180deg,#0a1628_0%,#080e1a_100%)] px-4 py-8 sm:px-6 lg:px-8"
+      className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.12),transparent_30%),linear-gradient(180deg,#0a1628_0%,#080e1a_100%)] px-4 py-10 sm:px-6 sm:py-12 lg:px-10"
       style={{ fontFamily: "var(--font-geist-sans), sans-serif" }}
     >
       <div className="mx-auto w-full max-w-6xl">
@@ -129,7 +129,7 @@ export function BookingsScreen({ onLogout, userId }: BookingsScreenProps) {
           onSurfaceChange={setSurface}
         />
 
-        <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="mb-6 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm font-medium text-slate-300">
             {isLoading ? "Cargando canchas..." : `${visibleFields.length} canchas disponibles`}
           </p>
@@ -139,24 +139,24 @@ export function BookingsScreen({ onLogout, userId }: BookingsScreenProps) {
         </div>
 
         {errorMessage ? (
-          <div className="mb-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">
+          <div className="mb-6 rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">
             {errorMessage}
           </div>
         ) : null}
 
         {isLoading ? (
-          <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-8 text-center">
-            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-transparent border-t-emerald-400" />
+          <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-10 text-center">
+            <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-transparent border-t-emerald-400" />
             <p className="text-sm text-slate-400">Consultando disponibilidad...</p>
           </div>
         ) : visibleFields.length > 0 ? (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
             {visibleFields.map((field) => (
               <FieldPreviewCard key={field.id} field={field} />
             ))}
           </div>
         ) : (
-          <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-8 text-center">
+          <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-10 text-center">
             <p className="text-lg font-semibold text-slate-200">
               No hay canchas para esos filtros
             </p>
