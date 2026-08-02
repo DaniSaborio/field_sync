@@ -15,7 +15,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "FieldSync",
-  description: "Gestión de reservas, torneos y perfil global para canchas deportivas.",
+  description:
+    "Gestión de reservas, torneos y perfil global para canchas deportivas.",
 };
 
 export default function RootLayout({
@@ -29,10 +30,10 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <GoogleProvider>
-        {children}
-        </GoogleProvider>
-      </body>
+  <GoogleProvider>
+    {children}
+  </GoogleProvider>
+</body>
     </html>
   );
 }

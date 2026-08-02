@@ -39,6 +39,8 @@ model User {
   full_name           String     @db.VarChar(150)
   email               String     @unique @db.VarChar(150)
   password            String     @db.VarChar(255)
+  provider            String     @default("credentials") @db.VarChar(30)
+  provider_id         String?    @db.VarChar(255)
   id_role             Int
   role                Role       @relation(fields: [id_role], references: [id_role], onDelete: Restrict, onUpdate: Cascade)
   notifications_enabled Boolean  @default(true)

@@ -103,7 +103,8 @@ export function LoginScreen({ onNavigate }: LoginScreenProps) {
         <div className="h-px flex-1 bg-white/10" />
       </div>
 
-      <LoginSocialButtons />
+      <LoginSocialButtons
+  onLogin={(user) => onNavigate?.("dashboard", user)}/>
 
       <LoginFooter onRegisterClick={() => setCurrentScreen("register")} />
     </AuthShell>
