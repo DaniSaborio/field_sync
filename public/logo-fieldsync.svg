@@ -1,0 +1,26 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">FieldSync logo</title>
+  <desc id="desc">Icono visible para FieldSync con fondo oscuro y contorno verde brillante.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#10233a" />
+      <stop offset="100%" stop-color="#08101d" />
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="2.5" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#bg)" />
+  <rect x="10" y="10" width="108" height="108" rx="24" fill="none" stroke="#22c55e" stroke-width="3.5" filter="url(#glow)" />
+  <rect x="31" y="35" width="66" height="45" rx="10" fill="none" stroke="#7ef0bc" stroke-width="4" opacity="0.95" />
+  <path d="M45 49h38" stroke="#7ef0bc" stroke-width="3" stroke-linecap="round" />
+  <path d="M45 61h38" stroke="#7ef0bc" stroke-width="3" stroke-linecap="round" />
+  <path d="M43 75l20-18 20 18" fill="none" stroke="#34d399" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" />
+  <circle cx="64" cy="64" r="16" fill="none" stroke="#34d399" stroke-width="3" />
+  <path d="M64 48v32M48 64h32" stroke="#34d399" stroke-width="2.5" stroke-linecap="round" />
+  <path d="M56 56l16 16M72 56l-16 16" stroke="#34d399" stroke-width="2.5" stroke-linecap="round" opacity="0.9" />
+</svg>

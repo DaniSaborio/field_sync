@@ -2,109 +2,113 @@
 
 import type { FormEvent } from "react";
 import { useState } from "react";
-import { LoginBrand } from "./login/login-brand";
+import { AuthShell } from "./auth/auth-shell";
+import { ForgotPasswordScreen } from "./forgot-password"; 
 import { LoginFooter } from "./login/login-footer";
 import { LoginForm } from "./login/login-form";
 import { LoginSocialButtons } from "./login/login-social-buttons";
 import { RegisterScreen } from "./register";
 import type { AppUser } from "./dashboard";
 
-export type Screen = "dashboard" | "login" | "register";
+
+export type Screen = "dashboard" | "login" | "register" | "forgot-password";
 
 type LoginScreenProps = {
-	onNavigate?: (screen: Screen, user?: AppUser) => void;
+  onNavigate?: (screen: Screen, user?: AppUser) => void;
 };
 
 export function LoginScreen({ onNavigate }: LoginScreenProps) {
-	const [currentScreen, setCurrentScreen] = useState<Screen>("login");
-	const [email, setEmail] = useState("");
-	const [password, setPassword] = useState("");
-	const [showPassword, setShowPassword] = useState(false);
-	const [isLoading, setIsLoading] = useState(false);
-	const [rememberMe, setRememberMe] = useState(false);
-	const [errorMessage, setErrorMessage] = useState("");
+  const [currentScreen, setCurrentScreen] = useState<Screen>("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
 
-	if (currentScreen === "register") {
-		return (
-			<RegisterScreen
-				onBackToLogin={() => setCurrentScreen("login")}
-				onRegistered={() => setCurrentScreen("login")}
-			/>
-		);
-	}
+  if (currentScreen === "register") {
+    return (
+      <RegisterScreen
+        onBackToLogin={() => setCurrentScreen("login")}
+        onRegistered={() => setCurrentScreen("login")}
+      />
+    );
+  }
 
-	const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
-		event.preventDefault();
-		setIsLoading(true);
-		setErrorMessage("");
+  if (currentScreen === "forgot-password") {
+    return <ForgotPasswordScreen onBackToLogin={() => setCurrentScreen("login")} />;
+  }
 
-		try {
-			const response = await fetch('/api/auth/login', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ email, password }),
-			});
+  const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsLoading(true);
+    setErrorMessage("");
 
-			const data = await response.json();
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
 
-			if (!response.ok) {
-				throw new Error(data.error || 'No se pudo iniciar sesión');
-			}
+      const data = await response.json();
 
-			onNavigate?.('dashboard', data.user);
-		} catch (error) {
-			console.error('Login failed:', error);
-			setErrorMessage(error instanceof Error ? error.message : 'No se pudo iniciar sesión');
-		} finally {
-			setIsLoading(false);
-		}
-	};
+      if (!response.ok) {
+        throw new Error(data.error || 'No se pudo iniciar sesión');
+      }
 
-	return (
-		<div
-			className="min-h-screen flex flex-col bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.16),transparent_30%),linear-gradient(180deg,#0a1628_0%,#080e1a_100%)]"
-			style={{ fontFamily: "var(--font-geist-sans), sans-serif" }}
-		>
-			<div className="flex-1 flex flex-col justify-center px-6 py-12">
-				<LoginBrand />
+      localStorage.setItem("user", JSON.stringify(data.user));
 
-				<div className="mx-auto w-full max-w-md">
-					{errorMessage ? (
-						<div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-							{errorMessage}
-						</div>
-					) : null}
+      onNavigate?.("dashboard", data.user);
+    } catch (error) {
+      console.error('Login failed:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'No se pudo iniciar sesión');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-					<LoginForm
-						email={email}
-						password={password}
-						showPassword={showPassword}
-						isLoading={isLoading}
-						rememberMe={rememberMe}
-						onEmailChange={setEmail}
-						onPasswordChange={setPassword}
-						onTogglePassword={() => setShowPassword((current) => !current)}
-						onToggleRememberMe={() => setRememberMe((current) => !current)}
-						onSubmit={handleLogin}
-					/>
+  return (
+    <AuthShell>
+      <p className="text-center text-base font-semibold text-slate-100 sm:text-left">
+        Bienvenido de nuevo
+      </p>
+      <p className="mb-6 mt-1 text-center text-xs text-slate-500 sm:text-left">
+        Ingresa tus datos para continuar
+      </p>
 
-					<div className="flex items-center gap-4 my-8">
-						<div className="h-px flex-1 bg-white/10" />
-						<span className="text-xs font-semibold tracking-[0.2em] text-slate-500">
-							O
-						</span>
-						<div className="h-px flex-1 bg-white/10" />
-					</div>
+      {errorMessage ? (
+        <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          {errorMessage}
+        </div>
+      ) : null}
 
-					<LoginSocialButtons />
+      <LoginForm
+        email={email}
+        password={password}
+        showPassword={showPassword}
+        isLoading={isLoading}
+        rememberMe={rememberMe}
+        onEmailChange={setEmail}
+        onPasswordChange={setPassword}
+        onTogglePassword={() => setShowPassword((current) => !current)}
+        onToggleRememberMe={() => setRememberMe((current) => !current)}
+        onForgotPasswordClick={() => setCurrentScreen("forgot-password")}
+        onSubmit={handleLogin}
+      />
 
-					<LoginFooter onRegisterClick={() => setCurrentScreen("register")} />
-				</div>
-			</div>
+      <div className="my-6 flex items-center gap-4">
+        <div className="h-px flex-1 bg-white/10" />
+        <span className="text-[10px] font-semibold tracking-[0.2em] text-slate-500">
+          O CONTINUA CON
+        </span>
+        <div className="h-px flex-1 bg-white/10" />
+      </div>
 
-			<div className="px-6 pb-8 text-center">
-				<p className="text-xs text-slate-600">FieldSync v1.0.0</p>
-			</div>
-		</div>
-	);
+      <LoginSocialButtons
+  onLogin={(user) => onNavigate?.("dashboard", user)}/>
+
+      <LoginFooter onRegisterClick={() => setCurrentScreen("register")} />
+    </AuthShell>
+  );
 }

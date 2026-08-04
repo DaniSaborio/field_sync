@@ -1,5 +1,6 @@
 import { ArrowRight, Eye, EyeOff, Lock, Mail, User } from "lucide-react";
 import type { FormEvent } from "react";
+import { FloatingInput } from "../auth/floating-input";
 
 type RegisterFormProps = {
   fullName: string;
@@ -39,132 +40,104 @@ export function RegisterForm({
   onSubmit,
 }: RegisterFormProps) {
   return (
-    <form onSubmit={onSubmit} className="space-y-5">
-      <div>
-        <label className="mb-2 block text-xs font-semibold tracking-[0.5px] text-slate-400">
-          NOMBRE COMPLETO
-        </label>
-        <div className="relative">
-          <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">
-            <User size={18} />
-          </div>
-          <input
-            type="text"
-            value={fullName}
-            onChange={(event) => onFullNameChange(event.target.value)}
-            placeholder="Tu nombre"
-            required
-            className="w-full rounded-2xl border border-white/10 bg-slate-900/80 py-4 pl-12 pr-4 text-sm text-slate-100 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-400/10"
-          />
-        </div>
-      </div>
+    <form onSubmit={onSubmit} className="space-y-3">
+      <FloatingInput
+        id="register-full-name"
+        label="NOMBRE COMPLETO"
+        type="text"
+        value={fullName}
+        onChange={onFullNameChange}
+        placeholder="Tu nombre"
+        required
+        icon={<User size={16} />}
+      />
 
-      <div>
-        <label className="mb-2 block text-xs font-semibold tracking-[0.5px] text-slate-400">
-          CORREO ELECTRONICO
-        </label>
-        <div className="relative">
-          <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">
-            <Mail size={18} />
-          </div>
-          <input
-            type="email"
-            value={email}
-            onChange={(event) => onEmailChange(event.target.value)}
-            placeholder="tu@email.com"
-            required
-            className="w-full rounded-2xl border border-white/10 bg-slate-900/80 py-4 pl-12 pr-4 text-sm text-slate-100 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-400/10"
-          />
-        </div>
-      </div>
+      <FloatingInput
+        id="register-email"
+        label="CORREO ELECTRÓNICO"
+        type="email"
+        value={email}
+        onChange={onEmailChange}
+        placeholder="tu@email.com"
+        required
+        icon={<Mail size={16} />}
+      />
 
-      <div>
-        <label className="mb-2 block text-xs font-semibold tracking-[0.5px] text-slate-400">
-          CONTRASENA
-        </label>
-        <div className="relative">
-          <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">
-            <Lock size={18} />
-          </div>
-          <input
-            type={showPassword ? "text" : "password"}
-            value={password}
-            onChange={(event) => onPasswordChange(event.target.value)}
-            placeholder="Minimo 8 caracteres"
-            required
-            minLength={8}
-            className="w-full rounded-2xl border border-white/10 bg-slate-900/80 py-4 pl-12 pr-12 text-sm text-slate-100 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-400/10"
-          />
+      <FloatingInput
+        id="register-password"
+        label="CONTRASEÑA"
+        type={showPassword ? "text" : "password"}
+        value={password}
+        onChange={onPasswordChange}
+        placeholder="Mínimo 8 caracteres"
+        required
+        minLength={8}
+        icon={<Lock size={16} />}
+        rightSlot={
           <button
             type="button"
             onClick={onTogglePassword}
-            className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 transition hover:text-slate-300"
-            aria-label={showPassword ? "Ocultar contrasena" : "Mostrar contrasena"}
+            className="text-slate-500 transition hover:text-slate-300"
+            aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
           >
-            {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
           </button>
-        </div>
-      </div>
+        }
+      />
 
-      <div>
-        <label className="mb-2 block text-xs font-semibold tracking-[0.5px] text-slate-400">
-          CONFIRMAR CONTRASENA
-        </label>
-        <div className="relative">
-          <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">
-            <Lock size={18} />
-          </div>
-          <input
-            type={showConfirmPassword ? "text" : "password"}
-            value={confirmPassword}
-            onChange={(event) => onConfirmPasswordChange(event.target.value)}
-            placeholder="Repite tu contrasena"
-            required
-            minLength={8}
-            className="w-full rounded-2xl border border-white/10 bg-slate-900/80 py-4 pl-12 pr-12 text-sm text-slate-100 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-400/10"
-          />
+      <FloatingInput
+        id="register-confirm-password"
+        label="CONFIRMAR CONTRASEÑA"
+        type={showConfirmPassword ? "text" : "password"}
+        value={confirmPassword}
+        onChange={onConfirmPasswordChange}
+        placeholder="Repite tu contraseña"
+        required
+        minLength={8}
+        icon={<Lock size={16} />}
+        rightSlot={
           <button
             type="button"
             onClick={onToggleConfirmPassword}
-            className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 transition hover:text-slate-300"
-            aria-label={showConfirmPassword ? "Ocultar confirmacion" : "Mostrar confirmacion"}
+            className="text-slate-500 transition hover:text-slate-300"
+            aria-label={showConfirmPassword ? "Ocultar confirmación" : "Mostrar confirmación"}
           >
-            {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
           </button>
-        </div>
-      </div>
+        }
+      />
 
       <button
         type="button"
         onClick={onToggleTerms}
-        className="flex items-center gap-2 text-left"
+        className="flex items-center gap-2 pt-1 text-left"
       >
         <span
-          className="flex h-5 w-5 items-center justify-center rounded-md border text-[12px]"
+          className="flex h-4 w-4 items-center justify-center rounded-[6px] border text-[10px]"
           style={{
-            background: acceptTerms ? "#10B981" : "#1E293B",
-            borderColor: acceptTerms ? "transparent" : "rgba(255,255,255,0.1)",
-            color: acceptTerms ? "#0F172A" : "transparent",
+            background: acceptTerms ? "#10B981" : "transparent",
+            borderColor: acceptTerms ? "transparent" : "rgba(255,255,255,0.15)",
+            color: acceptTerms ? "#052e21" : "transparent",
           }}
         >
           ✓
         </span>
         <span className="text-xs font-medium text-slate-400">
-          Acepto terminos y condiciones
+          Acepto términos y condiciones
         </span>
       </button>
 
       <button
         type="submit"
         disabled={isLoading || !acceptTerms || password !== confirmPassword}
-        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-linear-to-br from-emerald-400 to-emerald-600 py-4 text-sm font-bold tracking-[0.3px] text-slate-950 shadow-[0_4px_20px_rgba(16,185,129,0.3)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-70"
+        className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-linear-to-br from-emerald-400 to-emerald-600 py-3 text-sm font-bold tracking-[0.3px] text-slate-950 shadow-[0_6px_18px_rgba(16,185,129,0.25)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-70"
       >
         {isLoading ? (
           <span className="h-5 w-5 animate-spin rounded-full border-2 border-transparent border-t-current" />
         ) : (
           <>
-            <span>Crear Cuenta</span>
-            <ArrowRight size={18} />
+            <span>Crear cuenta</span>
+            <ArrowRight size={16} />
           </>
         )}
       </button>

@@ -6,7 +6,7 @@
     "seed": "node --import tsx prisma/seed.ts"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --hostname 192.168.0.23",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -18,11 +18,14 @@
     "db:setup": "prisma generate && prisma db push && prisma db seed"
   },
   "dependencies": {
+    "@auth/prisma-adapter": "^2.11.3",
     "@prisma/adapter-pg": "^7.9.0",
     "@prisma/client": "^7.9.0",
+    "@react-oauth/google": "^0.13.5",
     "bcryptjs": "^3.0.3",
     "dotenv": "^17.4.2",
-    "jwt": "^0.2.0",
+    "google-auth-library": "^11.0.0",
+    "jsonwebtoken": "^9.0.3",
     "lucide-react": "^1.25.0",
     "next": "16.2.10",
     "prisma": "^7.8.0",
@@ -36,6 +39,7 @@
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

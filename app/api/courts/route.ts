@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
 
     if (courtsFromDb.length > 0) {
       const courts = courtsFromDb
-        .filter((court) => {
+  .filter((court: (typeof courtsFromDb)[number]) => {
           if (surface && surface !== "all" && court.surface !== surface) return false;
           return true;
         })
