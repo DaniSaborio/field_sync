@@ -9,7 +9,18 @@ FROM base AS deps
 COPY package.json package-lock.json ./
 RUN npm ci
 
-# ---- 2. Generar cliente de Prisma y compilar la app ----
+# ---- 2. Desarrollo con hot reload (código montado como volumen, ver docker-compose.yml) ----
+FROM base AS dev
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+COPY .env.local .env.local
+RUN npx prisma generate
+EXPOSE 3000
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+CMD ["npm", "run", "dev:docker"]
+
+# ---- 3. Generar cliente de Prisma y compilar la app (producción) ----
 FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
