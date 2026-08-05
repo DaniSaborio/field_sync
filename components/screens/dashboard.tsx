@@ -69,6 +69,7 @@ export type AppUser = {
 };
 
 type PaymentMethod = "sinpe" | "efectivo";
+type PaymentStatus = "pendiente" | "verificado" | "rechazado";
 
 type CourtReservation = {
   id: number;
@@ -76,14 +77,16 @@ type CourtReservation = {
   courtId: number;
   date: string;
   timeSlot: string;
-  status: "confirmed" | "cancelled";
+  status: "pendiente" | "confirmada" | "rechazada" | "cancelada";
   createdAt: string;
   paymentMethod?: PaymentMethod | null;
+  paymentStatus?: PaymentStatus | null;
   amount?: number | null;
 };
 
 type CourtCard = {
   id: number;
+  tenantId: number;
   name: string;
   location: string;
   mapsUrl?: string | null;
@@ -153,6 +156,7 @@ type UserOption = {
 };
 
 type ProfileSnapshot = {
+  kind?: "jugador";
   user: AppUser;
   profile: {
     id: number;
@@ -168,6 +172,25 @@ type ProfileSnapshot = {
   courts: string[];
   standings: Standing[];
 };
+
+type OwnedCourtSummary = {
+  id: number;
+  name: string;
+  address: string | null;
+  pricePerHour: number | null;
+  rating: number | null;
+  pendingCount: number;
+  confirmedCount: number;
+  verifiedRevenue: number;
+};
+
+type TenantProfileSnapshot = {
+  kind: "tenant";
+  user: { id: number; fullName: string; email: string; role: string; notificationsEnabled: boolean };
+  courts: OwnedCourtSummary[];
+};
+
+type AnyProfileSnapshot = ProfileSnapshot | TenantProfileSnapshot;
 
 type DashboardScreenProps = {
   user: AppUser;
@@ -679,7 +702,7 @@ function BookingPanel({
         );
       }
 
-      const parts = [`Reserva confirmada con ${paymentMethodLabels[paymentMethod]}`];
+      const parts = [`Reserva registrada con ${paymentMethodLabels[paymentMethod]}, pendiente de que el dueño de la cancha confirme el pago`];
       if (options?.splitPayment) parts.push("pago dividido notificado a la plantilla");
       if (options?.rivalTeamId) parts.push("rival invitado");
       setMessage(`${parts.join(", ")}.`);
@@ -875,19 +898,26 @@ function BookingPanel({
                   meta={`${reservation.date} · ${reservation.timeSlot}${
                     reservation.paymentMethod ? ` · ${paymentMethodLabels[reservation.paymentMethod]}` : ""
                   }`}
-                  disabled={reservation.status === "cancelled"}
+                  disabled={reservation.status === "cancelada" || reservation.status === "rechazada"}
                   right={
-                    reservation.status === "cancelled" ? (
+                    reservation.status === "cancelada" ? (
                       <RowTag tone="negative">Cancelada</RowTag>
+                    ) : reservation.status === "rechazada" ? (
+                      <RowTag tone="negative">Pago rechazado</RowTag>
                     ) : (
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        disabled={busy}
-                        onClick={() => cancel(reservation.id)}
-                      >
-                        Cancelar
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        {reservation.status === "pendiente" ? (
+                          <RowTag tone="default">Pendiente de confirmación</RowTag>
+                        ) : null}
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => cancel(reservation.id)}
+                        >
+                          Cancelar
+                        </Button>
+                      </div>
                     )
                   }
                 />
@@ -1448,12 +1478,12 @@ function MyTournamentsPanel({ user }: { user: AppUser }) {
 }
 
 function ProfilePanel({ user }: { user: AppUser }) {
-  const [profile, setProfile] = useState<ProfileSnapshot | null>(null);
+  const [profile, setProfile] = useState<AnyProfileSnapshot | null>(null);
   const [message, setMessage] = useState("");
 
   async function loadProfile() {
     const response = await fetch(`/api/profile?userId=${user.id}`);
-    const payload = await readJson<ApiResponse<ProfileSnapshot>>(response);
+    const payload = await readJson<ApiResponse<AnyProfileSnapshot>>(response);
     if (!response.ok) {
       throw new Error(payload.error || "No pudimos cargar el perfil");
     }
@@ -1493,6 +1523,60 @@ function ProfilePanel({ user }: { user: AppUser }) {
     }
     setMessage("Preferencias de notificaciones actualizadas.");
     await loadProfile();
+  }
+
+  if (profile?.kind === "tenant") {
+    const totalPending = profile.courts.reduce((sum, court) => sum + court.pendingCount, 0);
+
+    return (
+      <PanelShell
+        title="Perfil de la cancha"
+        description="Tus canchas, reservas por confirmar e ingresos verificados."
+        action={<StatusPill>{profile.user.notificationsEnabled ? "Notif. ON" : "Notif. OFF"}</StatusPill>}
+      >
+        {message ? <MessageBanner message={message} /> : null}
+        <div className="grid gap-4 xl:grid-cols-3">
+          <Card nested>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Dueño de cancha</p>
+            <h3 className="mt-2 font-display text-xl font-black leading-tight tracking-tight text-black">{profile.user.fullName}</h3>
+            <p className="font-sans text-sm text-muted">{profile.user.email}</p>
+            <Button type="button" size="sm" variant="secondary" className="mt-3" onClick={() => updateNotifications(!profile.user.notificationsEnabled)}>
+              {profile.user.notificationsEnabled ? "Desactivar notificaciones" : "Activar notificaciones"}
+            </Button>
+          </Card>
+          <Card nested className="xl:col-span-2">
+            <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Resumen</p>
+            <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+              <div><p className="font-mono text-2xl font-black tabular-nums text-black">{profile.courts.length}</p><p className="font-mono text-[10px] uppercase tracking-wider text-muted">Canchas</p></div>
+              <div><p className="font-mono text-2xl font-black tabular-nums text-black">{totalPending}</p><p className="font-mono text-[10px] uppercase tracking-wider text-muted">Pagos por revisar</p></div>
+              <div><p className="font-mono text-2xl font-black tabular-nums text-black">₡{profile.courts.reduce((sum, court) => sum + court.verifiedRevenue, 0)}</p><p className="font-mono text-[10px] uppercase tracking-wider text-muted">Verificado</p></div>
+            </div>
+          </Card>
+          <Card nested className="xl:col-span-3">
+            <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Mis canchas</p>
+            {profile.courts.length > 0 ? (
+              <ul className="mt-2">
+                {profile.courts.map((court) => (
+                  <Row
+                    key={court.id}
+                    title={court.name}
+                    meta={`${court.address ?? "Sin dirección"}${court.pricePerHour ? ` · $${court.pricePerHour}/h` : ""}`}
+                    right={
+                      <div className="flex items-center gap-2">
+                        {court.pendingCount > 0 ? <RowTag tone="default">{court.pendingCount} por revisar</RowTag> : null}
+                        <RowTag tone="positive">{court.confirmedCount} confirmadas</RowTag>
+                      </div>
+                    }
+                  />
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-3 font-mono text-[11px] uppercase tracking-wider text-muted">Todavía no tenés canchas registradas.</p>
+            )}
+          </Card>
+        </div>
+      </PanelShell>
+    );
   }
 
   return (
@@ -1825,6 +1909,114 @@ function NotificationsPanel({ user }: { user: AppUser }) {
   );
 }
 
+function isTenant(user: AppUser) {
+  return user.role === "tenant";
+}
+
+function TenantPaymentsPanel({ user }: { user: AppUser }) {
+  const [courts, setCourts] = useState<CourtCard[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function loadCourts() {
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/courts");
+      const payload = await readJson<ApiResponse<{ courts: CourtCard[] }>>(response);
+      if (!response.ok) {
+        throw new Error(payload.error || "No pudimos cargar las reservas");
+      }
+      setCourts(payload.courts ?? []);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No pudimos cargar las reservas");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadCourts();
+  }, []);
+
+  const myCourts = useMemo(() => courts.filter((court) => court.tenantId === user.id), [courts, user.id]);
+  const pendingReservations = useMemo(
+    () =>
+      myCourts.flatMap((court) =>
+        court.reservations
+          .filter((reservation) => reservation.status === "pendiente")
+          .map((reservation) => ({ ...reservation, courtName: court.name })),
+      ),
+    [myCourts],
+  );
+
+  async function respond(reservationId: number, action: "confirm" | "reject") {
+    let reason: string | null = null;
+    if (action === "reject") {
+      reason = window.prompt("Motivo del rechazo del pago:");
+      if (!reason || !reason.trim()) return;
+    }
+
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/courts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reservationId, tenantId: user.id, action, reason }),
+      });
+      const payload = await readJson<ApiResponse<Record<string, unknown>>>(response);
+      if (!response.ok) {
+        throw new Error(payload.error || "No pudimos procesar la verificación");
+      }
+      setMessage(action === "confirm" ? "Pago confirmado, reserva aceptada." : "Reserva rechazada.");
+      await loadCourts();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No pudimos procesar la verificación");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <PanelShell
+      title="Pagos pendientes"
+      description="Verificá el pago declarado (SINPE o efectivo) antes de aceptar cada reserva."
+      action={<StatusPill>{pendingReservations.length} por revisar</StatusPill>}
+    >
+      {message ? <MessageBanner message={message} /> : null}
+      {pendingReservations.length > 0 ? (
+        <ul>
+          {pendingReservations.map((reservation) => (
+            <Row
+              key={reservation.id}
+              title={reservation.courtName}
+              meta={`${reservation.date} · ${reservation.timeSlot}${
+                reservation.paymentMethod ? ` · ${paymentMethodLabels[reservation.paymentMethod]}` : ""
+              }${reservation.amount ? ` · ₡${reservation.amount}` : ""}`}
+              right={
+                <div className="flex items-center gap-2">
+                  <Button size="sm" disabled={busy} onClick={() => respond(reservation.id, "confirm")}>
+                    Confirmar pago
+                  </Button>
+                  <Button variant="destructive" size="sm" disabled={busy} onClick={() => respond(reservation.id, "reject")}>
+                    Rechazar
+                  </Button>
+                </div>
+              }
+            />
+          ))}
+        </ul>
+      ) : (
+        <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
+          No hay pagos pendientes de verificación.
+        </p>
+      )}
+    </PanelShell>
+  );
+}
+
 export function DashboardScreen({ user, onLogout }: DashboardScreenProps) {
   const [activeTab, setActiveTab] = useState<(typeof tabButtons)[number]["id"]>("reservas");
 
@@ -1866,7 +2058,7 @@ export function DashboardScreen({ user, onLogout }: DashboardScreenProps) {
           </div>
         </header>
 
-        {activeTab === "reservas" ? <BookingPanel user={user} /> : null}
+        {activeTab === "reservas" ? (isTenant(user) ? <TenantPaymentsPanel user={user} /> : <BookingPanel user={user} />) : null}
         {activeTab === "torneos" ? (isAdmin(user) ? <TournamentsPanel user={user} /> : <MyTournamentsPanel user={user} />) : null}
         {activeTab === "perfil" ? <ProfilePanel user={user} /> : null}
         {activeTab === "plantilla" ? <TeamsPanel user={user} /> : null}

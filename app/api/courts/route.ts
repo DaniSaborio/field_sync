@@ -7,6 +7,7 @@ import {
   notifyTeamCaptain,
   notifyTeamMembers,
   reserveCourt as reserveCourtMemory,
+  verifyPayment as verifyPaymentMemory,
 } from "@/lib/fieldsync-store";
 
 const DEFAULT_SLOTS = [
@@ -29,6 +30,25 @@ function parseSlotTime(dateIso: string, slot: string) {
   const d = new Date(`${dateIso}T00:00:00.000Z`);
   d.setUTCHours(h, m ?? 0, 0, 0);
   return d;
+}
+
+const HOLD_DURATION_MS = 30 * 60 * 1000;
+
+// Un horario está ocupado si tiene una reserva "confirmada", o una "pendiente"
+// cuyo hold todavía no vence (mientras el dueño no confirme el pago).
+function activeSlotWhere(courtId: number, date: Date, startTime: Date) {
+  return {
+    id_court: courtId,
+    date,
+    start_time: startTime,
+    OR: [
+      { status: "confirmada" },
+      {
+        status: "pendiente",
+        OR: [{ hold_expires_at: null }, { hold_expires_at: { gt: new Date() } }],
+      },
+    ],
+  };
 }
 
 export async function GET(request: NextRequest) {
@@ -56,9 +76,14 @@ export async function GET(request: NextRequest) {
           return true;
         })
         .map((court) => {
+          const now = Date.now();
           const reservedSlots = new Set(
             court.reservations
-              .filter((r) => r.status === "confirmed")
+              .filter(
+                (r) =>
+                  r.status === "confirmada" ||
+                  (r.status === "pendiente" && (!r.hold_expires_at || r.hold_expires_at.getTime() > now)),
+              )
               .map((r) => {
                 const h = r.start_time.getUTCHours().toString().padStart(2, "0");
                 const m = r.start_time.getUTCMinutes().toString().padStart(2, "0");
@@ -82,9 +107,10 @@ export async function GET(request: NextRequest) {
                 courtId: r.id_court,
                 date: r.date.toISOString().slice(0, 10),
                 timeSlot: `${h}:${m}`,
-                status: r.status as "confirmed" | "cancelled",
+                status: r.status as "pendiente" | "confirmada" | "rechazada" | "cancelada",
                 createdAt: r.created_at.toISOString(),
                 paymentMethod: payment?.payment_method ?? null,
+                paymentStatus: payment?.status ?? null,
                 amount: payment ? Number(payment.amount) : null,
               };
             });
@@ -165,22 +191,51 @@ export async function POST(request: NextRequest) {
       ]);
 
       if (courtExists && userExists) {
-        const conflict = await prisma.reservation.findFirst({
-          where: {
-            id_court: courtId,
-            date: dateOnly,
-            start_time: startDateTime,
-            status: "confirmed",
-          },
+        const amount = courtExists.price_per_hour ?? 0;
+
+        const outcome = await prisma.$transaction(async (tx) => {
+          // Bloquea la fila de la cancha para serializar cualquier intento
+          // concurrente de reservar el mismo horario (evita el double-booking).
+          await tx.$executeRaw`SELECT id_court FROM court WHERE id_court = ${courtId} FOR UPDATE`;
+
+          const conflict = await tx.reservation.findFirst({
+            where: activeSlotWhere(courtId, dateOnly, startDateTime),
+          });
+
+          if (conflict) {
+            return { conflict: true as const };
+          }
+
+          const reservation = await tx.reservation.create({
+            data: {
+              id_court: courtId,
+              id_user: userId,
+              date: dateOnly,
+              start_time: startDateTime,
+              end_time: endDateTime,
+              status: "pendiente",
+              hold_expires_at: new Date(Date.now() + HOLD_DURATION_MS),
+            },
+          });
+
+          const payment = await tx.payment.create({
+            data: {
+              id_reservation: reservation.id_reservation,
+              amount,
+              payment_method: paymentMethod,
+            },
+          });
+
+          return { conflict: false as const, reservation, payment };
         });
 
-        if (conflict) {
+        if (outcome.conflict) {
           const laterSlots = DEFAULT_SLOTS.filter((s) => s > timeSlot);
           let suggestedSlot: string | null = null;
           for (const slot of laterSlots) {
             const sStart = parseSlotTime(date, slot);
             const taken = await prisma.reservation.findFirst({
-              where: { id_court: courtId, date: dateOnly, start_time: sStart, status: "confirmed" },
+              where: activeSlotWhere(courtId, dateOnly, sStart),
             });
             if (!taken) {
               suggestedSlot = slot;
@@ -193,30 +248,7 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        const amount = courtExists.price_per_hour ?? 0;
-
-        const { reservation, payment } = await prisma.$transaction(async (tx) => {
-          const reservation = await tx.reservation.create({
-            data: {
-              id_court: courtId,
-              id_user: userId,
-              date: dateOnly,
-              start_time: startDateTime,
-              end_time: endDateTime,
-              status: "confirmed",
-            },
-          });
-
-          const payment = await tx.payment.create({
-            data: {
-              id_reservation: reservation.id_reservation,
-              amount,
-              payment_method: paymentMethod,
-            },
-          });
-
-          return { reservation, payment };
-        });
+        const { reservation, payment } = outcome;
 
         if (userExists.notifications_enabled) {
           const paymentLabel = paymentMethod === "sinpe" ? "SINPE Móvil" : "efectivo";
@@ -224,7 +256,19 @@ export async function POST(request: NextRequest) {
             data: {
               id_user: userId,
               type: "reservation",
-              message: `Reserva confirmada para ${courtExists.name} a las ${timeSlot}. Pago con ${paymentLabel}.`,
+              message: `Reserva en ${courtExists.name} a las ${timeSlot} pendiente de confirmación de pago (${paymentLabel}) por el dueño de la cancha.`,
+            },
+          });
+        }
+
+        const tenant = await prisma.user.findUnique({ where: { id_user: courtExists.id_tenant } });
+        if (tenant?.notifications_enabled) {
+          const paymentLabel = paymentMethod === "sinpe" ? "SINPE Móvil" : "efectivo";
+          await prisma.notification.create({
+            data: {
+              id_user: tenant.id_user,
+              type: "payment-pending",
+              message: `Nueva reserva en ${courtExists.name} el ${date} a las ${timeSlot}. Verifica el pago por ${paymentLabel} (₡${Number(amount)}) para confirmarla.`,
             },
           });
         }
@@ -266,6 +310,7 @@ export async function POST(request: NextRequest) {
               status: reservation.status,
               createdAt: reservation.created_at.toISOString(),
               paymentMethod: payment.payment_method,
+              paymentStatus: payment.status,
               amount: Number(payment.amount),
             },
           },
@@ -330,7 +375,7 @@ export async function DELETE(request: NextRequest) {
 
         const updated = await prisma.reservation.update({
           where: { id_reservation: reservationId },
-          data: { status: "cancelled" },
+          data: { status: "cancelada" },
         });
 
         const notifications = [];
@@ -371,6 +416,123 @@ export async function DELETE(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : "No pudimos cancelar la reserva" },
+      { status: 500 },
+    );
+  }
+}
+
+// El dueño de la cancha (tenant) confirma o rechaza el pago declarado por el
+// jugador. Solo entonces la reserva pasa de "pendiente" a su estado final.
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const reservationId = Number(body?.reservationId);
+    const tenantId = Number(body?.tenantId);
+    const action = String(body?.action ?? "");
+    const rejectionReason = body?.reason ? String(body.reason) : null;
+
+    if (!reservationId || !tenantId || (action !== "confirm" && action !== "reject")) {
+      return NextResponse.json(
+        { ok: false, error: "Faltan datos para procesar la verificación del pago" },
+        { status: 400 },
+      );
+    }
+
+    if (action === "reject" && !rejectionReason) {
+      return NextResponse.json(
+        { ok: false, error: "Indica el motivo del rechazo" },
+        { status: 400 },
+      );
+    }
+
+    try {
+      const reservation = await prisma.reservation.findUnique({
+        where: { id_reservation: reservationId },
+        include: { court: true, user: true, payments: true },
+      });
+
+      if (reservation) {
+        if (reservation.court.id_tenant !== tenantId) {
+          return NextResponse.json(
+            { ok: false, error: "Esta reserva no pertenece a una de tus canchas" },
+            { status: 403 },
+          );
+        }
+
+        if (reservation.status !== "pendiente") {
+          return NextResponse.json(
+            { ok: false, error: "Esta reserva ya fue procesada" },
+            { status: 409 },
+          );
+        }
+
+        const payment = reservation.payments[0];
+        if (!payment) {
+          return NextResponse.json({ ok: false, error: "No encontramos el pago asociado" }, { status: 404 });
+        }
+
+        const [updatedReservation, updatedPayment] = await prisma.$transaction([
+          prisma.reservation.update({
+            where: { id_reservation: reservationId },
+            data: { status: action === "confirm" ? "confirmada" : "rechazada" },
+          }),
+          prisma.payment.update({
+            where: { id_payment: payment.id_payment },
+            data: {
+              status: action === "confirm" ? "verificado" : "rechazado",
+              id_verified_by: tenantId,
+              verified_at: new Date(),
+              rejection_reason: action === "reject" ? rejectionReason : null,
+            },
+          }),
+        ]);
+
+        if (reservation.user.notifications_enabled) {
+          const timeSlot = `${reservation.start_time.getUTCHours().toString().padStart(2, "0")}:${reservation.start_time.getUTCMinutes().toString().padStart(2, "0")}`;
+          const message =
+            action === "confirm"
+              ? `¡Pago verificado! Tu reserva en ${reservation.court.name} el ${reservation.date.toISOString().slice(0, 10)} a las ${timeSlot} quedó confirmada.`
+              : `Tu reserva en ${reservation.court.name} el ${reservation.date.toISOString().slice(0, 10)} a las ${timeSlot} fue rechazada: ${rejectionReason}.`;
+
+          await prisma.notification.create({
+            data: {
+              id_user: reservation.id_user,
+              type: action === "confirm" ? "reservation" : "cancellation",
+              message,
+            },
+          });
+        }
+
+        return NextResponse.json({
+          ok: true,
+          reservation: {
+            id: updatedReservation.id_reservation,
+            status: updatedReservation.status,
+          },
+          payment: {
+            id: updatedPayment.id_payment,
+            status: updatedPayment.status,
+            rejectionReason: updatedPayment.rejection_reason,
+          },
+        });
+      }
+    } catch (dbError) {
+      console.warn("Prisma verify payment failed, falling back to in-memory store:", dbError);
+    }
+
+    const result = verifyPaymentMemory({
+      reservationId,
+      tenantId,
+      action,
+      reason: rejectionReason,
+    });
+    if (!result.ok) {
+      return NextResponse.json(result, { status: 409 });
+    }
+    return NextResponse.json(result);
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: error instanceof Error ? error.message : "No pudimos verificar el pago" },
       { status: 500 },
     );
   }

@@ -3,7 +3,7 @@ export type UserRole = "administrador" | "recepcionista" | "organizador" | "juga
 export type CourtSurface = "synthetic" | "natural" | "indoor";
 export type TournamentFormat = "eliminatorio" | "todos-contra-todos";
 export type MatchStatus = "scheduled" | "confirmed";
-export type NotificationType = "reservation" | "cancellation" | "tournament" | "convocation" | "match-result" | "payment-split" | "match-invite";
+export type NotificationType = "reservation" | "cancellation" | "tournament" | "convocation" | "match-result" | "payment-split" | "match-invite" | "payment-pending";
 
 export type UserRecord = {
   id: number;
@@ -29,6 +29,8 @@ export type CourtRecord = {
 };
 
 export type PaymentMethod = "sinpe" | "efectivo";
+export type ReservationStatus = "pendiente" | "confirmada" | "rechazada" | "cancelada";
+export type PaymentStatus = "pendiente" | "verificado" | "rechazado";
 
 export type ReservationRecord = {
   id: number;
@@ -36,9 +38,12 @@ export type ReservationRecord = {
   courtId: number;
   date: string;
   timeSlot: string;
-  status: "confirmed" | "cancelled";
+  status: ReservationStatus;
   createdAt: string;
+  holdExpiresAt: string | null;
   paymentMethod: PaymentMethod | null;
+  paymentStatus: PaymentStatus | null;
+  rejectionReason: string | null;
   amount: number | null;
 };
 
@@ -146,6 +151,17 @@ export type ReservationResult =
       ok: false;
       error: string;
       suggestedSlot?: string | null;
+    };
+
+export type PaymentVerificationResult =
+  | {
+      ok: true;
+      reservation: ReservationRecord;
+      notifications: NotificationRecord[];
+    }
+  | {
+      ok: false;
+      error: string;
     };
 
 export type CancelResult =
@@ -318,9 +334,12 @@ const seedState = (): StoreState => ({
       courtId: 1,
       date: "2026-07-30",
       timeSlot: "18:00",
-      status: "confirmed",
+      status: "confirmada",
       createdAt: "2026-07-20T10:00:00.000Z",
+      holdExpiresAt: null,
       paymentMethod: "sinpe",
+      paymentStatus: "verificado",
+      rejectionReason: null,
       amount: 55,
     },
     {
@@ -329,9 +348,12 @@ const seedState = (): StoreState => ({
       courtId: 3,
       date: "2026-07-29",
       timeSlot: "15:00",
-      status: "confirmed",
+      status: "confirmada",
       createdAt: "2026-07-20T11:00:00.000Z",
+      holdExpiresAt: null,
       paymentMethod: "efectivo",
+      paymentStatus: "verificado",
+      rejectionReason: null,
       amount: 72,
     },
   ],
@@ -517,6 +539,16 @@ function normalizeEmail(email: string) {
 
 function formatDateTime(date: string, timeSlot: string) {
   return new Date(`${date}T${timeSlot}:00.000Z`);
+}
+
+// Una reserva bloquea el horario si está "confirmada", o "pendiente" mientras
+// el hold no venza (esperando que el dueño de la cancha verifique el pago).
+function isSlotActive(reservation: ReservationRecord, now: Date = new Date()) {
+  if (reservation.status === "confirmada") return true;
+  if (reservation.status === "pendiente") {
+    return !reservation.holdExpiresAt || new Date(reservation.holdExpiresAt).getTime() > now.getTime();
+  }
+  return false;
 }
 
 function createNotification(userId: number, type: NotificationType, message: string) {
@@ -754,7 +786,7 @@ export function listCourts(filters: ReservationFilter = {}) {
     }
     return true;
   }).map((court) => {
-    const reservedSlots = store.reservations.filter((reservation) => reservation.courtId === court.id && reservation.status === "confirmed" && (!date || reservation.date === date)).map((reservation) => reservation.timeSlot);
+    const reservedSlots = store.reservations.filter((reservation) => reservation.courtId === court.id && isSlotActive(reservation) && (!date || reservation.date === date)).map((reservation) => reservation.timeSlot);
 
     const slots = court.availableSlots.filter((slot) => {
       if (timeSlot && timeSlot !== "all") {
@@ -777,7 +809,7 @@ export function listCourts(filters: ReservationFilter = {}) {
     return {
       ...clone(court),
       availableSlots: slots,
-      reservations: store.reservations.filter((reservation) => reservation.courtId === court.id && reservation.status === "confirmed" && (!date || reservation.date === date) && (!userId || reservation.userId === userId)).map(clone),
+      reservations: store.reservations.filter((reservation) => reservation.courtId === court.id && reservation.status !== "cancelada" && (!date || reservation.date === date) && (!userId || reservation.userId === userId)).map(clone),
     };
   }).filter((court) => court.availableSlots.length > 0 || court.reservations.length > 0);
 
@@ -824,6 +856,14 @@ export function getTeamById(teamId: number) {
   return team ? clone(team) : null;
 }
 
+const HOLD_DURATION_MS = 30 * 60 * 1000;
+
+function notifyCourtOwner(court: CourtRecord, type: NotificationType, message: string) {
+  const owner = store.users.find((candidate) => candidate.tenantId === court.tenantId && candidate.role === "administrador");
+  if (!owner || !owner.notificationsEnabled) return null;
+  return createNotification(owner.id, type, message);
+}
+
 export function reserveCourt(input: {
   userId: number;
   courtId: number;
@@ -845,10 +885,10 @@ export function reserveCourt(input: {
     return { ok: false, error: "Selecciona un método de pago (SINPE o efectivo)" };
   }
 
-  const conflict = store.reservations.find((reservation) => reservation.courtId === input.courtId && reservation.date === input.date && reservation.timeSlot === input.timeSlot && reservation.status === "confirmed");
+  const conflict = store.reservations.find((reservation) => reservation.courtId === input.courtId && reservation.date === input.date && reservation.timeSlot === input.timeSlot && isSlotActive(reservation));
   if (conflict) {
     const availableLater = court.availableSlots.find((slot) => {
-      const reserved = store.reservations.some((reservation) => reservation.courtId === input.courtId && reservation.date === input.date && reservation.timeSlot === slot && reservation.status === "confirmed");
+      const reserved = store.reservations.some((reservation) => reservation.courtId === input.courtId && reservation.date === input.date && reservation.timeSlot === slot && isSlotActive(reservation));
       return !reserved && slot > input.timeSlot;
     });
 
@@ -859,22 +899,35 @@ export function reserveCourt(input: {
     };
   }
 
+  const paymentLabel = input.paymentMethod === "sinpe" ? "SINPE Móvil" : "efectivo";
   const reservation: ReservationRecord = {
     id: nextId("reservation"),
     userId: input.userId,
     courtId: input.courtId,
     date: input.date,
     timeSlot: input.timeSlot,
-    status: "confirmed",
+    status: "pendiente",
     createdAt: new Date().toISOString(),
+    holdExpiresAt: new Date(Date.now() + HOLD_DURATION_MS).toISOString(),
     paymentMethod: input.paymentMethod,
+    paymentStatus: "pendiente",
+    rejectionReason: null,
     amount: court.pricePerHour,
   };
 
   store.reservations.push(reservation);
   const notifications = user.notificationsEnabled
-    ? [createNotification(input.userId, "reservation", `Reserva confirmada para ${court.name} a las ${input.timeSlot}.`)]
+    ? [createNotification(input.userId, "reservation", `Reserva en ${court.name} a las ${input.timeSlot} pendiente de confirmación de pago (${paymentLabel}) por el dueño de la cancha.`)]
     : [];
+
+  const ownerNotification = notifyCourtOwner(
+    court,
+    "payment-pending",
+    `Nueva reserva en ${court.name} el ${input.date} a las ${input.timeSlot}. Verifica el pago por ${paymentLabel} (₡${court.pricePerHour}) para confirmarla.`,
+  );
+  if (ownerNotification) {
+    notifications.push(ownerNotification);
+  }
 
   if (input.teamId && input.splitPayment) {
     const team = store.teams.find((item) => item.id === input.teamId);
@@ -931,10 +984,58 @@ export function cancelReservation(input: {
     return { ok: false, error: "No es posible cancelar con menos de 24 horas de anticipación" };
   }
 
-  reservation.status = "cancelled";
+  reservation.status = "cancelada";
   const court = store.courts.find((item) => item.id === reservation.courtId);
   const notifications = user.notificationsEnabled && court
     ? [createNotification(input.userId, "cancellation", `Cancelamos tu reserva en ${court.name} para ${reservation.date} ${reservation.timeSlot}.`)]
+    : [];
+
+  return { ok: true, reservation: clone(reservation), notifications: clone(notifications) };
+}
+
+// El dueño de la cancha (administrador del tenant) confirma o rechaza el pago
+// declarado por el jugador. Solo entonces la reserva sale de "pendiente".
+export function verifyPayment(input: {
+  reservationId: number;
+  tenantId: number;
+  action: "confirm" | "reject";
+  reason?: string | null;
+}) : PaymentVerificationResult {
+  const reservation = store.reservations.find((item) => item.id === input.reservationId) ?? null;
+  const court = reservation ? store.courts.find((item) => item.id === reservation.courtId) : null;
+
+  if (!reservation || !court) {
+    return { ok: false, error: "No encontramos la reserva" };
+  }
+
+  if (court.tenantId !== input.tenantId) {
+    return { ok: false, error: "Esta reserva no pertenece a una de tus canchas" };
+  }
+
+  if (reservation.status !== "pendiente") {
+    return { ok: false, error: "Esta reserva ya fue procesada" };
+  }
+
+  if (input.action === "reject" && !input.reason) {
+    return { ok: false, error: "Indica el motivo del rechazo" };
+  }
+
+  reservation.status = input.action === "confirm" ? "confirmada" : "rechazada";
+  reservation.paymentStatus = input.action === "confirm" ? "verificado" : "rechazado";
+  reservation.rejectionReason = input.action === "reject" ? input.reason ?? null : null;
+  reservation.holdExpiresAt = null;
+
+  const user = findUserById(reservation.userId);
+  const notifications = user?.notificationsEnabled
+    ? [
+        createNotification(
+          reservation.userId,
+          input.action === "confirm" ? "reservation" : "cancellation",
+          input.action === "confirm"
+            ? `¡Pago verificado! Tu reserva en ${court.name} el ${reservation.date} a las ${reservation.timeSlot} quedó confirmada.`
+            : `Tu reserva en ${court.name} el ${reservation.date} a las ${reservation.timeSlot} fue rechazada: ${input.reason}.`,
+        ),
+      ]
     : [];
 
   return { ok: true, reservation: clone(reservation), notifications: clone(notifications) };
