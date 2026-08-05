@@ -610,9 +610,11 @@ function CourtResultCard({
 function BookingPanel({
   user,
   onRequireLogin,
+  restrictToTenantId,
 }: {
   user: AppUser | null;
   onRequireLogin?: () => void;
+  restrictToTenantId?: number;
 }) {
   const [date, setDate] = useState(todayIso());
   const [timeSlot, setTimeSlot] = useState("all");
@@ -750,14 +752,15 @@ function BookingPanel({
   const myReservations = useMemo(() => courts.flatMap((court) => court.reservations.map((reservation) => ({ ...reservation, courtName: court.name }))), [courts]);
 
   const filteredCourts = useMemo(() => {
+    const scoped = restrictToTenantId ? courts.filter((court) => court.tenantId === restrictToTenantId) : courts;
     const query = courtSearch.trim().toLowerCase();
-    if (!query) return courts;
-    return courts.filter(
+    if (!query) return scoped;
+    return scoped.filter(
       (court) =>
         court.name.toLowerCase().includes(query) ||
         court.location.toLowerCase().includes(query)
     );
-  }, [courts, courtSearch]);
+  }, [courts, courtSearch, restrictToTenantId]);
 
   const isNegativeMessage = /no pudimos|no es posible/i.test(message);
 
@@ -1068,6 +1071,13 @@ function TournamentsPanel({ user }: { user: AppUser }) {
     return courts.find((court) => court.id === courtId)?.name ?? `Cancha #${courtId}`;
   }
 
+  // Un dueño de cancha solo puede armar torneos en canchas de su propiedad;
+  // un administrador de plataforma puede elegir cualquiera.
+  const selectableCourts = useMemo(
+    () => (isTenant(user) ? courts.filter((court) => court.tenantId === user.id) : courts),
+    [courts, user],
+  );
+
   async function createTournament() {
     setMessage("");
     if (!createForm.courtId) {
@@ -1085,6 +1095,7 @@ function TournamentsPanel({ user }: { user: AppUser }) {
         action: "create",
         tenantId: user.tenantId,
         userId: user.id,
+        role: user.role,
         ...createForm,
       }),
     });
@@ -1178,7 +1189,7 @@ function TournamentsPanel({ user }: { user: AppUser }) {
           <div className="relative">
             <select className={fieldClassName} value={createForm.courtId ?? ""} onChange={(event) => setCreateForm((current) => ({ ...current, courtId: event.target.value ? Number(event.target.value) : null }))}>
               <option value="">Selecciona la cancha</option>
-              {courts.map((court) => <option key={court.id} value={court.id}>{court.name}</option>)}
+              {selectableCourts.map((court) => <option key={court.id} value={court.id}>{court.name}</option>)}
             </select>
             <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
           </div>
@@ -2058,8 +2069,17 @@ export function DashboardScreen({ user, onLogout }: DashboardScreenProps) {
           </div>
         </header>
 
-        {activeTab === "reservas" ? (isTenant(user) ? <TenantPaymentsPanel user={user} /> : <BookingPanel user={user} />) : null}
-        {activeTab === "torneos" ? (isAdmin(user) ? <TournamentsPanel user={user} /> : <MyTournamentsPanel user={user} />) : null}
+        {activeTab === "reservas" ? (
+          isTenant(user) ? (
+            <div className="space-y-6">
+              <TenantPaymentsPanel user={user} />
+              <BookingPanel user={user} restrictToTenantId={user.id} />
+            </div>
+          ) : (
+            <BookingPanel user={user} />
+          )
+        ) : null}
+        {activeTab === "torneos" ? (isAdmin(user) || isTenant(user) ? <TournamentsPanel user={user} /> : <MyTournamentsPanel user={user} />) : null}
         {activeTab === "perfil" ? <ProfilePanel user={user} /> : null}
         {activeTab === "plantilla" ? <TeamsPanel user={user} /> : null}
         {activeTab === "notificaciones" ? <NotificationsPanel user={user} /> : null}

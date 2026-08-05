@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
       const result = createTournament({
         tenantId: Number(body?.tenantId ?? 1),
         createdByUserId: Number(body?.userId ?? 0),
+        creatorRole: typeof body?.role === "string" ? body.role : undefined,
         courtId: Number(body?.courtId ?? 0),
         name: String(body?.name ?? ""),
         format: body?.format === "eliminatorio" ? "eliminatorio" : "todos-contra-todos",
