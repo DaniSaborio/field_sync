@@ -5,14 +5,30 @@ import {
   BadgeCheck,
   Bell,
   CalendarDays,
+  CheckCircle2,
+  ChevronDown,
   Clock3,
+  LogIn,
   LogOut,
+  Search,
   ShieldCheck,
+  TriangleAlert,
   Users,
   Trophy,
   Settings2,
   MapPin,
 } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Row, RowTag } from "@/components/ui/row";
+import { SectionLabel } from "@/components/ui/section-label";
+
+const fieldClassName =
+  "h-11 w-full appearance-none border border-black bg-paper px-3 text-sm font-medium text-black outline-none focus:outline focus:outline-2 focus:outline-black focus:outline-offset-2";
+
+const fieldLabelClassName =
+  "flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-muted";
 
 export type AppUser = {
   id: number;
@@ -229,7 +245,13 @@ function Badge({ children }: { children: React.ReactNode }) {
   );
 }
 
-function BookingPanel({ user }: { user: AppUser }) {
+function BookingPanel({
+  user,
+  onRequireLogin,
+}: {
+  user: AppUser | null;
+  onRequireLogin?: () => void;
+}) {
   const [date, setDate] = useState(todayIso());
   const [timeSlot, setTimeSlot] = useState("all");
   const [surface, setSurface] = useState("all");
@@ -243,7 +265,7 @@ function BookingPanel({ user }: { user: AppUser }) {
     setMessage("");
     try {
       const response = await fetch(
-        `/api/courts?userId=${user.id}&date=${date}&timeSlot=${timeSlot}&surface=${surface}`
+        `/api/courts?${user ? `userId=${user.id}&` : ""}date=${date}&timeSlot=${timeSlot}&surface=${surface}`
       );
       const payload = await readJson<ApiResponse<{ courts: CourtCard[] }>>(response);
       if (!response.ok) {
@@ -263,6 +285,11 @@ function BookingPanel({ user }: { user: AppUser }) {
   }, [date, timeSlot, surface]);
 
   async function reserve(courtId: number, slot: string) {
+    if (!user) {
+      onRequireLogin?.();
+      return;
+    }
+
     if (!navigator.onLine) {
       setMessage("No es posible reservar sin conexión.");
       return;
@@ -295,6 +322,11 @@ function BookingPanel({ user }: { user: AppUser }) {
   }
 
   async function cancel(reservationId: number) {
+    if (!user) {
+      onRequireLogin?.();
+      return;
+    }
+
     if (!navigator.onLine) {
       setMessage("No es posible cancelar sin conexión.");
       return;
@@ -334,138 +366,273 @@ function BookingPanel({ user }: { user: AppUser }) {
     );
   }, [courts, courtSearch]);
 
+  const isNegativeMessage = /no pudimos|no es posible/i.test(message);
+
   return (
-    <div className="space-y-5">
-      <PanelShell
-        title="Disponibilidad en tiempo real"
-        description="Filtra canchas, reserva una franja y cancela una reserva con la política de 24 horas."
-        action={
-          <div className="flex flex-wrap gap-2 text-xs text-slate-400">
-            <Badge>{busy ? "Actualizando" : "Sincronizado"}</Badge>
-            <Badge>{user.notificationsEnabled ? "Notificaciones activas" : "Notificaciones desactivadas"}</Badge>
+    <div className="space-y-6">
+      <section>
+        <SectionLabel icon={MapPin} className="mb-3">
+          Disponibilidad en tiempo real
+        </SectionLabel>
+
+        <Card className="gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="max-w-md font-sans text-sm text-muted">
+              Filtrá canchas, reservá una franja y cancelá con la política de 24 horas.
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              <RowTag tone={busy ? "default" : "positive"}>
+                {busy ? "Actualizando" : "Sincronizado"}
+              </RowTag>
+              {user ? (
+                <RowTag tone={user.notificationsEnabled ? "positive" : "default"}>
+                  {user.notificationsEnabled ? "Notificaciones activas" : "Notificaciones off"}
+                </RowTag>
+              ) : null}
+            </div>
           </div>
-        }
-      >
-        <label className="mb-3 block space-y-2">
-          <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-            <MapPin size={13} />
-            Buscar cancha
-          </span>
-          <input
-            type="search"
-            placeholder="Nombre o ubicación..."
-            value={courtSearch}
-            onChange={(event) => setCourtSearch(event.target.value)}
-            className="h-11 w-full rounded-xl border border-white/10 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400"
-          />
-        </label>
-        <div className="grid gap-3 md:grid-cols-3">
-          <label className="space-y-2">
-            <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-              <CalendarDays size={13} />
-              Fecha
+
+          <label className="block space-y-1.5">
+            <span className={fieldLabelClassName}>
+              <Search size={13} strokeWidth={2} aria-hidden />
+              Buscar cancha
             </span>
             <input
-              type="date"
-              value={date}
-              onChange={(event) => setDate(event.target.value)}
-              className="h-11 w-full rounded-xl border border-white/10 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400"
+              type="search"
+              placeholder="Nombre o ubicación…"
+              value={courtSearch}
+              onChange={(event) => setCourtSearch(event.target.value)}
+              className={fieldClassName}
             />
           </label>
-          <label className="space-y-2">
-            <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-              <Clock3 size={13} />
-              Franja
-            </span>
-            <select
-              value={timeSlot}
-              onChange={(event) => setTimeSlot(event.target.value)}
-              className="h-11 w-full rounded-xl border border-white/10 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400"
-            >
-              <option value="all">Todo el día</option>
-              <option value="morning">Mañana</option>
-              <option value="afternoon">Tarde</option>
-              <option value="night">Noche</option>
-            </select>
-          </label>
-          <label className="space-y-2">
-            <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-              <ShieldCheck size={13} />
-              Superficie
-            </span>
-            <select
-              value={surface}
-              onChange={(event) => setSurface(event.target.value)}
-              className="h-11 w-full rounded-xl border border-white/10 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400"
-            >
-              <option value="all">Todas</option>
-              <option value="synthetic">Sintética</option>
-              <option value="natural">Natural</option>
-              <option value="indoor">Indoor</option>
-            </select>
-          </label>
-        </div>
-        {message ? <p className="mt-4 rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 text-sm text-slate-200">{message}</p> : null}
-      </PanelShell>
 
-      <div className="grid gap-4 xl:grid-cols-3">
-        {filteredCourts.length > 0 ? filteredCourts.map((court) => (
-          <article key={court.id} className="rounded-[24px] border border-white/10 bg-slate-950/70 p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-bold text-slate-100">{court.name}</h3>
-                <p className="mt-1 inline-flex items-center gap-1 text-xs text-slate-400">
-                  <MapPin size={12} />
-                  {court.location}
-                </p>
-              </div>
-              <StatusPill>{court.rating.toFixed(1)}</StatusPill>
-            </div>
-
-            <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-slate-300">
-              <Badge>{surfaceLabel(court.surface)}</Badge>
-              <Badge>{court.capacity}</Badge>
-              <Badge>${court.pricePerHour}/h</Badge>
-              <Badge>{court.availableSlots.length} horarios</Badge>
-            </div>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              {court.availableSlots.length > 0 ? court.availableSlots.map((slot) => (
-                <button
-                  key={`${court.id}-${slot}`}
-                  type="button"
-                  disabled={busy}
-                  onClick={() => reserve(court.id, slot)}
-                  className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-semibold text-emerald-200 transition hover:bg-emerald-400/20 disabled:opacity-60"
+          <div className="grid gap-4 md:grid-cols-3">
+            <label className="block space-y-1.5">
+              <span className={fieldLabelClassName}>
+                <CalendarDays size={13} strokeWidth={2} aria-hidden />
+                Fecha
+              </span>
+              <input
+                type="date"
+                value={date}
+                onChange={(event) => setDate(event.target.value)}
+                className={fieldClassName}
+              />
+            </label>
+            <label className="block space-y-1.5">
+              <span className={fieldLabelClassName}>
+                <Clock3 size={13} strokeWidth={2} aria-hidden />
+                Franja
+              </span>
+              <div className="relative">
+                <select
+                  value={timeSlot}
+                  onChange={(event) => setTimeSlot(event.target.value)}
+                  className={fieldClassName}
                 >
-                  Reservar {slot}
-                </button>
-              )) : <p className="text-xs text-slate-500">Sin horarios libres</p>}
-            </div>
-          </article>
-        )) : <p className="text-sm text-slate-400">No encontramos canchas que coincidan con la búsqueda.</p>}
-      </div>
-
-      <PanelShell title="Mis reservas" description="Las cancelaciones requieren más de 24 horas de anticipación.">
-        <div className="space-y-3">
-          {myReservations.length > 0 ? myReservations.map((reservation) => (
-            <div key={reservation.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3">
-              <div>
-                <p className="font-semibold text-slate-100">{reservation.courtName}</p>
-                <p className="text-sm text-slate-400">{reservation.date} · {reservation.timeSlot}</p>
+                  <option value="all">Todo el día</option>
+                  <option value="morning">Mañana</option>
+                  <option value="afternoon">Tarde</option>
+                  <option value="night">Noche</option>
+                </select>
+                <ChevronDown
+                  size={14}
+                  strokeWidth={2}
+                  className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black"
+                  aria-hidden
+                />
               </div>
-              <button
-                type="button"
-                disabled={busy || reservation.status === "cancelled"}
-                onClick={() => cancel(reservation.id)}
-                className="rounded-xl border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-xs font-semibold text-rose-200 transition hover:bg-rose-400/20 disabled:opacity-60"
-              >
-                Cancelar
-              </button>
+            </label>
+            <label className="block space-y-1.5">
+              <span className={fieldLabelClassName}>
+                <ShieldCheck size={13} strokeWidth={2} aria-hidden />
+                Superficie
+              </span>
+              <div className="relative">
+                <select
+                  value={surface}
+                  onChange={(event) => setSurface(event.target.value)}
+                  className={fieldClassName}
+                >
+                  <option value="all">Todas</option>
+                  <option value="synthetic">Sintética</option>
+                  <option value="natural">Natural</option>
+                  <option value="indoor">Indoor</option>
+                </select>
+                <ChevronDown
+                  size={14}
+                  strokeWidth={2}
+                  className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black"
+                  aria-hidden
+                />
+              </div>
+            </label>
+          </div>
+
+          {message ? (
+            <div
+              role={isNegativeMessage ? "alert" : "status"}
+              className={`flex items-center gap-2 border border-black px-3 py-2 font-mono text-xs uppercase tracking-wider ${
+                isNegativeMessage ? "bg-black text-paper" : "bg-paper text-black"
+              }`}
+            >
+              {isNegativeMessage ? (
+                <TriangleAlert size={14} strokeWidth={2} aria-hidden />
+              ) : (
+                <CheckCircle2 size={14} strokeWidth={2} aria-hidden />
+              )}
+              {message}
             </div>
-          )) : <p className="text-sm text-slate-400">No tienes reservas activas todavía.</p>}
+          ) : null}
+        </Card>
+      </section>
+
+      <section>
+        <SectionLabel icon={Trophy} className="mb-3">
+          Canchas encontradas
+        </SectionLabel>
+
+        {filteredCourts.length > 0 ? (
+          <div className="grid gap-4 xl:grid-cols-3">
+            {filteredCourts.map((court) => (
+              <Card key={court.id} className="gap-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="truncate font-display text-lg font-black leading-tight tracking-tight text-black">
+                      {court.name}
+                    </h3>
+                    <p className="mt-1 flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-muted">
+                      <MapPin size={12} strokeWidth={2} aria-hidden />
+                      {court.location}
+                    </p>
+                  </div>
+                  <RowTag className="inline-flex shrink-0 items-center gap-1">
+                    <BadgeCheck size={12} strokeWidth={2} aria-hidden />
+                    {court.rating.toFixed(1)}
+                  </RowTag>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 font-mono text-[11px] uppercase tracking-wider text-muted">
+                  <RowTag>{surfaceLabel(court.surface)}</RowTag>
+                  <span className="flex items-center gap-1.5">
+                    <Users size={13} strokeWidth={2} aria-hidden />
+                    {court.capacity}
+                  </span>
+                  <span className="font-black text-black">${court.pricePerHour}/h</span>
+                </div>
+
+                <div className="flex flex-wrap gap-1.5">
+                  {court.availableSlots.length > 0 ? (
+                    court.availableSlots.map((slot) => (
+                      <Button
+                        key={`${court.id}-${slot}`}
+                        type="button"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => reserve(court.id, slot)}
+                      >
+                        Reservar {slot}
+                      </Button>
+                    ))
+                  ) : (
+                    <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
+                      Sin horarios libres
+                    </p>
+                  )}
+                </div>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <div className="border border-black bg-paper p-8 text-center">
+            <p className="font-mono text-xs uppercase tracking-wider text-muted">
+              No encontramos canchas que coincidan con la búsqueda.
+            </p>
+          </div>
+        )}
+      </section>
+
+      <section>
+        <SectionLabel icon={CalendarDays} className="mb-3">
+          Mis reservas
+        </SectionLabel>
+
+        <Card>
+          {!user ? (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="font-sans text-sm text-muted">
+                Iniciá sesión para ver y gestionar tus reservas.
+              </p>
+              <Button variant="secondary" size="sm" onClick={onRequireLogin}>
+                Iniciar sesión
+              </Button>
+            </div>
+          ) : myReservations.length > 0 ? (
+            <ul>
+              {myReservations.map((reservation) => (
+                <Row
+                  key={reservation.id}
+                  title={reservation.courtName}
+                  meta={`${reservation.date} · ${reservation.timeSlot}`}
+                  disabled={reservation.status === "cancelled"}
+                  right={
+                    reservation.status === "cancelled" ? (
+                      <RowTag tone="negative">Cancelada</RowTag>
+                    ) : (
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => cancel(reservation.id)}
+                      >
+                        Cancelar
+                      </Button>
+                    )
+                  }
+                />
+              ))}
+            </ul>
+          ) : (
+            <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
+              No tenés reservas activas todavía.
+            </p>
+          )}
+        </Card>
+      </section>
+    </div>
+  );
+}
+
+export function GuestBookingScreen({ onRequireLogin }: { onRequireLogin: () => void }) {
+  return (
+    <div className="min-h-screen bg-paper font-sans">
+      <header className="border-b border-black bg-paper px-4 py-6 sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-6xl flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <span className="inline-flex items-center bg-black px-1.5 py-px font-mono text-[10px] font-bold uppercase tracking-wider text-paper">
+              Explorando como invitado
+            </span>
+            <h1 className="mt-3 font-display text-3xl font-black leading-none tracking-tight text-black sm:text-4xl">
+              Reserva tu cancha
+            </h1>
+            <p className="mt-2 max-w-md text-sm leading-relaxed text-muted">
+              Mirá la disponibilidad en tiempo real. Iniciá sesión para confirmar una reserva.
+            </p>
+          </div>
+          <Button
+            variant="secondary"
+            onClick={onRequireLogin}
+            className="self-start lg:self-auto"
+          >
+            <LogIn size={14} aria-hidden />
+            Iniciar sesión
+          </Button>
         </div>
-      </PanelShell>
+      </header>
+
+      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
+        <BookingPanel user={null} onRequireLogin={onRequireLogin} />
+      </div>
     </div>
   );
 }

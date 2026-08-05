@@ -2,6 +2,7 @@
 
 import type { FormEvent } from "react";
 import { useState } from "react";
+import { ArrowLeft } from "lucide-react";
 import { AuthShell } from "./auth/auth-shell";
 import { ForgotPasswordScreen } from "./forgot-password"; 
 import { LoginFooter } from "./login/login-footer";
@@ -15,9 +16,10 @@ export type Screen = "dashboard" | "login" | "register" | "forgot-password";
 
 type LoginScreenProps = {
   onNavigate?: (screen: Screen, user?: AppUser) => void;
+  onBack?: () => void;
 };
 
-export function LoginScreen({ onNavigate }: LoginScreenProps) {
+export function LoginScreen({ onNavigate, onBack }: LoginScreenProps) {
   const [currentScreen, setCurrentScreen] = useState<Screen>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -70,6 +72,17 @@ export function LoginScreen({ onNavigate }: LoginScreenProps) {
 
   return (
     <AuthShell>
+      {onBack ? (
+        <button
+          type="button"
+          onClick={onBack}
+          className="mb-4 inline-flex items-center gap-1 text-xs font-semibold text-slate-500 transition hover:text-slate-300"
+        >
+          <ArrowLeft size={14} />
+          Volver
+        </button>
+      ) : null}
+
       <p className="text-center text-base font-semibold text-slate-100 sm:text-left">
         Bienvenido de nuevo
       </p>

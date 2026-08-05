@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { CalendarX, TriangleAlert } from "lucide-react";
+
 import { AvailabilityFilters } from "./bookings/availability-filters";
 import { BookingsHeader } from "./bookings/bookings-header";
 import { FieldPreviewCard, type FieldPreview } from "./bookings/field-preview-card";
@@ -113,13 +115,14 @@ export function BookingsScreen({ onLogout, userId }: BookingsScreenProps) {
   }, [courts, surface, timeSlot]);
 
   return (
-    <div
-      className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.12),transparent_30%),linear-gradient(180deg,#0a1628_0%,#080e1a_100%)] px-4 py-10 sm:px-6 sm:py-12 lg:px-10"
-      style={{ fontFamily: "var(--font-geist-sans), sans-serif" }}
-    >
-      <div className="mx-auto w-full max-w-6xl">
-        <BookingsHeader onLogout={onLogout} />
+    <div className="min-h-screen bg-paper pb-16 font-sans">
+      <BookingsHeader
+        onLogout={onLogout}
+        availableCount={visibleFields.length}
+        totalCount={courts.length}
+      />
 
+      <div className="mx-auto w-full max-w-5xl px-4 pt-6 sm:px-6">
         <AvailabilityFilters
           date={date}
           timeSlot={timeSlot}
@@ -129,39 +132,45 @@ export function BookingsScreen({ onLogout, userId }: BookingsScreenProps) {
           onSurfaceChange={setSurface}
         />
 
-        <div className="mb-6 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm font-medium text-slate-300">
-            {isLoading ? "Cargando canchas..." : `${visibleFields.length} canchas disponibles`}
+        <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
+            {isLoading ? "Consultando disponibilidad…" : `${visibleFields.length} canchas disponibles`}
           </p>
-          <p className="text-xs text-slate-500">
-            {date ? `Fecha seleccionada: ${date}` : "Sin fecha seleccionada"}
+          <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
+            {date ? `Fecha: ${date}` : "Sin fecha seleccionada"}
           </p>
         </div>
 
         {errorMessage ? (
-          <div className="mb-6 rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">
+          <div
+            role="alert"
+            className="mb-6 flex items-center gap-2 border border-black bg-black px-4 py-3 font-mono text-xs uppercase tracking-wider text-paper"
+          >
+            <TriangleAlert size={16} strokeWidth={2} aria-hidden />
             {errorMessage}
           </div>
         ) : null}
 
         {isLoading ? (
-          <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-10 text-center">
-            <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-transparent border-t-emerald-400" />
-            <p className="text-sm text-slate-400">Consultando disponibilidad...</p>
+          <div className="border border-black bg-paper p-10 text-center">
+            <p className="font-mono text-xs font-bold uppercase tracking-wider text-black">
+              Cargando…
+            </p>
           </div>
         ) : visibleFields.length > 0 ? (
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 pb-4 md:grid-cols-2 lg:grid-cols-3">
             {visibleFields.map((field) => (
               <FieldPreviewCard key={field.id} field={field} />
             ))}
           </div>
         ) : (
-          <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-10 text-center">
-            <p className="text-lg font-semibold text-slate-200">
-              No hay canchas para esos filtros
+          <div className="flex flex-col items-center gap-3 border border-black bg-paper p-10 text-center">
+            <CalendarX size={40} strokeWidth={1.5} className="text-black" aria-hidden />
+            <p className="font-display text-xl font-black text-black">
+              Sin canchas disponibles
             </p>
-            <p className="mt-2 text-sm text-slate-400">
-              Prueba otra franja horaria o tipo de superficie.
+            <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
+              Probá otra franja horaria o superficie
             </p>
           </div>
         )}

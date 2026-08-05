@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { AuthBrandPanel } from "./auth-brand-panel";
+import { LoginBrand } from "../login/login-brand";
 
 type AuthShellProps = {
   tagline?: string;
@@ -12,11 +12,13 @@ export function AuthShell({ tagline, children }: AuthShellProps) {
       className="flex min-h-screen flex-col justify-center bg-[#080e1a]"
       style={{ fontFamily: "var(--font-geist-sans), sans-serif" }}
     >
-      <div className="grid w-full flex-1 items-stretch lg:grid-cols-[1.08fr_0.92fr]">
-        <AuthBrandPanel tagline={tagline} />
-
-        <div className="flex min-h-screen items-center justify-center px-4 py-6 sm:px-6 sm:py-8 lg:min-h-0 lg:px-10 lg:py-12">
-          <div className="mx-auto w-full max-w-[420px]">{children}</div>
+      <div className="flex flex-1 items-center justify-center px-4 py-8 sm:px-6 lg:px-10">
+        <div className="mx-auto w-full max-w-[420px]">
+          <LoginBrand />
+          {tagline ? (
+            <p className="-mt-8 mb-6 text-center text-sm text-slate-400">{tagline}</p>
+          ) : null}
+          {children}
         </div>
       </div>
 
