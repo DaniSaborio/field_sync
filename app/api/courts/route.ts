@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { cancelReservation, listCourts as listCourtsMemory, reserveCourt as reserveCourtMemory } from "@/lib/fieldsync-store";
+import {
+  cancelReservation,
+  getTeamById,
+  listCourts as listCourtsMemory,
+  notifyTeamCaptain,
+  notifyTeamMembers,
+  reserveCourt as reserveCourtMemory,
+} from "@/lib/fieldsync-store";
 
 const DEFAULT_SLOTS = [
   "08:00", "09:00", "09:30", "10:30", "11:00", "12:00",
@@ -37,6 +44,7 @@ export async function GET(request: NextRequest) {
       include: {
         reservations: {
           where: date ? { date: new Date(date) } : undefined,
+          include: { payments: true },
         },
       },
     });
@@ -67,6 +75,7 @@ export async function GET(request: NextRequest) {
             .map((r) => {
               const h = r.start_time.getUTCHours().toString().padStart(2, "0");
               const m = r.start_time.getUTCMinutes().toString().padStart(2, "0");
+              const payment = r.payments[0];
               return {
                 id: r.id_reservation,
                 userId: r.id_user,
@@ -75,6 +84,8 @@ export async function GET(request: NextRequest) {
                 timeSlot: `${h}:${m}`,
                 status: r.status as "confirmed" | "cancelled",
                 createdAt: r.created_at.toISOString(),
+                paymentMethod: payment?.payment_method ?? null,
+                amount: payment ? Number(payment.amount) : null,
               };
             });
 
@@ -83,6 +94,7 @@ export async function GET(request: NextRequest) {
             tenantId: court.id_tenant,
             name: court.name,
             location: court.address ?? "Ubicación no disponible",
+            mapsUrl: court.maps_url ?? null,
             surface: court.surface as "synthetic" | "natural" | "indoor",
             capacity: court.capacity,
             pricePerHour: Number(court.price_per_hour),
@@ -109,6 +121,13 @@ export async function GET(request: NextRequest) {
   });
 }
 
+const PAYMENT_METHODS = ["sinpe", "efectivo"] as const;
+type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+
+function isPaymentMethod(value: unknown): value is PaymentMethod {
+  return typeof value === "string" && (PAYMENT_METHODS as readonly string[]).includes(value);
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -116,10 +135,21 @@ export async function POST(request: NextRequest) {
     const courtId = Number(body?.courtId);
     const date = String(body?.date ?? "");
     const timeSlot = String(body?.timeSlot ?? "");
+    const paymentMethod = isPaymentMethod(body?.paymentMethod) ? body.paymentMethod : null;
+    const teamId = body?.teamId ? Number(body.teamId) : null;
+    const splitPayment = Boolean(body?.splitPayment);
+    const rivalTeamId = body?.rivalTeamId ? Number(body.rivalTeamId) : null;
 
     if (!userId || !courtId || !date || !timeSlot) {
       return NextResponse.json(
         { ok: false, error: "Faltan datos para procesar la reserva" },
+        { status: 400 },
+      );
+    }
+
+    if (!paymentMethod) {
+      return NextResponse.json(
+        { ok: false, error: "Selecciona un método de pago (SINPE o efectivo)" },
         { status: 400 },
       );
     }
@@ -163,24 +193,64 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        const reservation = await prisma.reservation.create({
-          data: {
-            id_court: courtId,
-            id_user: userId,
-            date: dateOnly,
-            start_time: startDateTime,
-            end_time: endDateTime,
-            status: "confirmed",
-          },
+        const amount = courtExists.price_per_hour ?? 0;
+
+        const { reservation, payment } = await prisma.$transaction(async (tx) => {
+          const reservation = await tx.reservation.create({
+            data: {
+              id_court: courtId,
+              id_user: userId,
+              date: dateOnly,
+              start_time: startDateTime,
+              end_time: endDateTime,
+              status: "confirmed",
+            },
+          });
+
+          const payment = await tx.payment.create({
+            data: {
+              id_reservation: reservation.id_reservation,
+              amount,
+              payment_method: paymentMethod,
+            },
+          });
+
+          return { reservation, payment };
         });
 
         if (userExists.notifications_enabled) {
+          const paymentLabel = paymentMethod === "sinpe" ? "SINPE Móvil" : "efectivo";
           await prisma.notification.create({
             data: {
               id_user: userId,
               type: "reservation",
-              message: `Reserva confirmada para ${courtExists.name} a las ${timeSlot}.`,
+              message: `Reserva confirmada para ${courtExists.name} a las ${timeSlot}. Pago con ${paymentLabel}.`,
             },
+          });
+        }
+
+        // La plantilla y las notificaciones de pago dividido / invitación viven en el
+        // store en memoria (igual que /api/teams y /api/notifications), así que se
+        // notifican ahí sin importar si la reserva en sí se guardó en Prisma o no.
+        if (teamId && splitPayment) {
+          const team = getTeamById(teamId);
+          if (team) {
+            const perPerson = (Number(amount) / Math.max(1, team.playerIds.length)).toFixed(2);
+            notifyTeamMembers({
+              teamId,
+              excludeUserId: userId,
+              type: "payment-split",
+              message: () =>
+                `${userExists.full_name} reservó ${courtExists.name} el ${date} a las ${timeSlot}. Tu parte del pago: $${perPerson}.`,
+            });
+          }
+        }
+
+        if (rivalTeamId) {
+          notifyTeamCaptain({
+            teamId: rivalTeamId,
+            type: "match-invite",
+            message: `${userExists.full_name} te invita a jugar en ${courtExists.name} el ${date} a las ${timeSlot}.`,
           });
         }
 
@@ -195,6 +265,8 @@ export async function POST(request: NextRequest) {
               timeSlot,
               status: reservation.status,
               createdAt: reservation.created_at.toISOString(),
+              paymentMethod: payment.payment_method,
+              amount: Number(payment.amount),
             },
           },
           { status: 201 },
@@ -204,7 +276,7 @@ export async function POST(request: NextRequest) {
       console.warn("Prisma reserve court failed, falling back to in-memory store:", dbError);
     }
 
-    const result = reserveCourtMemory({ userId, courtId, date, timeSlot });
+    const result = reserveCourtMemory({ userId, courtId, date, timeSlot, paymentMethod, teamId, splitPayment, rivalTeamId });
     if (!result.ok) {
       return NextResponse.json(result, { status: 409 });
     }

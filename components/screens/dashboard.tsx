@@ -2,29 +2,40 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  Banknote,
   BadgeCheck,
   Bell,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
   Clock3,
+  ExternalLink,
   Filter,
   LogIn,
   LogOut,
   Search,
   ShieldCheck,
+  Smartphone,
   TriangleAlert,
   Users,
   Trophy,
   Settings2,
   MapPin,
+  Swords,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
+import { Modal } from "@/components/ui/modal";
 import { Row, RowCheckbox, RowTag } from "@/components/ui/row";
 import { SectionLabel } from "@/components/ui/section-label";
+
+const paymentMethodLabels: Record<PaymentMethod, string> = {
+  sinpe: "SINPE Móvil",
+  efectivo: "Efectivo",
+};
 
 const fieldClassName =
   "h-11 w-full appearance-none border border-black bg-paper px-3 text-sm font-medium text-black outline-none focus:outline-2 focus:outline-black focus:outline-offset-2";
@@ -57,6 +68,8 @@ export type AppUser = {
   notificationsEnabled: boolean;
 };
 
+type PaymentMethod = "sinpe" | "efectivo";
+
 type CourtReservation = {
   id: number;
   userId: number;
@@ -65,12 +78,15 @@ type CourtReservation = {
   timeSlot: string;
   status: "confirmed" | "cancelled";
   createdAt: string;
+  paymentMethod?: PaymentMethod | null;
+  amount?: number | null;
 };
 
 type CourtCard = {
   id: number;
   name: string;
   location: string;
+  mapsUrl?: string | null;
   surface: "synthetic" | "natural" | "indoor";
   capacity: string;
   pricePerHour: number;
@@ -282,49 +298,96 @@ function MessageBanner({ message }: { message: string }) {
 
 function CourtResultCard({
   court,
+  date,
   busy,
+  canReserve,
+  myTeams,
+  allTeams,
   onReserve,
+  onRequireLogin,
 }: {
   court: CourtCard;
+  date: string;
   busy: boolean;
-  onReserve: (courtId: number, slot: string) => void;
+  canReserve: boolean;
+  myTeams: TeamCard[];
+  allTeams: TeamCard[];
+  onReserve: (
+    courtId: number,
+    slot: string,
+    paymentMethod: PaymentMethod,
+    options?: { teamId?: number | null; splitPayment?: boolean; rivalTeamId?: number | null },
+  ) => void;
+  onRequireLogin?: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("efectivo");
+  const [teamId, setTeamId] = useState<number | null>(null);
+  const [splitPayment, setSplitPayment] = useState(false);
+  const [rivalTeamId, setRivalTeamId] = useState<number | null>(null);
   const hasSlots = court.availableSlots.length > 0;
 
-  return (
-    <Card className="gap-0 p-0">
-      <button
-        type="button"
-        onClick={() => setOpen((current) => !current)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-3 p-4 text-left"
-      >
-        <span className={`size-6 shrink-0 border border-black ${hasSlots ? "bg-neon" : "bg-paper"}`} aria-hidden />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate font-display text-base font-black leading-tight tracking-tight text-black">
-            {court.name}
-          </span>
-          <span className="mt-0.5 flex items-center gap-1.5 truncate font-mono text-[11px] uppercase tracking-wider text-muted">
-            <MapPin size={11} strokeWidth={2} aria-hidden />
-            {court.location} · ${court.pricePerHour}/h
-          </span>
-        </span>
-        <span className="flex shrink-0 items-center gap-2">
-          <RowTag tone={hasSlots ? "positive" : "default"}>
-            {hasSlots ? `${court.availableSlots.length} libres` : "Sin cupo"}
-          </RowTag>
-          <ChevronDown
-            size={16}
-            strokeWidth={2}
-            className={`transition-transform duration-150 ease-pop ${open ? "rotate-180" : ""}`}
-            aria-hidden
-          />
-        </span>
-      </button>
+  const selectedTeam = teamId ? myTeams.find((team) => team.id === teamId) ?? null : null;
+  const perPersonAmount = selectedTeam
+    ? (court.pricePerHour / Math.max(1, selectedTeam.playerIds.length)).toFixed(2)
+    : null;
 
-      {open ? (
-        <div className="space-y-3 border-t border-black p-4">
+  function closeDetail() {
+    setDetailOpen(false);
+    setSelectedSlot(null);
+    setPaymentMethod("efectivo");
+    setTeamId(null);
+    setSplitPayment(false);
+    setRivalTeamId(null);
+  }
+
+  function handleSlotClick(slot: string) {
+    if (!canReserve) {
+      setDetailOpen(false);
+      onRequireLogin?.();
+      return;
+    }
+    setSelectedSlot(slot);
+  }
+
+  function handleConfirm() {
+    if (!selectedSlot) return;
+    onReserve(court.id, selectedSlot, paymentMethod, { teamId, splitPayment, rivalTeamId });
+    closeDetail();
+  }
+
+  return (
+    <>
+      <Card className="gap-0 p-0">
+        <button
+          type="button"
+          onClick={() => setDetailOpen(true)}
+          className="flex w-full items-center gap-3 p-4 text-left"
+        >
+          <span className={`size-6 shrink-0 border border-black ${hasSlots ? "bg-neon" : "bg-paper"}`} aria-hidden />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-display text-base font-black leading-tight tracking-tight text-black">
+              {court.name}
+            </span>
+            <span className="mt-0.5 flex items-center gap-1 font-mono text-[11px] uppercase tracking-wider text-muted">
+              <MapPin size={11} strokeWidth={2} className="shrink-0" aria-hidden />
+              <span className="truncate">
+                {court.location} · ${court.pricePerHour}/h
+              </span>
+            </span>
+          </span>
+          <span className="flex shrink-0 items-center gap-1.5">
+            <RowTag className="whitespace-nowrap" tone={hasSlots ? "positive" : "default"}>
+              {hasSlots ? `${court.availableSlots.length} libres` : "Sin cupo"}
+            </RowTag>
+            <ChevronDown size={16} strokeWidth={2} className="shrink-0 -rotate-90" aria-hidden />
+          </span>
+        </button>
+      </Card>
+
+      <Modal open={detailOpen} onClose={closeDetail} title={court.name}>
+        <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 font-mono text-[11px] uppercase tracking-wider text-muted">
             <RowTag>{surfaceLabel(court.surface)}</RowTag>
             <span className="flex items-center gap-1.5">
@@ -335,30 +398,189 @@ function CourtResultCard({
               <BadgeCheck size={13} strokeWidth={2} aria-hidden />
               {court.rating.toFixed(1)}
             </span>
+            <span className="font-black text-black">${court.pricePerHour}/h</span>
           </div>
 
-          <div className="flex flex-wrap gap-1.5">
-            {hasSlots ? (
-              court.availableSlots.map((slot) => (
-                <Button
-                  key={`${court.id}-${slot}`}
-                  type="button"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => onReserve(court.id, slot)}
-                >
-                  Reservar {slot}
-                </Button>
-              ))
-            ) : (
-              <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
-                Sin horarios libres
-              </p>
-            )}
-          </div>
+          <p className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-muted">
+            <MapPin size={13} strokeWidth={2} aria-hidden />
+            {court.location}
+          </p>
+
+          {court.mapsUrl ? (
+            <a
+              href={court.mapsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-black underline underline-offset-4"
+            >
+              <ExternalLink size={12} strokeWidth={2} aria-hidden />
+              Ver en el mapa
+            </a>
+          ) : null}
+
+          {!selectedSlot ? (
+            <div className="space-y-2 border-t border-black pt-4">
+              <SectionLabel icon={Clock3}>Horarios disponibles</SectionLabel>
+              <div className="flex flex-wrap gap-1.5">
+                {hasSlots ? (
+                  court.availableSlots.map((slot) => (
+                    <Button
+                      key={`${court.id}-${slot}`}
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => handleSlotClick(slot)}
+                    >
+                      {slot}
+                    </Button>
+                  ))
+                ) : (
+                  <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
+                    Sin horarios libres
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4 border-t border-black pt-4">
+              <button
+                type="button"
+                onClick={() => setSelectedSlot(null)}
+                className="inline-flex items-center gap-1 font-mono text-[10px] font-bold uppercase tracking-wider text-black"
+              >
+                <ChevronLeft size={14} strokeWidth={2} aria-hidden />
+                Elegir otro horario
+              </button>
+
+              <div className="border border-black bg-paper p-3">
+                <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Resumen</p>
+                <p className="mt-1 font-sans text-sm font-semibold text-black">
+                  {court.name} · {date} · {selectedSlot}
+                </p>
+                <p className="mt-1 font-mono text-lg font-black tabular-nums text-black">
+                  ${court.pricePerHour}
+                </p>
+              </div>
+
+              {myTeams.length > 0 ? (
+                <div>
+                  <SectionLabel icon={Users}>Plantilla (opcional)</SectionLabel>
+                  <div className="relative mt-2">
+                    <select
+                      value={teamId ?? ""}
+                      onChange={(event) => {
+                        const value = event.target.value ? Number(event.target.value) : null;
+                        setTeamId(value);
+                        if (!value) setSplitPayment(false);
+                      }}
+                      className={fieldClassName}
+                    >
+                      <option value="">Sin plantilla</option>
+                      {myTeams.map((team) => (
+                        <option key={team.id} value={team.id}>
+                          {team.name} ({team.playerIds.length} jugadores)
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown
+                      size={14}
+                      strokeWidth={2}
+                      className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black"
+                      aria-hidden
+                    />
+                  </div>
+
+                  {selectedTeam ? (
+                    <>
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={!splitPayment ? "default" : "secondary"}
+                          onClick={() => setSplitPayment(false)}
+                        >
+                          Pago individual
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={splitPayment ? "default" : "secondary"}
+                          onClick={() => setSplitPayment(true)}
+                        >
+                          Pago dividido
+                        </Button>
+                      </div>
+                      {splitPayment ? (
+                        <p className="mt-2 font-mono text-[10px] uppercase tracking-wider text-muted">
+                          Se notifica a cada integrante de {selectedTeam.name} su parte: ${perPersonAmount}
+                        </p>
+                      ) : null}
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {allTeams.length > 0 ? (
+                <div>
+                  <SectionLabel icon={Swords}>Invitar plantilla rival (opcional)</SectionLabel>
+                  <div className="relative mt-2">
+                    <select
+                      value={rivalTeamId ?? ""}
+                      onChange={(event) =>
+                        setRivalTeamId(event.target.value ? Number(event.target.value) : null)
+                      }
+                      className={fieldClassName}
+                    >
+                      <option value="">Sin invitar</option>
+                      {allTeams
+                        .filter((team) => team.id !== teamId)
+                        .map((team) => (
+                          <option key={team.id} value={team.id}>
+                            {team.name}
+                          </option>
+                        ))}
+                    </select>
+                    <ChevronDown
+                      size={14}
+                      strokeWidth={2}
+                      className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black"
+                      aria-hidden
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              <div>
+                <SectionLabel icon={Banknote}>Método de pago</SectionLabel>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant={paymentMethod === "sinpe" ? "default" : "secondary"}
+                    onClick={() => setPaymentMethod("sinpe")}
+                  >
+                    <Smartphone size={16} strokeWidth={2} aria-hidden />
+                    SINPE
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={paymentMethod === "efectivo" ? "default" : "secondary"}
+                    onClick={() => setPaymentMethod("efectivo")}
+                  >
+                    <Banknote size={16} strokeWidth={2} aria-hidden />
+                    Efectivo
+                  </Button>
+                </div>
+              </div>
+
+              <Button type="button" className="w-full" disabled={busy} onClick={handleConfirm}>
+                {busy ? "Confirmando…" : `Confirmar reserva · ${paymentMethodLabels[paymentMethod]}`}
+              </Button>
+            </div>
+          )}
         </div>
-      ) : null}
-    </Card>
+      </Modal>
+    </>
   );
 }
 
@@ -376,6 +598,20 @@ function BookingPanel({
   const [courts, setCourts] = useState<CourtCard[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>("");
+  const [teams, setTeams] = useState<TeamCard[]>([]);
+
+  useEffect(() => {
+    if (!user) return;
+    fetch("/api/teams")
+      .then((response) => readJson<ApiResponse<{ teams: TeamCard[] }>>(response))
+      .then((payload) => setTeams(payload.teams ?? []))
+      .catch(() => undefined);
+  }, [user]);
+
+  const myTeams = useMemo(
+    () => (user ? teams.filter((team) => team.captainUserId === user.id) : []),
+    [teams, user],
+  );
 
   async function loadCourts() {
     setBusy(true);
@@ -401,7 +637,12 @@ function BookingPanel({
     void loadCourts();
   }, [date, timeSlot, surface]);
 
-  async function reserve(courtId: number, slot: string) {
+  async function reserve(
+    courtId: number,
+    slot: string,
+    paymentMethod: PaymentMethod,
+    options?: { teamId?: number | null; splitPayment?: boolean; rivalTeamId?: number | null },
+  ) {
     if (!user) {
       onRequireLogin?.();
       return;
@@ -418,7 +659,16 @@ function BookingPanel({
       const response = await fetch("/api/courts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user.id, courtId, date, timeSlot: slot }),
+        body: JSON.stringify({
+          userId: user.id,
+          courtId,
+          date,
+          timeSlot: slot,
+          paymentMethod,
+          teamId: options?.teamId ?? null,
+          splitPayment: Boolean(options?.splitPayment),
+          rivalTeamId: options?.rivalTeamId ?? null,
+        }),
       });
       const payload = await readJson<ApiResponse<{ reservation?: CourtReservation; suggestedSlot?: string | null }>>(response);
       if (!response.ok) {
@@ -429,7 +679,10 @@ function BookingPanel({
         );
       }
 
-      setMessage("Reserva confirmada y notificación generada.");
+      const parts = [`Reserva confirmada con ${paymentMethodLabels[paymentMethod]}`];
+      if (options?.splitPayment) parts.push("pago dividido notificado a la plantilla");
+      if (options?.rivalTeamId) parts.push("rival invitado");
+      setMessage(`${parts.join(", ")}.`);
       await loadCourts();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No pudimos reservar");
@@ -489,19 +742,17 @@ function BookingPanel({
 
   return (
     <div className="space-y-6">
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <SectionLabel icon={MapPin}>Disponibilidad en tiempo real</SectionLabel>
-          <div className="flex flex-wrap gap-1.5">
-            <RowTag tone={busy ? "default" : "positive"}>
-              {busy ? "Actualizando" : "Sincronizado"}
+      <section className="space-y-2">
+        <SectionLabel icon={MapPin}>Disponibilidad en tiempo real</SectionLabel>
+        <div className="flex flex-wrap gap-1.5">
+          <RowTag className="whitespace-nowrap" tone={busy ? "default" : "positive"}>
+            {busy ? "Actualizando" : "Sincronizado"}
+          </RowTag>
+          {user ? (
+            <RowTag className="whitespace-nowrap" tone={user.notificationsEnabled ? "positive" : "default"}>
+              {user.notificationsEnabled ? "Notif. ON" : "Notif. OFF"}
             </RowTag>
-            {user ? (
-              <RowTag tone={user.notificationsEnabled ? "positive" : "default"}>
-                {user.notificationsEnabled ? "Notificaciones activas" : "Notificaciones off"}
-              </RowTag>
-            ) : null}
-          </div>
+          ) : null}
         </div>
 
         <CollapsibleSection icon={Filter} label="Filtrar disponibilidad" summary={filtersSummary}>
@@ -601,31 +852,6 @@ function BookingPanel({
       </section>
 
       <section>
-        <SectionLabel icon={Trophy} className="mb-3">
-          Canchas encontradas ({filteredCourts.length})
-        </SectionLabel>
-
-        {filteredCourts.length > 0 ? (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {filteredCourts.map((court) => (
-              <CourtResultCard
-                key={court.id}
-                court={court}
-                busy={busy}
-                onReserve={reserve}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="border border-black bg-paper p-8 text-center">
-            <p className="font-mono text-xs uppercase tracking-wider text-muted">
-              No encontramos canchas que coincidan con la búsqueda.
-            </p>
-          </div>
-        )}
-      </section>
-
-      <section>
         <SectionLabel icon={CalendarDays} className="mb-3">
           Mis reservas
         </SectionLabel>
@@ -646,7 +872,9 @@ function BookingPanel({
                 <Row
                   key={reservation.id}
                   title={reservation.courtName}
-                  meta={`${reservation.date} · ${reservation.timeSlot}`}
+                  meta={`${reservation.date} · ${reservation.timeSlot}${
+                    reservation.paymentMethod ? ` · ${paymentMethodLabels[reservation.paymentMethod]}` : ""
+                  }`}
                   disabled={reservation.status === "cancelled"}
                   right={
                     reservation.status === "cancelled" ? (
@@ -671,6 +899,36 @@ function BookingPanel({
             </p>
           )}
         </Card>
+      </section>
+
+      <section>
+        <SectionLabel icon={Trophy} className="mb-3">
+          Canchas encontradas ({filteredCourts.length})
+        </SectionLabel>
+
+        {filteredCourts.length > 0 ? (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {filteredCourts.map((court) => (
+              <CourtResultCard
+                key={court.id}
+                court={court}
+                date={date}
+                busy={busy}
+                canReserve={Boolean(user)}
+                myTeams={myTeams}
+                allTeams={teams}
+                onReserve={reserve}
+                onRequireLogin={onRequireLogin}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="border border-black bg-paper p-8 text-center">
+            <p className="font-mono text-xs uppercase tracking-wider text-muted">
+              No encontramos canchas que coincidan con la búsqueda.
+            </p>
+          </div>
+        )}
       </section>
     </div>
   );
@@ -1503,6 +1761,10 @@ function notificationTypeLabel(type: string) {
       return "Convocatoria";
     case "match-result":
       return "Resultado";
+    case "payment-split":
+      return "Pago dividido";
+    case "match-invite":
+      return "Invitación";
     default:
       return type;
   }

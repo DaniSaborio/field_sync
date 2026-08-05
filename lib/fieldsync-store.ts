@@ -3,7 +3,7 @@ export type UserRole = "administrador" | "recepcionista" | "organizador" | "juga
 export type CourtSurface = "synthetic" | "natural" | "indoor";
 export type TournamentFormat = "eliminatorio" | "todos-contra-todos";
 export type MatchStatus = "scheduled" | "confirmed";
-export type NotificationType = "reservation" | "cancellation" | "tournament" | "convocation" | "match-result";
+export type NotificationType = "reservation" | "cancellation" | "tournament" | "convocation" | "match-result" | "payment-split" | "match-invite";
 
 export type UserRecord = {
   id: number;
@@ -20,12 +20,15 @@ export type CourtRecord = {
   tenantId: number;
   name: string;
   location: string;
+  mapsUrl?: string | null;
   surface: CourtSurface;
   capacity: string;
   pricePerHour: number;
   rating: number;
   availableSlots: string[];
 };
+
+export type PaymentMethod = "sinpe" | "efectivo";
 
 export type ReservationRecord = {
   id: number;
@@ -35,6 +38,8 @@ export type ReservationRecord = {
   timeSlot: string;
   status: "confirmed" | "cancelled";
   createdAt: string;
+  paymentMethod: PaymentMethod | null;
+  amount: number | null;
 };
 
 export type NotificationRecord = {
@@ -315,6 +320,8 @@ const seedState = (): StoreState => ({
       timeSlot: "18:00",
       status: "confirmed",
       createdAt: "2026-07-20T10:00:00.000Z",
+      paymentMethod: "sinpe",
+      amount: 55,
     },
     {
       id: 2,
@@ -324,6 +331,8 @@ const seedState = (): StoreState => ({
       timeSlot: "15:00",
       status: "confirmed",
       createdAt: "2026-07-20T11:00:00.000Z",
+      paymentMethod: "efectivo",
+      amount: 72,
     },
   ],
   notifications: [
@@ -780,17 +789,60 @@ export function getReservations(userId?: number) {
   return clone(reservations);
 }
 
+export function notifyTeamMembers(input: {
+  teamId: number;
+  excludeUserId?: number;
+  type: NotificationType;
+  message: (member: UserRecord) => string;
+}) {
+  const team = store.teams.find((item) => item.id === input.teamId);
+  if (!team) return [] as NotificationRecord[];
+
+  return team.playerIds
+    .filter((playerId) => playerId !== input.excludeUserId)
+    .flatMap((playerId) => {
+      const member = findUserById(playerId);
+      if (!member || !member.notificationsEnabled) return [] as NotificationRecord[];
+      return [createNotification(playerId, input.type, input.message(member))];
+    });
+}
+
+export function notifyTeamCaptain(input: {
+  teamId: number;
+  type: NotificationType;
+  message: string;
+}) {
+  const team = store.teams.find((item) => item.id === input.teamId);
+  if (!team) return null;
+  const captain = findUserById(team.captainUserId);
+  if (!captain || !captain.notificationsEnabled) return null;
+  return createNotification(team.captainUserId, input.type, input.message);
+}
+
+export function getTeamById(teamId: number) {
+  const team = store.teams.find((item) => item.id === teamId);
+  return team ? clone(team) : null;
+}
+
 export function reserveCourt(input: {
   userId: number;
   courtId: number;
   date: string;
   timeSlot: string;
+  paymentMethod: PaymentMethod | null;
+  teamId?: number | null;
+  splitPayment?: boolean;
+  rivalTeamId?: number | null;
 }) : ReservationResult {
   const user = findUserById(input.userId);
   const court = store.courts.find((item) => item.id === input.courtId) ?? null;
 
   if (!user || !court) {
     return { ok: false, error: "No pudimos identificar el usuario o la cancha" };
+  }
+
+  if (!input.paymentMethod) {
+    return { ok: false, error: "Selecciona un método de pago (SINPE o efectivo)" };
   }
 
   const conflict = store.reservations.find((reservation) => reservation.courtId === input.courtId && reservation.date === input.date && reservation.timeSlot === input.timeSlot && reservation.status === "confirmed");
@@ -815,12 +867,41 @@ export function reserveCourt(input: {
     timeSlot: input.timeSlot,
     status: "confirmed",
     createdAt: new Date().toISOString(),
+    paymentMethod: input.paymentMethod,
+    amount: court.pricePerHour,
   };
 
   store.reservations.push(reservation);
   const notifications = user.notificationsEnabled
     ? [createNotification(input.userId, "reservation", `Reserva confirmada para ${court.name} a las ${input.timeSlot}.`)]
     : [];
+
+  if (input.teamId && input.splitPayment) {
+    const team = store.teams.find((item) => item.id === input.teamId);
+    if (team) {
+      const perPerson = (court.pricePerHour / team.playerIds.length).toFixed(2);
+      notifications.push(
+        ...notifyTeamMembers({
+          teamId: input.teamId,
+          excludeUserId: input.userId,
+          type: "payment-split",
+          message: () =>
+            `${user.fullName} reservó ${court.name} el ${input.date} a las ${input.timeSlot}. Tu parte del pago: $${perPerson}.`,
+        }),
+      );
+    }
+  }
+
+  if (input.rivalTeamId) {
+    const notification = notifyTeamCaptain({
+      teamId: input.rivalTeamId,
+      type: "match-invite",
+      message: `${user.fullName} te invita a jugar en ${court.name} el ${input.date} a las ${input.timeSlot}.`,
+    });
+    if (notification) {
+      notifications.push(notification);
+    }
+  }
 
   const profile = ensureProfile(input.userId);
   if (!profile.courts.includes(court.name)) {
