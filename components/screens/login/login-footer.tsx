@@ -4,14 +4,14 @@ type LoginFooterProps = {
 
 export function LoginFooter({ onRegisterClick }: LoginFooterProps) {
   return (
-    <div className="mt-6 text-center">
-      <span className="text-sm text-slate-400">¿No tienes una cuenta? </span>
+    <div className="mt-6 text-center font-sans text-sm text-muted">
+      ¿No tenés una cuenta?{" "}
       <button
         type="button"
         onClick={onRegisterClick}
-        className="text-sm font-bold text-emerald-400 transition hover:text-emerald-300 hover:underline hover:underline-offset-4"
+        className="font-bold text-black underline decoration-1 underline-offset-4 transition hover:decoration-2"
       >
-        Regístrate gratis
+        Registrate gratis
       </button>
     </div>
   );

@@ -26,29 +26,27 @@ export function FloatingInput({
   rightSlot,
 }: FloatingInputProps) {
   return (
-    <div className="relative rounded-xl border border-white/10 bg-white/[0.03] px-3.5 pb-2 pt-2 transition focus-within:border-emerald-400/60 focus-within:bg-white/[0.05] focus-within:ring-4 focus-within:ring-emerald-400/10">
-      <div className="flex items-center gap-2.5">
-        <span className="text-slate-500">{icon}</span>
-        <div className="flex-1">
-          <label
-            htmlFor={id}
-            className="block text-[10px] font-semibold tracking-[0.08em] text-slate-500"
-          >
-            {label}
-          </label>
-          <input
-            id={id}
-            type={type}
-            value={value}
-            onChange={(event) => onChange(event.target.value)}
-            placeholder={placeholder}
-            required={required}
-            minLength={minLength}
-            className="w-full bg-transparent text-sm text-slate-100 outline-none placeholder:text-slate-600"
-          />
-        </div>
-        {rightSlot}
+    <div className="flex items-center gap-2.5 border border-black bg-paper px-3.5 py-2 focus-within:outline-2 focus-within:outline-black focus-within:outline-offset-2">
+      <span className="text-black">{icon}</span>
+      <div className="flex-1">
+        <label
+          htmlFor={id}
+          className="block font-mono text-[10px] font-bold uppercase tracking-wider text-muted"
+        >
+          {label}
+        </label>
+        <input
+          id={id}
+          type={type}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          required={required}
+          minLength={minLength}
+          className="w-full bg-transparent font-sans text-sm text-black outline-none placeholder:text-muted"
+        />
       </div>
+      {rightSlot}
     </div>
   );
 }

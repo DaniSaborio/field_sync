@@ -1,8 +1,12 @@
 export function LoginBrand() {
   return (
-    <div className="mb-12 text-center">
-      <h1 className="mb-2 text-3xl font-bold text-slate-100">FieldSync</h1>
-      <p className="text-sm text-slate-400">Gestiona tus canchas y torneos</p>
+    <div className="mb-8 text-center">
+      <h1 className="font-display text-4xl font-black leading-none tracking-tight text-black">
+        FieldSync
+      </h1>
+      <p className="mt-2 font-mono text-[11px] uppercase tracking-wider text-muted">
+        Gestioná tus canchas y torneos
+      </p>
     </div>
   );
 }

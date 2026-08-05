@@ -13,7 +13,7 @@ type AvailabilityFiltersProps = {
 };
 
 const fieldClassName =
-  "h-11 w-full appearance-none border border-black bg-paper px-3 text-sm font-medium text-black outline-none focus:outline focus:outline-2 focus:outline-black focus:outline-offset-2";
+  "h-11 w-full appearance-none border border-black bg-paper px-3 text-sm font-medium text-black outline-none focus:outline-2 focus:outline-black focus:outline-offset-2";
 
 const labelClassName =
   "flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-muted";

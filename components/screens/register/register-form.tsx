@@ -1,5 +1,9 @@
 import { ArrowRight, Eye, EyeOff, Lock, Mail, User } from "lucide-react";
 import type { FormEvent } from "react";
+
+import { Button } from "@/components/ui/button";
+import { RowCheckbox } from "@/components/ui/row";
+
 import { FloatingInput } from "../auth/floating-input";
 
 type RegisterFormProps = {
@@ -43,104 +47,99 @@ export function RegisterForm({
     <form onSubmit={onSubmit} className="space-y-3">
       <FloatingInput
         id="register-full-name"
-        label="NOMBRE COMPLETO"
+        label="Nombre completo"
         type="text"
         value={fullName}
         onChange={onFullNameChange}
         placeholder="Tu nombre"
         required
-        icon={<User size={16} />}
+        icon={<User size={16} strokeWidth={2} aria-hidden />}
       />
 
       <FloatingInput
         id="register-email"
-        label="CORREO ELECTRÓNICO"
+        label="Correo electrónico"
         type="email"
         value={email}
         onChange={onEmailChange}
         placeholder="tu@email.com"
         required
-        icon={<Mail size={16} />}
+        icon={<Mail size={16} strokeWidth={2} aria-hidden />}
       />
 
       <FloatingInput
         id="register-password"
-        label="CONTRASEÑA"
+        label="Contraseña"
         type={showPassword ? "text" : "password"}
         value={password}
         onChange={onPasswordChange}
         placeholder="Mínimo 8 caracteres"
         required
         minLength={8}
-        icon={<Lock size={16} />}
+        icon={<Lock size={16} strokeWidth={2} aria-hidden />}
         rightSlot={
           <button
             type="button"
             onClick={onTogglePassword}
-            className="text-slate-500 transition hover:text-slate-300"
+            className="text-black"
             aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
           >
-            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            {showPassword ? (
+              <EyeOff size={16} strokeWidth={2} aria-hidden />
+            ) : (
+              <Eye size={16} strokeWidth={2} aria-hidden />
+            )}
           </button>
         }
       />
 
       <FloatingInput
         id="register-confirm-password"
-        label="CONFIRMAR CONTRASEÑA"
+        label="Confirmar contraseña"
         type={showConfirmPassword ? "text" : "password"}
         value={confirmPassword}
         onChange={onConfirmPasswordChange}
         placeholder="Repite tu contraseña"
         required
         minLength={8}
-        icon={<Lock size={16} />}
+        icon={<Lock size={16} strokeWidth={2} aria-hidden />}
         rightSlot={
           <button
             type="button"
             onClick={onToggleConfirmPassword}
-            className="text-slate-500 transition hover:text-slate-300"
+            className="text-black"
             aria-label={showConfirmPassword ? "Ocultar confirmación" : "Mostrar confirmación"}
           >
-            {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            {showConfirmPassword ? (
+              <EyeOff size={16} strokeWidth={2} aria-hidden />
+            ) : (
+              <Eye size={16} strokeWidth={2} aria-hidden />
+            )}
           </button>
         }
       />
 
-      <button
-        type="button"
-        onClick={onToggleTerms}
-        className="flex items-center gap-2 pt-1 text-left"
-      >
-        <span
-          className="flex h-4 w-4 items-center justify-center rounded-[6px] border text-[10px]"
-          style={{
-            background: acceptTerms ? "#10B981" : "transparent",
-            borderColor: acceptTerms ? "transparent" : "rgba(255,255,255,0.15)",
-            color: acceptTerms ? "#052e21" : "transparent",
-          }}
-        >
-          ✓
-        </span>
-        <span className="text-xs font-medium text-slate-400">
+      <label className="flex items-center gap-2 pt-1">
+        <RowCheckbox checked={acceptTerms} onCheckedChange={onToggleTerms} className="size-5" />
+        <span className="font-mono text-[10px] uppercase tracking-wider text-muted">
           Acepto términos y condiciones
         </span>
-      </button>
+      </label>
 
-      <button
+      <Button
         type="submit"
         disabled={isLoading || !acceptTerms || password !== confirmPassword}
-        className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-linear-to-br from-emerald-400 to-emerald-600 py-3 text-sm font-bold tracking-[0.3px] text-slate-950 shadow-[0_6px_18px_rgba(16,185,129,0.25)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-70"
+        className="mt-2 w-full"
       >
         {isLoading ? (
-          <span className="h-5 w-5 animate-spin rounded-full border-2 border-transparent border-t-current" />
+          "Enviando…"
         ) : (
           <>
-            <span>Crear cuenta</span>
-            <ArrowRight size={16} />
+            Crear cuenta
+            <ArrowRight size={16} strokeWidth={2} aria-hidden />
           </>
         )}
-      </button>
+      </Button>
     </form>
   );
 }

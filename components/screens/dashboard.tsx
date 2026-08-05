@@ -21,11 +21,11 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Row, RowTag } from "@/components/ui/row";
+import { Row, RowCheckbox, RowTag } from "@/components/ui/row";
 import { SectionLabel } from "@/components/ui/section-label";
 
 const fieldClassName =
-  "h-11 w-full appearance-none border border-black bg-paper px-3 text-sm font-medium text-black outline-none focus:outline focus:outline-2 focus:outline-black focus:outline-offset-2";
+  "h-11 w-full appearance-none border border-black bg-paper px-3 text-sm font-medium text-black outline-none focus:outline-2 focus:outline-black focus:outline-offset-2";
 
 const fieldLabelClassName =
   "flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-muted";
@@ -215,8 +215,8 @@ function isAdmin(user: AppUser) {
 
 function StatusPill({ children }: { children: React.ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300">
-      <BadgeCheck size={12} />
+    <span className="inline-flex items-center gap-1.5 border border-black bg-paper px-1.5 py-0.5 font-mono text-[10px] font-black uppercase tracking-wider text-black">
+      <BadgeCheck size={12} strokeWidth={2} aria-hidden />
       {children}
     </span>
   );
@@ -224,11 +224,11 @@ function StatusPill({ children }: { children: React.ReactNode }) {
 
 function PanelShell({ title, description, action, children }: { title: string; description: string; action?: React.ReactNode; children: React.ReactNode; }) {
   return (
-    <section className="rounded-[28px] border border-white/10 bg-slate-950/60 p-5 shadow-[0_20px_80px_rgba(0,0,0,0.3)] backdrop-blur-sm">
-      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+    <section className="border border-black bg-paper p-4 shadow-hard sm:p-5">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-black pb-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-100">{title}</h2>
-          <p className="mt-1 text-sm text-slate-400">{description}</p>
+          <h2 className="font-display text-xl font-black leading-tight tracking-tight text-black">{title}</h2>
+          <p className="mt-1 font-sans text-sm text-muted">{description}</p>
         </div>
         {action}
       </div>
@@ -239,9 +239,28 @@ function PanelShell({ title, description, action, children }: { title: string; d
 
 function Badge({ children }: { children: React.ReactNode }) {
   return (
-    <span className="inline-flex items-center rounded-full border border-white/10 bg-slate-900/90 px-2.5 py-1 text-[11px] font-semibold text-slate-300">
+    <span className="inline-flex items-center border border-black bg-paper px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-black">
       {children}
     </span>
+  );
+}
+
+function MessageBanner({ message }: { message: string }) {
+  const isNegative = /no pudimos|no es posible|no fue posible/i.test(message);
+  return (
+    <div
+      role={isNegative ? "alert" : "status"}
+      className={`mb-4 flex items-center gap-2 border border-black px-3 py-2 font-mono text-xs uppercase tracking-wider ${
+        isNegative ? "bg-black text-paper" : "bg-paper text-black"
+      }`}
+    >
+      {isNegative ? (
+        <TriangleAlert size={14} strokeWidth={2} aria-hidden />
+      ) : (
+        <CheckCircle2 size={14} strokeWidth={2} aria-hidden />
+      )}
+      {message}
+    </div>
   );
 }
 
@@ -799,156 +818,192 @@ function TournamentsPanel({ user }: { user: AppUser }) {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-8">
       <PanelShell
         title="Gestión de torneos"
-        description="Crea torneos, inscribe equipos, inicia el calendario de partidos y actualiza la tabla de posiciones."
+        description="Creá torneos, inscribí equipos, iniciá el calendario de partidos y actualizá la tabla de posiciones."
         action={<StatusPill>{data.tournaments.length} torneos</StatusPill>}
       >
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <input className="h-11 rounded-xl border border-white/10 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" placeholder="Nombre del torneo" value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} />
-          <select className="h-11 rounded-xl border border-white/10 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" value={createForm.format} onChange={(event) => setCreateForm((current) => ({ ...current, format: event.target.value }))}>
-            <option value="todos-contra-todos">Todos contra todos</option>
-            <option value="eliminatorio">Eliminatorio</option>
-          </select>
-          <select className="h-11 rounded-xl border border-white/10 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" value={createForm.courtId ?? ""} onChange={(event) => setCreateForm((current) => ({ ...current, courtId: event.target.value ? Number(event.target.value) : null }))}>
-            <option value="">Selecciona la cancha</option>
-            {courts.map((court) => <option key={court.id} value={court.id}>{court.name}</option>)}
-          </select>
-          <button type="button" onClick={createTournament} className="rounded-xl bg-emerald-400 px-4 py-2 text-sm font-bold text-slate-950 transition hover:brightness-110">Crear torneo</button>
+          <input className={fieldClassName} placeholder="Nombre del torneo" value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} />
+          <div className="relative">
+            <select className={fieldClassName} value={createForm.format} onChange={(event) => setCreateForm((current) => ({ ...current, format: event.target.value }))}>
+              <option value="todos-contra-todos">Todos contra todos</option>
+              <option value="eliminatorio">Eliminatorio</option>
+            </select>
+            <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
+          </div>
+          <div className="relative">
+            <select className={fieldClassName} value={createForm.courtId ?? ""} onChange={(event) => setCreateForm((current) => ({ ...current, courtId: event.target.value ? Number(event.target.value) : null }))}>
+              <option value="">Selecciona la cancha</option>
+              {courts.map((court) => <option key={court.id} value={court.id}>{court.name}</option>)}
+            </select>
+            <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
+          </div>
+          <Button type="button" onClick={createTournament}>Crear torneo</Button>
         </div>
-        <div className="mt-3">
-          <p className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Equipos participantes ({createForm.teamIds.length} seleccionados)</p>
+        <div className="mt-4">
+          <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-muted">
+            Equipos participantes ({createForm.teamIds.length} seleccionados)
+          </p>
           <div className="flex flex-wrap gap-2">
             {teams.length > 0 ? teams.map((team) => {
               const isSelected = createForm.teamIds.includes(team.id);
               return (
-                <button
+                <Button
                   key={team.id}
                   type="button"
+                  variant={isSelected ? "default" : "secondary"}
+                  size="sm"
                   onClick={() => toggleCreateFormTeam(team.id)}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${isSelected ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200" : "border-white/10 bg-slate-950 text-slate-300 hover:border-white/20"}`}
                 >
                   {isSelected ? "✓ " : "+ "}{team.name}
-                </button>
+                </Button>
               );
-            }) : <p className="text-xs text-slate-500">No hay equipos creados todavía. Crea equipos en la pestaña Plantilla.</p>}
+            }) : <p className="font-mono text-[11px] uppercase tracking-wider text-muted">No hay equipos creados todavía. Creá equipos en la pestaña Plantilla.</p>}
           </div>
         </div>
-        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-          <input type="date" className="h-11 rounded-xl border border-white/10 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" value={createForm.startDate} onChange={(event) => setCreateForm((current) => ({ ...current, startDate: event.target.value }))} />
-          <input type="date" className="h-11 rounded-xl border border-white/10 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" value={createForm.endDate} onChange={(event) => setCreateForm((current) => ({ ...current, endDate: event.target.value }))} />
-          <select className="h-11 rounded-xl border border-white/10 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400 xl:col-span-2" value={selectedTournamentId ?? ""} onChange={(event) => setSelectedTournamentId(event.target.value ? Number(event.target.value) : null)}>
-            <option value="">Selecciona un torneo</option>
-            {data.tournaments.map((tournament) => <option key={tournament.id} value={tournament.id}>{tournament.name}</option>)}
-          </select>
-          <button
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <input type="date" className={fieldClassName} value={createForm.startDate} onChange={(event) => setCreateForm((current) => ({ ...current, startDate: event.target.value }))} />
+          <input type="date" className={fieldClassName} value={createForm.endDate} onChange={(event) => setCreateForm((current) => ({ ...current, endDate: event.target.value }))} />
+          <div className="relative xl:col-span-2">
+            <select className={fieldClassName} value={selectedTournamentId ?? ""} onChange={(event) => setSelectedTournamentId(event.target.value ? Number(event.target.value) : null)}>
+              <option value="">Selecciona un torneo</option>
+              {data.tournaments.map((tournament) => <option key={tournament.id} value={tournament.id}>{tournament.name}</option>)}
+            </select>
+            <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
+          </div>
+          <Button
             type="button"
+            variant="secondary"
             disabled={!currentTournament}
             onClick={() => selectedTournamentId ? startTournament(selectedTournamentId) : null}
-            className="rounded-xl border border-white/10 bg-slate-900/80 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-emerald-400/40 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Iniciar torneo
-          </button>
+          </Button>
         </div>
-        {message ? <p className="mt-4 rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 text-sm text-slate-200">{message}</p> : null}
+        {message ? <div className="mt-4"><MessageBanner message={message} /></div> : null}
       </PanelShell>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <PanelShell title="Torneos existentes" description="Inscribe equipos y revisa el calendario de partidos generado.">
+        <section>
+          <SectionLabel icon={Trophy} className="mb-3">Torneos existentes</SectionLabel>
           <div className="space-y-4">
             {data.tournaments.map((tournament) => (
-              <article key={tournament.id} className="rounded-2xl border border-white/10 bg-slate-900/80 p-4">
+              <Card key={tournament.id} className="gap-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <h3 className="text-lg font-bold text-slate-100">{tournament.name}</h3>
-                    <p className="text-sm text-slate-400">{tournament.format} · {tournament.startDate} a {tournament.endDate}</p>
-                    <p className="mt-1 text-sm text-emerald-300">📍 {courtName(tournament.courtId)}</p>
+                    <h3 className="font-display text-lg font-black leading-tight tracking-tight text-black">{tournament.name}</h3>
+                    <p className="mt-1 font-mono text-[11px] uppercase tracking-wider text-muted">{tournament.format} · {tournament.startDate} a {tournament.endDate}</p>
+                    <p className="mt-1 flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-muted">
+                      <MapPin size={12} strokeWidth={2} aria-hidden />
+                      {courtName(tournament.courtId)}
+                    </p>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge>{tournament.status}</Badge>
-                  </div>
+                  <Badge>{tournament.status}</Badge>
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5">
                   {teams.map((team) => (
-                    <button
+                    <Button
                       key={team.id}
                       type="button"
+                      variant="secondary"
+                      size="sm"
                       onClick={() => {
                         setSelectedTournamentId(tournament.id);
                         void enrollTeam(team.id);
                       }}
-                      className="rounded-full border border-white/10 bg-slate-950 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:border-emerald-400/40 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       + {team.name}
-                    </button>
+                    </Button>
                   ))}
                 </div>
-                <p className="mt-3 text-xs uppercase tracking-[0.2em] text-slate-500">Equipos inscritos: {tournament.teamIds.length} / {tournament.teamsRequired}</p>
-              </article>
+                <p className="font-mono text-[10px] uppercase tracking-wider text-muted">
+                  Equipos inscritos: {tournament.teamIds.length} / {tournament.teamsRequired}
+                </p>
+              </Card>
             ))}
           </div>
-        </PanelShell>
+        </section>
 
-        <PanelShell title="Calendario de partidos y tabla" description="Resultados inmediatos con actualización de posiciones y auditoría.">
-          {currentTournament ? (
-            <div className="space-y-4">
-              <p className="text-sm text-emerald-300">📍 Sede del torneo: {courtName(currentTournament.courtId)}</p>
-              <div className="grid gap-3 md:grid-cols-2">
-                <input className="h-11 rounded-xl border border-white/10 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" placeholder="ID partido" value={resultForm.matchId} onChange={(event) => setResultForm((current) => ({ ...current, matchId: event.target.value }))} />
-                <div className="grid grid-cols-2 gap-3">
-                  <input type="number" className="h-11 rounded-xl border border-white/10 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" placeholder="Local" value={resultForm.homeGoals} onChange={(event) => setResultForm((current) => ({ ...current, homeGoals: event.target.value }))} />
-                  <input type="number" className="h-11 rounded-xl border border-white/10 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" placeholder="Visita" value={resultForm.awayGoals} onChange={(event) => setResultForm((current) => ({ ...current, awayGoals: event.target.value }))} />
+        <section>
+          <SectionLabel icon={CalendarDays} className="mb-3">Calendario de partidos y tabla</SectionLabel>
+          <Card>
+            {currentTournament ? (
+              <div className="space-y-4">
+                <p className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-muted">
+                  <MapPin size={12} strokeWidth={2} aria-hidden />
+                  Sede del torneo: {courtName(currentTournament.courtId)}
+                </p>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <input className={fieldClassName} placeholder="ID partido" value={resultForm.matchId} onChange={(event) => setResultForm((current) => ({ ...current, matchId: event.target.value }))} />
+                  <div className="grid grid-cols-2 gap-3">
+                    <input type="number" className={fieldClassName} placeholder="Local" value={resultForm.homeGoals} onChange={(event) => setResultForm((current) => ({ ...current, homeGoals: event.target.value }))} />
+                    <input type="number" className={fieldClassName} placeholder="Visita" value={resultForm.awayGoals} onChange={(event) => setResultForm((current) => ({ ...current, awayGoals: event.target.value }))} />
+                  </div>
+                </div>
+                <label className="flex items-center gap-2">
+                  <RowCheckbox
+                    checked={resultForm.confirmSecondAuth}
+                    onCheckedChange={(checked) => setResultForm((current) => ({ ...current, confirmSecondAuth: checked }))}
+                    className="size-5"
+                  />
+                  <span className="font-mono text-[10px] uppercase tracking-wider text-muted">
+                    Segunda autorización para modificar resultado confirmado
+                  </span>
+                </label>
+                <Button type="button" onClick={confirmResult}>Guardar resultado</Button>
+
+                <div className="space-y-3">
+                  {currentTournament.fixture.map((match) => (
+                    <div key={match.id} className="border border-black p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-black">Partido #{match.id}</p>
+                        <Badge>{match.status}</Badge>
+                      </div>
+                      <p className="mt-1 font-sans text-sm text-black">{teamName(match.homeTeamId)} vs {teamName(match.awayTeamId)} · {formatDateTime(match.scheduledAt)}</p>
+                      <p className="mt-1 flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-muted">
+                        <MapPin size={12} strokeWidth={2} aria-hidden />
+                        {courtName(currentTournament.courtId)}
+                      </p>
+                      <p className="mt-2 font-mono text-sm font-bold tabular-nums text-black">
+                        Resultado: {match.homeGoals ?? "-"} / {match.awayGoals ?? "-"}
+                      </p>
+                      {match.auditTrail.length > 0 ? <p className="mt-2 font-mono text-[10px] uppercase tracking-wider text-muted">{match.auditTrail[match.auditTrail.length - 1]}</p> : null}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="overflow-x-auto border border-black">
+                  <table className="w-full min-w-max text-left text-sm">
+                    <thead className="bg-black text-paper">
+                      <tr>
+                        <th className="sticky left-0 z-10 bg-black px-3 py-2 font-mono text-[10px] font-bold uppercase tracking-wider">Equipo</th>
+                        <th className="px-3 py-2 text-right font-mono text-[10px] font-bold uppercase tracking-wider">PJ</th>
+                        <th className="px-3 py-2 text-right font-mono text-[10px] font-bold uppercase tracking-wider">PTS</th>
+                        <th className="px-3 py-2 text-right font-mono text-[10px] font-bold uppercase tracking-wider">DG</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {currentTournament.standings.map((standing) => (
+                        <tr key={`${standing.teamId}-${standing.tournamentId}`} className="border-t border-black">
+                          <td className="sticky left-0 z-10 bg-paper px-3 py-2 font-sans text-sm text-black">{teamName(standing.teamId)}</td>
+                          <td className="px-3 py-2 text-right font-mono text-sm tabular-nums text-black">{standing.played}</td>
+                          <td className="px-3 py-2 text-right font-mono text-sm font-bold tabular-nums text-black">{standing.points}</td>
+                          <td className="px-3 py-2 text-right font-mono text-sm tabular-nums text-black">{standing.goalsFor - standing.goalsAgainst}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
-              <label className="flex items-center gap-2 text-sm text-slate-300">
-                <input type="checkbox" checked={resultForm.confirmSecondAuth} onChange={(event) => setResultForm((current) => ({ ...current, confirmSecondAuth: event.target.checked }))} />
-                Segunda autorización para modificar resultado confirmado
-              </label>
-              <button type="button" onClick={confirmResult} className="rounded-xl bg-emerald-400 px-4 py-2 text-sm font-bold text-slate-950 transition hover:brightness-110">Guardar resultado</button>
-
-              <div className="space-y-3">
-                {currentTournament.fixture.map((match) => (
-                  <div key={match.id} className="rounded-2xl border border-white/10 bg-slate-900/80 p-4 text-sm text-slate-300">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="font-semibold text-slate-100">Partido #{match.id}</p>
-                      <Badge>{match.status}</Badge>
-                    </div>
-                    <p className="mt-1">{teamName(match.homeTeamId)} vs {teamName(match.awayTeamId)} · {formatDateTime(match.scheduledAt)}</p>
-                    <p className="mt-1 text-xs text-emerald-300">📍 {courtName(currentTournament.courtId)}</p>
-                    <p className="mt-2">Resultado: {match.homeGoals ?? "-"} / {match.awayGoals ?? "-"}</p>
-                    {match.auditTrail.length > 0 ? <p className="mt-2 text-xs text-slate-500">{match.auditTrail[match.auditTrail.length - 1]}</p> : null}
-                  </div>
-                ))}
-              </div>
-
-              <div className="overflow-hidden rounded-2xl border border-white/10">
-                <table className="w-full text-left text-sm text-slate-300">
-                  <thead className="bg-slate-900/80 text-xs uppercase tracking-[0.18em] text-slate-400">
-                    <tr>
-                      <th className="px-3 py-2">Equipo</th>
-                      <th className="px-3 py-2">PJ</th>
-                      <th className="px-3 py-2">PTS</th>
-                      <th className="px-3 py-2">DG</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {currentTournament.standings.map((standing) => (
-                      <tr key={`${standing.teamId}-${standing.tournamentId}`} className="border-t border-white/5 bg-slate-950/70">
-                        <td className="px-3 py-2">{teamName(standing.teamId)}</td>
-                        <td className="px-3 py-2">{standing.played}</td>
-                        <td className="px-3 py-2">{standing.points}</td>
-                        <td className="px-3 py-2">{standing.goalsFor - standing.goalsAgainst}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-slate-400">Crea o selecciona un torneo para ver el calendario de partidos.</p>
-          )}
-        </PanelShell>
+            ) : (
+              <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
+                Creá o seleccioná un torneo para ver el calendario de partidos.
+              </p>
+            )}
+          </Card>
+        </section>
       </div>
     </div>
   );
@@ -1007,67 +1062,74 @@ function MyTournamentsPanel({ user }: { user: AppUser }) {
   return (
     <PanelShell
       title="Mis torneos"
-      description="Torneos en los que participas junto con el calendario de partidos y la tabla de posiciones."
+      description="Torneos en los que participás junto con el calendario de partidos y la tabla de posiciones."
       action={<StatusPill>{myTournaments.length} torneos</StatusPill>}
     >
-      {message ? <p className="mb-4 rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 text-sm text-slate-200">{message}</p> : null}
+      {message ? <MessageBanner message={message} /> : null}
       {myTournaments.length > 0 ? (
-        <div className="space-y-5">
+        <div className="space-y-4">
           {myTournaments.map((tournament) => (
-            <article key={tournament.id} className="rounded-2xl border border-white/10 bg-slate-900/80 p-4">
+            <Card key={tournament.id} className="gap-3">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h3 className="text-lg font-bold text-slate-100">{tournament.name}</h3>
-                  <p className="text-sm text-slate-400">{tournament.format} · {tournament.startDate} a {tournament.endDate}</p>
-                  <p className="mt-1 text-sm text-emerald-300">📍 {courtName(tournament.courtId)}</p>
+                  <h3 className="font-display text-lg font-black leading-tight tracking-tight text-black">{tournament.name}</h3>
+                  <p className="mt-1 font-mono text-[11px] uppercase tracking-wider text-muted">{tournament.format} · {tournament.startDate} a {tournament.endDate}</p>
+                  <p className="mt-1 flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-muted">
+                    <MapPin size={12} strokeWidth={2} aria-hidden />
+                    {courtName(tournament.courtId)}
+                  </p>
                 </div>
                 <Badge>{tournament.status}</Badge>
               </div>
 
-              <div className="mt-3 space-y-2">
+              <div className="space-y-2">
                 {tournament.fixture.length > 0 ? (
                   tournament.fixture.map((match) => (
-                    <div key={match.id} className="rounded-xl border border-white/10 bg-slate-950/70 p-3 text-sm text-slate-300">
+                    <div key={match.id} className="border border-black p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="font-semibold text-slate-100">{teamName(match.homeTeamId)} vs {teamName(match.awayTeamId)}</p>
+                        <p className="text-sm font-semibold text-black">{teamName(match.homeTeamId)} vs {teamName(match.awayTeamId)}</p>
                         <Badge>{match.status}</Badge>
                       </div>
-                      <p className="mt-1 text-xs text-slate-400">{formatDateTime(match.scheduledAt)} · 📍 {courtName(tournament.courtId)}</p>
-                      <p className="mt-1">Resultado: {match.homeGoals ?? "-"} / {match.awayGoals ?? "-"}</p>
+                      <p className="mt-1 font-mono text-[11px] uppercase tracking-wider text-muted">
+                        {formatDateTime(match.scheduledAt)} · {courtName(tournament.courtId)}
+                      </p>
+                      <p className="mt-1 font-mono text-sm font-bold tabular-nums text-black">
+                        Resultado: {match.homeGoals ?? "-"} / {match.awayGoals ?? "-"}
+                      </p>
                     </div>
                   ))
                 ) : (
-                  <p className="text-xs text-slate-500">Aún no hay partidos programados.</p>
+                  <p className="font-mono text-[11px] uppercase tracking-wider text-muted">Aún no hay partidos programados.</p>
                 )}
               </div>
 
-              <div className="mt-4 overflow-hidden rounded-2xl border border-white/10">
-                <table className="w-full text-left text-sm text-slate-300">
-                  <thead className="bg-slate-900/80 text-xs uppercase tracking-[0.18em] text-slate-400">
+              <div className="overflow-x-auto border border-black">
+                <table className="w-full min-w-max text-left text-sm">
+                  <thead className="bg-black text-paper">
                     <tr>
-                      <th className="px-3 py-2">Equipo</th>
-                      <th className="px-3 py-2">PJ</th>
-                      <th className="px-3 py-2">PTS</th>
-                      <th className="px-3 py-2">DG</th>
+                      <th className="sticky left-0 z-10 bg-black px-3 py-2 font-mono text-[10px] font-bold uppercase tracking-wider">Equipo</th>
+                      <th className="px-3 py-2 text-right font-mono text-[10px] font-bold uppercase tracking-wider">PJ</th>
+                      <th className="px-3 py-2 text-right font-mono text-[10px] font-bold uppercase tracking-wider">PTS</th>
+                      <th className="px-3 py-2 text-right font-mono text-[10px] font-bold uppercase tracking-wider">DG</th>
                     </tr>
                   </thead>
                   <tbody>
                     {tournament.standings.map((standing) => (
-                      <tr key={`${standing.teamId}-${standing.tournamentId}`} className="border-t border-white/5 bg-slate-950/70">
-                        <td className="px-3 py-2">{teamName(standing.teamId)}</td>
-                        <td className="px-3 py-2">{standing.played}</td>
-                        <td className="px-3 py-2">{standing.points}</td>
-                        <td className="px-3 py-2">{standing.goalsFor - standing.goalsAgainst}</td>
+                      <tr key={`${standing.teamId}-${standing.tournamentId}`} className="border-t border-black">
+                        <td className="sticky left-0 z-10 bg-paper px-3 py-2 font-sans text-sm text-black">{teamName(standing.teamId)}</td>
+                        <td className="px-3 py-2 text-right font-mono text-sm tabular-nums text-black">{standing.played}</td>
+                        <td className="px-3 py-2 text-right font-mono text-sm font-bold tabular-nums text-black">{standing.points}</td>
+                        <td className="px-3 py-2 text-right font-mono text-sm tabular-nums text-black">{standing.goalsFor - standing.goalsAgainst}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            </article>
+            </Card>
           ))}
         </div>
       ) : (
-        <p className="text-sm text-slate-400">Todavía no participas en ningún torneo.</p>
+        <p className="font-mono text-[11px] uppercase tracking-wider text-muted">Todavía no participás en ningún torneo.</p>
       )}
     </PanelShell>
   );
@@ -1122,44 +1184,52 @@ function ProfilePanel({ user }: { user: AppUser }) {
   }
 
   return (
-    <PanelShell title="Perfil global" description="Estadísticas acumuladas, torneos disputados y privacidad."
+    <PanelShell
+      title="Perfil global"
+      description="Estadísticas acumuladas, torneos disputados y privacidad."
       action={<StatusPill>{profile?.profile.visibility ?? "public"}</StatusPill>}
     >
-      {message ? <p className="mb-4 rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 text-sm text-slate-200">{message}</p> : null}
+      {message ? <MessageBanner message={message} /> : null}
       {profile ? (
         <div className="grid gap-4 xl:grid-cols-3">
-          <div className="rounded-2xl border border-white/10 bg-slate-900/80 p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Jugador</p>
-            <h3 className="mt-2 text-xl font-bold text-slate-100">{profile.user.fullName}</h3>
-            <p className="text-sm text-slate-400">{profile.user.email}</p>
-            <p className="mt-3 text-sm text-slate-300">Rol: {humanRole(profile.user.role)}</p>
-            <p className="text-sm text-slate-300">Notificaciones: {profile.user.notificationsEnabled ? "activas" : "desactivadas"}</p>
-          </div>
-          <div className="rounded-2xl border border-white/10 bg-slate-900/80 p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Estadísticas</p>
+          <Card nested>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Jugador</p>
+            <h3 className="mt-2 font-display text-xl font-black leading-tight tracking-tight text-black">{profile.user.fullName}</h3>
+            <p className="font-sans text-sm text-muted">{profile.user.email}</p>
+            <p className="mt-3 font-sans text-sm text-black">Rol: {humanRole(profile.user.role)}</p>
+            <p className="font-sans text-sm text-black">Notificaciones: {profile.user.notificationsEnabled ? "activas" : "desactivadas"}</p>
+          </Card>
+          <Card nested>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Estadísticas</p>
             <div className="mt-3 grid grid-cols-3 gap-3 text-center">
-              <div><p className="text-2xl font-bold text-slate-100">{profile.profile.goals}</p><p className="text-xs text-slate-400">Goles</p></div>
-              <div><p className="text-2xl font-bold text-slate-100">{profile.profile.assists}</p><p className="text-xs text-slate-400">Asistencias</p></div>
-              <div><p className="text-2xl font-bold text-slate-100">{profile.profile.matchesPlayed}</p><p className="text-xs text-slate-400">Partidos</p></div>
+              <div><p className="font-mono text-2xl font-black tabular-nums text-black">{profile.profile.goals}</p><p className="font-mono text-[10px] uppercase tracking-wider text-muted">Goles</p></div>
+              <div><p className="font-mono text-2xl font-black tabular-nums text-black">{profile.profile.assists}</p><p className="font-mono text-[10px] uppercase tracking-wider text-muted">Asistencias</p></div>
+              <div><p className="font-mono text-2xl font-black tabular-nums text-black">{profile.profile.matchesPlayed}</p><p className="font-mono text-[10px] uppercase tracking-wider text-muted">Partidos</p></div>
             </div>
-          </div>
-          <div className="rounded-2xl border border-white/10 bg-slate-900/80 p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Privacidad</p>
+          </Card>
+          <Card nested>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Privacidad</p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" onClick={() => updateVisibility("public")} className="rounded-xl bg-emerald-400 px-3 py-2 text-xs font-bold text-slate-950">Público</button>
-              <button type="button" onClick={() => updateVisibility("private")} className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-xs font-bold text-slate-200">Privado</button>
-              <button type="button" onClick={() => updateNotifications(!profile.user.notificationsEnabled)} className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-xs font-bold text-slate-200">{profile.user.notificationsEnabled ? "Desactivar notificaciones" : "Activar notificaciones"}</button>
+              <Button type="button" size="sm" variant={profile.profile.visibility === "public" ? "default" : "secondary"} onClick={() => updateVisibility("public")}>Público</Button>
+              <Button type="button" size="sm" variant={profile.profile.visibility === "private" ? "default" : "secondary"} onClick={() => updateVisibility("private")}>Privado</Button>
+              <Button type="button" size="sm" variant="secondary" onClick={() => updateNotifications(!profile.user.notificationsEnabled)}>
+                {profile.user.notificationsEnabled ? "Desactivar notificaciones" : "Activar notificaciones"}
+              </Button>
             </div>
-          </div>
-          <div className="rounded-2xl border border-white/10 bg-slate-900/80 p-4 xl:col-span-3">
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Torneos y canchas vinculadas</p>
+          </Card>
+          <Card nested className="xl:col-span-3">
+            <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Torneos y canchas vinculadas</p>
             <div className="mt-3 flex flex-wrap gap-2">
               {profile.tournaments.map((tournament) => <Badge key={tournament}>{tournament}</Badge>)}
               {profile.courts.map((court) => <Badge key={court}>{court}</Badge>)}
             </div>
-          </div>
+          </Card>
         </div>
-      ) : <p className="text-sm text-slate-400">Cargando perfil...</p>}
+      ) : (
+        <div className="border border-black bg-paper p-8 text-center">
+          <p className="font-mono text-xs font-bold uppercase tracking-wider text-black">Cargando…</p>
+        </div>
+      )}
     </PanelShell>
   );
 }
@@ -1278,81 +1348,90 @@ function TeamsPanel({ user }: { user: AppUser }) {
   }
 
   return (
-    <PanelShell title="Plantilla y convocatorias" description="Agrega o elimina jugadores y notifica al equipo de forma inmediata.">
-      {message ? <p className="mb-4 rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 text-sm text-slate-200">{message}</p> : null}
-      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-white/10 bg-slate-900/80 p-4">
+    <PanelShell title="Plantilla y convocatorias" description="Agregá o eliminá jugadores y notificá al equipo de forma inmediata.">
+      {message ? <MessageBanner message={message} /> : null}
+      <div className="mb-4 flex flex-wrap items-center gap-3 border border-black bg-paper p-4">
         <input
           value={newTeamName}
           onChange={(event) => setNewTeamName(event.target.value)}
           placeholder="Nombre de tu nueva plantilla"
-          className="h-11 flex-1 min-w-50 rounded-xl border border-white/10 bg-slate-950 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400"
+          className={`${fieldClassName} min-w-50 flex-1`}
         />
-        <button type="button" onClick={createNewTeam} className="rounded-xl bg-emerald-400 px-4 py-2 text-sm font-bold text-slate-950 transition hover:brightness-110">Crear plantilla</button>
+        <Button type="button" onClick={createNewTeam}>Crear plantilla</Button>
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
-        <div className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/80 p-4">
+        <Card className="gap-3">
           <div className="grid gap-3 md:grid-cols-2">
-            <select className="h-11 rounded-xl border border-white/10 bg-slate-950 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" value={selectedTeamId ?? ""} onChange={(event) => setSelectedTeamId(event.target.value ? Number(event.target.value) : null)}>
-              <option value="">Selecciona un equipo</option>
-              {myTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
-            </select>
+            <div className="relative">
+              <select className={fieldClassName} value={selectedTeamId ?? ""} onChange={(event) => setSelectedTeamId(event.target.value ? Number(event.target.value) : null)}>
+                <option value="">Selecciona un equipo</option>
+                {myTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+              </select>
+              <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
+            </div>
             <input
               type="search"
-              placeholder="Buscar jugador por nombre o correo..."
+              placeholder="Buscar jugador por nombre o correo…"
               value={playerSearch}
               onChange={(event) => setPlayerSearch(event.target.value)}
-              className="h-11 rounded-xl border border-white/10 bg-slate-950 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400"
+              className={fieldClassName}
             />
           </div>
-          <select className="h-11 w-full rounded-xl border border-white/10 bg-slate-950 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" value={selectedPlayerId ?? ""} onChange={(event) => setSelectedPlayerId(event.target.value ? Number(event.target.value) : null)}>
-            <option value="">Selecciona un jugador ({filteredUsers.length} resultados)</option>
-            {filteredUsers.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.fullName} · {humanRole(candidate.role)}</option>)}
-          </select>
+          <div className="relative">
+            <select className={fieldClassName} value={selectedPlayerId ?? ""} onChange={(event) => setSelectedPlayerId(event.target.value ? Number(event.target.value) : null)}>
+              <option value="">Selecciona un jugador ({filteredUsers.length} resultados)</option>
+              {filteredUsers.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.fullName} · {humanRole(candidate.role)}</option>)}
+            </select>
+            <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
+          </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => changeRoster("add")} className="rounded-xl bg-emerald-400 px-3 py-2 text-xs font-bold text-slate-950">Agregar jugador</button>
-            <button type="button" onClick={() => changeRoster("remove")} className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-xs font-bold text-slate-200">Eliminar jugador</button>
+            <Button type="button" size="sm" onClick={() => changeRoster("add")}>Agregar jugador</Button>
+            <Button type="button" size="sm" variant="secondary" onClick={() => changeRoster("remove")}>Eliminar jugador</Button>
           </div>
-        </div>
+        </Card>
 
-        <div className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/80 p-4">
+        <Card className="gap-3">
           <div className="grid gap-3 md:grid-cols-2">
-            <input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} className="h-11 rounded-xl border border-white/10 bg-slate-950 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" />
-            <input value={courtName} onChange={(event) => setCourtName(event.target.value)} className="h-11 rounded-xl border border-white/10 bg-slate-950 px-3 text-sm text-slate-100 outline-none focus:border-emerald-400" placeholder="Cancha" />
+            <input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} className={fieldClassName} />
+            <input value={courtName} onChange={(event) => setCourtName(event.target.value)} className={fieldClassName} placeholder="Cancha" />
           </div>
-          <button
+          <Button
             type="button"
             onClick={sendConvocation}
             disabled={!selectedTeam || !isCaptainOfSelected}
             title={selectedTeam && !isCaptainOfSelected ? "Solo el capitán del equipo puede enviar convocatorias" : undefined}
-            className="rounded-xl bg-emerald-400 px-3 py-2 text-xs font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Enviar convocatoria
-          </button>
+          </Button>
           {selectedTeam && !isCaptainOfSelected ? (
-            <p className="text-xs text-amber-300">Solo el capitán ({captainName(selectedTeam)}) puede enviar convocatorias para este equipo.</p>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-muted">
+              Solo el capitán ({captainName(selectedTeam)}) puede enviar convocatorias para este equipo.
+            </p>
           ) : null}
-        </div>
+        </Card>
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
         {myTeams.length > 0 ? myTeams.map((team) => (
-          <article key={team.id} className="rounded-2xl border border-white/10 bg-slate-900/80 p-4">
+          <Card key={team.id} className="gap-3">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h3 className="text-lg font-bold text-slate-100">{team.name}</h3>
-                <p className="text-sm text-slate-400">Capitán: {captainName(team)}</p>
+                <h3 className="font-display text-lg font-black leading-tight tracking-tight text-black">{team.name}</h3>
+                <p className="font-mono text-[11px] uppercase tracking-wider text-muted">Capitán: {captainName(team)}</p>
               </div>
               <Badge>{team.playerIds.length} jugadores</Badge>
             </div>
-            <ul className="mt-3 space-y-2 text-sm text-slate-300">
+            <ul>
               {team.players.map((player) => (
-                <li key={player?.id ?? `${team.id}-empty`} className="rounded-lg bg-slate-950/80 px-3 py-2">
-                  {player ? player.fullName : "Vacante"}
-                </li>
+                <Row
+                  key={player?.id ?? `${team.id}-empty`}
+                  title={player ? player.fullName : "Vacante"}
+                  disabled={!player}
+                />
               ))}
             </ul>
-          </article>
-        )) : <p className="text-sm text-slate-400">No perteneces a ninguna plantilla todavía.</p>}
+          </Card>
+        )) : <p className="font-mono text-[11px] uppercase tracking-wider text-muted">No pertenecés a ninguna plantilla todavía.</p>}
       </div>
     </PanelShell>
   );
@@ -1405,23 +1484,27 @@ function NotificationsPanel({ user }: { user: AppUser }) {
       description="Confirmaciones de reserva, resultados de partidos y convocatorias."
       action={<StatusPill>{notifications.length} en total</StatusPill>}
     >
-      {message ? <p className="mb-4 rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 text-sm text-slate-200">{message}</p> : null}
+      {message ? <MessageBanner message={message} /> : null}
       {!user.notificationsEnabled ? (
-        <p className="mb-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
-          Tienes las notificaciones desactivadas desde tu perfil. Actívalas para recibir nuevos avisos.
-        </p>
+        <div className="mb-4 flex items-center gap-2 border border-black bg-black px-3 py-2 font-mono text-xs uppercase tracking-wider text-paper">
+          <Bell size={14} strokeWidth={2} aria-hidden />
+          Tenés las notificaciones desactivadas desde tu perfil. Activalas para recibir nuevos avisos.
+        </div>
       ) : null}
-      <div className="space-y-3">
-        {notifications.length > 0 ? notifications.map((notification) => (
-          <div key={notification.id} className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3">
-            <div>
-              <p className="text-sm font-semibold text-slate-100">{notification.message}</p>
-              <p className="mt-1 text-xs text-slate-500">{formatDateTime(notification.createdAt)}</p>
-            </div>
-            <Badge>{notificationTypeLabel(notification.type)}</Badge>
-          </div>
-        )) : <p className="text-sm text-slate-400">No tienes notificaciones todavía.</p>}
-      </div>
+      {notifications.length > 0 ? (
+        <ul>
+          {notifications.map((notification) => (
+            <Row
+              key={notification.id}
+              title={notification.message}
+              meta={formatDateTime(notification.createdAt)}
+              right={<Badge>{notificationTypeLabel(notification.type)}</Badge>}
+            />
+          ))}
+        </ul>
+      ) : (
+        <p className="font-mono text-[11px] uppercase tracking-wider text-muted">No tenés notificaciones todavía.</p>
+      )}
     </PanelShell>
   );
 }
@@ -1430,13 +1513,15 @@ export function DashboardScreen({ user, onLogout }: DashboardScreenProps) {
   const [activeTab, setActiveTab] = useState<(typeof tabButtons)[number]["id"]>("reservas");
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.18),transparent_28%),linear-gradient(180deg,#08111f_0%,#050914_100%)] px-4 py-6 text-slate-100 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-paper px-4 py-6 font-sans sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
-        <header className="flex flex-col gap-4 rounded-[28px] border border-white/10 bg-slate-950/70 p-5 shadow-[0_20px_80px_rgba(0,0,0,0.28)] backdrop-blur-sm lg:flex-row lg:items-center lg:justify-between">
+        <header className="flex flex-col gap-4 border border-black bg-paper p-5 shadow-hard lg:flex-row lg:items-center lg:justify-between">
           <div>
             <StatusPill>Sesión activa</StatusPill>
-            <h1 className="mt-3 text-3xl font-black tracking-tight text-slate-50">Hola, {user.fullName}</h1>
-            <p className="mt-2 text-sm text-slate-400">
+            <h1 className="mt-3 font-display text-3xl font-black leading-none tracking-tight text-black">
+              Hola, {user.fullName}
+            </h1>
+            <p className="mt-2 font-mono text-[11px] uppercase tracking-wider text-muted">
               {humanRole(user.role)} · {user.email}
               {user.tenantId ? ` · tenant #${user.tenantId}` : ""}
             </p>
@@ -1446,25 +1531,22 @@ export function DashboardScreen({ user, onLogout }: DashboardScreenProps) {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
               return (
-                <button
+                <Button
                   key={tab.id}
                   type="button"
+                  variant={isActive ? "default" : "secondary"}
+                  size="sm"
                   onClick={() => setActiveTab(tab.id)}
-                  className={`inline-flex items-center gap-2 rounded-2xl border px-4 py-2 text-sm font-semibold transition ${isActive ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200" : "border-white/10 bg-slate-900/70 text-slate-300 hover:border-white/20 hover:text-slate-100"}`}
                 >
-                  <Icon size={16} />
+                  <Icon size={16} strokeWidth={2} aria-hidden />
                   {tab.label}
-                </button>
+                </Button>
               );
             })}
-            <button
-              type="button"
-              onClick={onLogout}
-              className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:border-white/20 hover:text-slate-100"
-            >
-              <LogOut size={16} />
+            <Button type="button" variant="destructive" size="sm" onClick={onLogout}>
+              <LogOut size={16} strokeWidth={2} aria-hidden />
               Salir
-            </button>
+            </Button>
           </div>
         </header>
 
