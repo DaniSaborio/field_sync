@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock3,
+  Filter,
   LogIn,
   LogOut,
   Search,
@@ -21,6 +22,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { Row, RowCheckbox, RowTag } from "@/components/ui/row";
 import { SectionLabel } from "@/components/ui/section-label";
 
@@ -29,6 +31,20 @@ const fieldClassName =
 
 const fieldLabelClassName =
   "flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-muted";
+
+const timeSlotFilterLabels: Record<string, string> = {
+  all: "Todo el día",
+  morning: "Mañana",
+  afternoon: "Tarde",
+  night: "Noche",
+};
+
+const surfaceFilterLabels: Record<string, string> = {
+  all: "Todas",
+  synthetic: "Sintética",
+  natural: "Natural",
+  indoor: "Indoor",
+};
 
 export type AppUser = {
   id: number;
@@ -264,6 +280,88 @@ function MessageBanner({ message }: { message: string }) {
   );
 }
 
+function CourtResultCard({
+  court,
+  busy,
+  onReserve,
+}: {
+  court: CourtCard;
+  busy: boolean;
+  onReserve: (courtId: number, slot: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const hasSlots = court.availableSlots.length > 0;
+
+  return (
+    <Card className="gap-0 p-0">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 p-4 text-left"
+      >
+        <span className={`size-6 shrink-0 border border-black ${hasSlots ? "bg-neon" : "bg-paper"}`} aria-hidden />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-display text-base font-black leading-tight tracking-tight text-black">
+            {court.name}
+          </span>
+          <span className="mt-0.5 flex items-center gap-1.5 truncate font-mono text-[11px] uppercase tracking-wider text-muted">
+            <MapPin size={11} strokeWidth={2} aria-hidden />
+            {court.location} · ${court.pricePerHour}/h
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-2">
+          <RowTag tone={hasSlots ? "positive" : "default"}>
+            {hasSlots ? `${court.availableSlots.length} libres` : "Sin cupo"}
+          </RowTag>
+          <ChevronDown
+            size={16}
+            strokeWidth={2}
+            className={`transition-transform duration-150 ease-pop ${open ? "rotate-180" : ""}`}
+            aria-hidden
+          />
+        </span>
+      </button>
+
+      {open ? (
+        <div className="space-y-3 border-t border-black p-4">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 font-mono text-[11px] uppercase tracking-wider text-muted">
+            <RowTag>{surfaceLabel(court.surface)}</RowTag>
+            <span className="flex items-center gap-1.5">
+              <Users size={13} strokeWidth={2} aria-hidden />
+              {court.capacity}
+            </span>
+            <span className="flex items-center gap-1">
+              <BadgeCheck size={13} strokeWidth={2} aria-hidden />
+              {court.rating.toFixed(1)}
+            </span>
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            {hasSlots ? (
+              court.availableSlots.map((slot) => (
+                <Button
+                  key={`${court.id}-${slot}`}
+                  type="button"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => onReserve(court.id, slot)}
+                >
+                  Reservar {slot}
+                </Button>
+              ))
+            ) : (
+              <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
+                Sin horarios libres
+              </p>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
 function BookingPanel({
   user,
   onRequireLogin,
@@ -387,30 +485,26 @@ function BookingPanel({
 
   const isNegativeMessage = /no pudimos|no es posible/i.test(message);
 
+  const filtersSummary = `${date} · ${timeSlotFilterLabels[timeSlot]} · ${surfaceFilterLabels[surface]}`;
+
   return (
     <div className="space-y-6">
-      <section>
-        <SectionLabel icon={MapPin} className="mb-3">
-          Disponibilidad en tiempo real
-        </SectionLabel>
-
-        <Card className="gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="max-w-md font-sans text-sm text-muted">
-              Filtrá canchas, reservá una franja y cancelá con la política de 24 horas.
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              <RowTag tone={busy ? "default" : "positive"}>
-                {busy ? "Actualizando" : "Sincronizado"}
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <SectionLabel icon={MapPin}>Disponibilidad en tiempo real</SectionLabel>
+          <div className="flex flex-wrap gap-1.5">
+            <RowTag tone={busy ? "default" : "positive"}>
+              {busy ? "Actualizando" : "Sincronizado"}
+            </RowTag>
+            {user ? (
+              <RowTag tone={user.notificationsEnabled ? "positive" : "default"}>
+                {user.notificationsEnabled ? "Notificaciones activas" : "Notificaciones off"}
               </RowTag>
-              {user ? (
-                <RowTag tone={user.notificationsEnabled ? "positive" : "default"}>
-                  {user.notificationsEnabled ? "Notificaciones activas" : "Notificaciones off"}
-                </RowTag>
-              ) : null}
-            </div>
+            ) : null}
           </div>
+        </div>
 
+        <CollapsibleSection icon={Filter} label="Filtrar disponibilidad" summary={filtersSummary}>
           <label className="block space-y-1.5">
             <span className={fieldLabelClassName}>
               <Search size={13} strokeWidth={2} aria-hidden />
@@ -487,79 +581,39 @@ function BookingPanel({
               </div>
             </label>
           </div>
+        </CollapsibleSection>
 
-          {message ? (
-            <div
-              role={isNegativeMessage ? "alert" : "status"}
-              className={`flex items-center gap-2 border border-black px-3 py-2 font-mono text-xs uppercase tracking-wider ${
-                isNegativeMessage ? "bg-black text-paper" : "bg-paper text-black"
-              }`}
-            >
-              {isNegativeMessage ? (
-                <TriangleAlert size={14} strokeWidth={2} aria-hidden />
-              ) : (
-                <CheckCircle2 size={14} strokeWidth={2} aria-hidden />
-              )}
-              {message}
-            </div>
-          ) : null}
-        </Card>
+        {message ? (
+          <div
+            role={isNegativeMessage ? "alert" : "status"}
+            className={`flex items-center gap-2 border border-black px-3 py-2 font-mono text-xs uppercase tracking-wider ${
+              isNegativeMessage ? "bg-black text-paper" : "bg-paper text-black"
+            }`}
+          >
+            {isNegativeMessage ? (
+              <TriangleAlert size={14} strokeWidth={2} aria-hidden />
+            ) : (
+              <CheckCircle2 size={14} strokeWidth={2} aria-hidden />
+            )}
+            {message}
+          </div>
+        ) : null}
       </section>
 
       <section>
         <SectionLabel icon={Trophy} className="mb-3">
-          Canchas encontradas
+          Canchas encontradas ({filteredCourts.length})
         </SectionLabel>
 
         {filteredCourts.length > 0 ? (
-          <div className="grid gap-4 xl:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {filteredCourts.map((court) => (
-              <Card key={court.id} className="gap-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h3 className="truncate font-display text-lg font-black leading-tight tracking-tight text-black">
-                      {court.name}
-                    </h3>
-                    <p className="mt-1 flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-muted">
-                      <MapPin size={12} strokeWidth={2} aria-hidden />
-                      {court.location}
-                    </p>
-                  </div>
-                  <RowTag className="inline-flex shrink-0 items-center gap-1">
-                    <BadgeCheck size={12} strokeWidth={2} aria-hidden />
-                    {court.rating.toFixed(1)}
-                  </RowTag>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 font-mono text-[11px] uppercase tracking-wider text-muted">
-                  <RowTag>{surfaceLabel(court.surface)}</RowTag>
-                  <span className="flex items-center gap-1.5">
-                    <Users size={13} strokeWidth={2} aria-hidden />
-                    {court.capacity}
-                  </span>
-                  <span className="font-black text-black">${court.pricePerHour}/h</span>
-                </div>
-
-                <div className="flex flex-wrap gap-1.5">
-                  {court.availableSlots.length > 0 ? (
-                    court.availableSlots.map((slot) => (
-                      <Button
-                        key={`${court.id}-${slot}`}
-                        type="button"
-                        size="sm"
-                        disabled={busy}
-                        onClick={() => reserve(court.id, slot)}
-                      >
-                        Reservar {slot}
-                      </Button>
-                    ))
-                  ) : (
-                    <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
-                      Sin horarios libres
-                    </p>
-                  )}
-                </div>
-              </Card>
+              <CourtResultCard
+                key={court.id}
+                court={court}
+                busy={busy}
+                onReserve={reserve}
+              />
             ))}
           </div>
         ) : (
