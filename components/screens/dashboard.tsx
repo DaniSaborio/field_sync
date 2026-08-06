@@ -14,7 +14,9 @@ import {
   Filter,
   LogIn,
   LogOut,
+  Minus,
   Moon,
+  Plus,
   Search,
   ShieldCheck,
   Smartphone,
@@ -24,6 +26,7 @@ import {
   Settings2,
   MapPin,
   Swords,
+  X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -32,7 +35,7 @@ import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { Modal } from "@/components/ui/modal";
 import { Row, RowCheckbox, RowTag } from "@/components/ui/row";
 import { SectionLabel } from "@/components/ui/section-label";
-import { isNightSlot } from "@/lib/utils";
+import { cn, isNightSlot } from "@/lib/utils";
 
 const paymentMethodLabels: Record<PaymentMethod, string> = {
   sinpe: "SINPE Móvil",
@@ -101,6 +104,16 @@ type CourtCard = {
   reservations: CourtReservation[];
 };
 
+type MatchStat = {
+  id: number;
+  matchId: number;
+  playerId: number;
+  teamId: number;
+  goals: number;
+  yellowCards: number;
+  redCards: number;
+};
+
 type TournamentMatch = {
   id: number;
   tournamentId: number;
@@ -112,6 +125,7 @@ type TournamentMatch = {
   status: "scheduled" | "confirmed";
   resultLocked: boolean;
   auditTrail: string[];
+  stats: MatchStat[];
 };
 
 type Standing = {
@@ -132,6 +146,7 @@ type TournamentCard = {
   courtId: number;
   name: string;
   format: string;
+  fixtureMode: "aleatorio" | "manual";
   teamsRequired: number;
   startDate: string;
   endDate: string;
@@ -1035,6 +1050,64 @@ export function GuestBookingScreen({ onRequireLogin }: { onRequireLogin: () => v
   );
 }
 
+function PlayerStatRow({
+  name,
+  stat,
+  onChange,
+}: {
+  name: string;
+  stat: { goals: number; yellowCards: number; redCards: number };
+  onChange: (patch: Partial<{ goals: number; yellowCards: number; redCards: number }>) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 border-b border-black py-2 last:border-b-0">
+      <p className="min-w-0 truncate text-sm font-semibold text-black">{name}</p>
+      <div className="flex shrink-0 items-center gap-2">
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            aria-label="Quitar gol"
+            disabled={stat.goals === 0}
+            onClick={() => onChange({ goals: stat.goals - 1 })}
+            className="flex size-6 items-center justify-center border border-black disabled:opacity-40"
+          >
+            <Minus size={12} strokeWidth={2.5} aria-hidden />
+          </button>
+          <span className="w-5 text-center font-mono text-sm font-black tabular-nums text-black">{stat.goals}</span>
+          <button
+            type="button"
+            aria-label="Agregar gol"
+            onClick={() => onChange({ goals: stat.goals + 1 })}
+            className="flex size-6 items-center justify-center border border-black bg-neon"
+          >
+            <Plus size={12} strokeWidth={2.5} aria-hidden />
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={() => onChange({ yellowCards: stat.yellowCards > 0 ? 0 : 1 })}
+          className={cn(
+            "border border-black px-1.5 py-1.5 font-mono text-[10px] font-black uppercase",
+            stat.yellowCards > 0 ? "bg-black text-paper" : "bg-paper text-black",
+          )}
+        >
+          TA
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange({ redCards: stat.redCards > 0 ? 0 : 1 })}
+          className={cn(
+            "border border-black px-1.5 py-1.5 font-mono text-[10px] font-black uppercase",
+            stat.redCards > 0 ? "bg-black text-paper" : "bg-paper text-black",
+          )}
+        >
+          TR
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function TournamentsPanel({ user }: { user: AppUser }) {
   const [data, setData] = useState<{ tournaments: TournamentCard[]; matches: TournamentMatch[]; standings: Standing[] }>({ tournaments: [], matches: [], standings: [] });
   const [teams, setTeams] = useState<TeamCard[]>([]);
@@ -1044,6 +1117,7 @@ function TournamentsPanel({ user }: { user: AppUser }) {
   const [createForm, setCreateForm] = useState<{
     name: string;
     format: string;
+    fixtureMode: "aleatorio" | "manual";
     courtId: number | null;
     teamIds: number[];
     startDate: string;
@@ -1051,10 +1125,16 @@ function TournamentsPanel({ user }: { user: AppUser }) {
   }>({
     name: "",
     format: "todos-contra-todos",
+    fixtureMode: "aleatorio",
     courtId: null,
     teamIds: [],
     startDate: todayIso(),
     endDate: todayIso(),
+  });
+  const [manualPairs, setManualPairs] = useState<Array<{ homeTeamId: number; awayTeamId: number }>>([]);
+  const [manualPairDraft, setManualPairDraft] = useState<{ homeTeamId: number | null; awayTeamId: number | null }>({
+    homeTeamId: null,
+    awayTeamId: null,
   });
 
   function toggleCreateFormTeam(teamId: number) {
@@ -1065,7 +1145,38 @@ function TournamentsPanel({ user }: { user: AppUser }) {
         : [...current.teamIds, teamId],
     }));
   }
-  const [resultForm, setResultForm] = useState({ matchId: "", homeGoals: "", awayGoals: "", confirmSecondAuth: false });
+  const [resultModalMatch, setResultModalMatch] = useState<TournamentMatch | null>(null);
+  const [statsDraft, setStatsDraft] = useState<Record<number, { goals: number; yellowCards: number; redCards: number }>>({});
+  const [confirmSecondAuth, setConfirmSecondAuth] = useState(false);
+  const [savingResult, setSavingResult] = useState(false);
+
+  function openResultModal(match: TournamentMatch) {
+    const draft: Record<number, { goals: number; yellowCards: number; redCards: number }> = {};
+    for (const stat of match.stats) {
+      draft[stat.playerId] = { goals: stat.goals, yellowCards: stat.yellowCards, redCards: stat.redCards };
+    }
+    setStatsDraft(draft);
+    setConfirmSecondAuth(false);
+    setResultModalMatch(match);
+  }
+
+  function closeResultModal() {
+    setResultModalMatch(null);
+    setStatsDraft({});
+    setConfirmSecondAuth(false);
+  }
+
+  function statFor(playerId: number) {
+    return statsDraft[playerId] ?? { goals: 0, yellowCards: 0, redCards: 0 };
+  }
+
+  function updateStat(playerId: number, patch: Partial<{ goals: number; yellowCards: number; redCards: number }>) {
+    setStatsDraft((current) => {
+      const next = { ...statFor(playerId), ...patch };
+      next.goals = Math.max(0, next.goals);
+      return { ...current, [playerId]: next };
+    });
+  }
 
   async function loadTournaments() {
     const response = await fetch("/api/tournaments");
@@ -1140,6 +1251,8 @@ function TournamentsPanel({ user }: { user: AppUser }) {
     }
     setMessage("Torneo creado correctamente.");
     setCreateForm((current) => ({ ...current, name: "", courtId: null, teamIds: [] }));
+    setManualPairs([]);
+    setManualPairDraft({ homeTeamId: null, awayTeamId: null });
     await loadTournaments();
   }
 
@@ -1174,24 +1287,81 @@ function TournamentsPanel({ user }: { user: AppUser }) {
     await loadTournaments();
   }
 
-  async function confirmResult() {
+  function addManualPair() {
+    if (!manualPairDraft.homeTeamId || !manualPairDraft.awayTeamId) return;
+    if (manualPairDraft.homeTeamId === manualPairDraft.awayTeamId) {
+      setMessage("Un equipo no puede jugar contra sí mismo");
+      return;
+    }
+    setManualPairs((current) => [
+      ...current,
+      { homeTeamId: manualPairDraft.homeTeamId!, awayTeamId: manualPairDraft.awayTeamId! },
+    ]);
+    setManualPairDraft({ homeTeamId: null, awayTeamId: null });
+  }
+
+  function removeManualPair(index: number) {
+    setManualPairs((current) => current.filter((_, pairIndex) => pairIndex !== index));
+  }
+
+  async function saveManualFixture(tournamentId: number) {
+    if (manualPairs.length === 0) {
+      setMessage("Agrega al menos un partido al fixture");
+      return;
+    }
+    const response = await fetch("/api/tournaments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "setManualFixture", tournamentId, pairs: manualPairs }),
+    });
+    const payload = await readJson<ApiResponse<Record<string, never>>>(response);
+    if (!response.ok) {
+      setMessage(payload.error || "No pudimos guardar el fixture manual");
+      return;
+    }
+    setMessage("Fixture manual guardado y torneo iniciado.");
+    setManualPairs([]);
+    setManualPairDraft({ homeTeamId: null, awayTeamId: null });
+    await loadTournaments();
+  }
+
+  async function saveMatchResult() {
+    if (!resultModalMatch) return;
+    const homeTeam = teams.find((team) => team.id === resultModalMatch.homeTeamId);
+    const awayTeam = teams.find((team) => team.id === resultModalMatch.awayTeamId);
+
+    const stats = Object.entries(statsDraft)
+      .map(([playerIdText, stat]) => {
+        const playerId = Number(playerIdText);
+        const teamId = homeTeam?.playerIds.includes(playerId)
+          ? resultModalMatch.homeTeamId
+          : awayTeam?.playerIds.includes(playerId)
+            ? resultModalMatch.awayTeamId
+            : null;
+        if (teamId === null) return null;
+        return { playerId, teamId, goals: stat.goals, yellowCards: stat.yellowCards, redCards: stat.redCards };
+      })
+      .filter((stat) => stat !== null);
+
+    setSavingResult(true);
     const response = await fetch("/api/tournaments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "result",
-        matchId: Number(resultForm.matchId),
-        homeGoals: Number(resultForm.homeGoals),
-        awayGoals: Number(resultForm.awayGoals),
-        confirmedByAdmin: resultForm.confirmSecondAuth,
+        matchId: resultModalMatch.id,
+        stats,
+        confirmedByAdmin: confirmSecondAuth,
       }),
     });
     const payload = await readJson<ApiResponse<Record<string, never>>>(response);
+    setSavingResult(false);
     if (!response.ok) {
       setMessage(payload.error || "No pudimos guardar el resultado");
       return;
     }
     setMessage("Resultado guardado y tabla actualizada.");
+    closeResultModal();
     await loadTournaments();
   }
 
@@ -1204,6 +1374,17 @@ function TournamentsPanel({ user }: { user: AppUser }) {
     return teams.find((team) => team.id === teamId)?.name ?? `Equipo #${teamId}`;
   }
 
+  const resultModalHomeTeam = resultModalMatch ? teams.find((team) => team.id === resultModalMatch.homeTeamId) ?? null : null;
+  const resultModalAwayTeam = resultModalMatch ? teams.find((team) => team.id === resultModalMatch.awayTeamId) ?? null : null;
+  const resultModalHomePlayers = (resultModalHomeTeam?.players ?? []).filter(
+    (player): player is { id: number; fullName: string; email: string } => player !== null,
+  );
+  const resultModalAwayPlayers = (resultModalAwayTeam?.players ?? []).filter(
+    (player): player is { id: number; fullName: string; email: string } => player !== null,
+  );
+  const resultModalHomeGoals = resultModalHomePlayers.reduce((sum, player) => sum + statFor(player.id).goals, 0);
+  const resultModalAwayGoals = resultModalAwayPlayers.reduce((sum, player) => sum + statFor(player.id).goals, 0);
+
   return (
     <div className="space-y-8">
       <PanelShell
@@ -1211,12 +1392,19 @@ function TournamentsPanel({ user }: { user: AppUser }) {
         description="Creá torneos, inscribí equipos, iniciá el calendario de partidos y actualizá la tabla de posiciones."
         action={<StatusPill>{data.tournaments.length} torneos</StatusPill>}
       >
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <input className={fieldClassName} placeholder="Nombre del torneo" value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} />
           <div className="relative">
             <select className={fieldClassName} value={createForm.format} onChange={(event) => setCreateForm((current) => ({ ...current, format: event.target.value }))}>
               <option value="todos-contra-todos">Todos contra todos</option>
               <option value="eliminatorio">Eliminatorio</option>
+            </select>
+            <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
+          </div>
+          <div className="relative">
+            <select className={fieldClassName} value={createForm.fixtureMode} onChange={(event) => setCreateForm((current) => ({ ...current, fixtureMode: event.target.value === "manual" ? "manual" : "aleatorio" }))}>
+              <option value="aleatorio">Fixture aleatorio</option>
+              <option value="manual">Fixture manual</option>
             </select>
             <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
           </div>
@@ -1260,15 +1448,83 @@ function TournamentsPanel({ user }: { user: AppUser }) {
             </select>
             <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
           </div>
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={!currentTournament}
-            onClick={() => selectedTournamentId ? startTournament(selectedTournamentId) : null}
-          >
-            Iniciar torneo
-          </Button>
+          {currentTournament?.fixtureMode === "manual" ? (
+            <p className={`${fieldClassName} flex items-center justify-center text-center`}>
+              Armá el fixture manual abajo ↓
+            </p>
+          ) : (
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={!currentTournament}
+              onClick={() => selectedTournamentId ? startTournament(selectedTournamentId) : null}
+            >
+              Iniciar torneo
+            </Button>
+          )}
         </div>
+
+        {currentTournament && currentTournament.fixtureMode === "manual" && currentTournament.status === "draft" ? (
+          <div className="mt-4 border-t border-black pt-4">
+            <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-muted">
+              Fixture manual — {currentTournament.name}
+            </p>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="relative">
+                <select
+                  className={fieldClassName}
+                  value={manualPairDraft.homeTeamId ?? ""}
+                  onChange={(event) => setManualPairDraft((current) => ({ ...current, homeTeamId: event.target.value ? Number(event.target.value) : null }))}
+                >
+                  <option value="">Equipo local</option>
+                  {currentTournament.teamIds.map((teamId) => <option key={teamId} value={teamId}>{teamName(teamId)}</option>)}
+                </select>
+                <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
+              </div>
+              <div className="relative">
+                <select
+                  className={fieldClassName}
+                  value={manualPairDraft.awayTeamId ?? ""}
+                  onChange={(event) => setManualPairDraft((current) => ({ ...current, awayTeamId: event.target.value ? Number(event.target.value) : null }))}
+                >
+                  <option value="">Equipo visitante</option>
+                  {currentTournament.teamIds.map((teamId) => <option key={teamId} value={teamId}>{teamName(teamId)}</option>)}
+                </select>
+                <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
+              </div>
+              <Button type="button" variant="secondary" onClick={addManualPair}>
+                Agregar partido
+              </Button>
+            </div>
+
+            {manualPairs.length > 0 ? (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {manualPairs.map((pair, index) => (
+                  <RowTag key={`${pair.homeTeamId}-${pair.awayTeamId}-${index}`} className="inline-flex items-center gap-1.5">
+                    {teamName(pair.homeTeamId)} vs {teamName(pair.awayTeamId)}
+                    <button type="button" onClick={() => removeManualPair(index)} aria-label="Quitar partido">
+                      <X size={10} strokeWidth={2.5} aria-hidden />
+                    </button>
+                  </RowTag>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-3 font-mono text-[11px] uppercase tracking-wider text-muted">
+                Todavía no agregaste ningún partido.
+              </p>
+            )}
+
+            <Button
+              type="button"
+              className="mt-3"
+              disabled={manualPairs.length === 0}
+              onClick={() => saveManualFixture(currentTournament.id)}
+            >
+              Guardar fixture y comenzar
+            </Button>
+          </div>
+        ) : null}
+
         {message ? <div className="mt-4"><MessageBanner message={message} /></div> : null}
       </PanelShell>
 
@@ -1322,28 +1578,18 @@ function TournamentsPanel({ user }: { user: AppUser }) {
                   <MapPin size={12} strokeWidth={2} aria-hidden />
                   Sede del torneo: {courtName(currentTournament.courtId)}
                 </p>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <input className={fieldClassName} placeholder="ID partido" value={resultForm.matchId} onChange={(event) => setResultForm((current) => ({ ...current, matchId: event.target.value }))} />
-                  <div className="grid grid-cols-2 gap-3">
-                    <input type="number" className={fieldClassName} placeholder="Local" value={resultForm.homeGoals} onChange={(event) => setResultForm((current) => ({ ...current, homeGoals: event.target.value }))} />
-                    <input type="number" className={fieldClassName} placeholder="Visita" value={resultForm.awayGoals} onChange={(event) => setResultForm((current) => ({ ...current, awayGoals: event.target.value }))} />
-                  </div>
-                </div>
-                <label className="flex items-center gap-2">
-                  <RowCheckbox
-                    checked={resultForm.confirmSecondAuth}
-                    onCheckedChange={(checked) => setResultForm((current) => ({ ...current, confirmSecondAuth: checked }))}
-                    className="size-5"
-                  />
-                  <span className="font-mono text-[10px] uppercase tracking-wider text-muted">
-                    Segunda autorización para modificar resultado confirmado
-                  </span>
-                </label>
-                <Button type="button" onClick={confirmResult}>Guardar resultado</Button>
+                <p className="font-mono text-[10px] uppercase tracking-wider text-muted">
+                  Click en un partido para cargar goles y tarjetas por jugador
+                </p>
 
                 <div className="space-y-3">
                   {currentTournament.fixture.map((match) => (
-                    <div key={match.id} className="border border-black p-3">
+                    <button
+                      key={match.id}
+                      type="button"
+                      onClick={() => openResultModal(match)}
+                      className="block w-full border border-black p-3 text-left transition-transform duration-150 ease-pop active:translate-x-px active:translate-y-px"
+                    >
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <p className="text-sm font-semibold text-black">Partido #{match.id}</p>
                         <Badge>{match.status}</Badge>
@@ -1357,7 +1603,7 @@ function TournamentsPanel({ user }: { user: AppUser }) {
                         Resultado: {match.homeGoals ?? "-"} / {match.awayGoals ?? "-"}
                       </p>
                       {match.auditTrail.length > 0 ? <p className="mt-2 font-mono text-[10px] uppercase tracking-wider text-muted">{match.auditTrail[match.auditTrail.length - 1]}</p> : null}
-                    </div>
+                    </button>
                   ))}
                 </div>
 
@@ -1392,6 +1638,75 @@ function TournamentsPanel({ user }: { user: AppUser }) {
           </Card>
         </section>
       </div>
+
+      <Modal
+        open={resultModalMatch !== null}
+        onClose={closeResultModal}
+        title={resultModalMatch ? `${teamName(resultModalMatch.homeTeamId)} vs ${teamName(resultModalMatch.awayTeamId)}` : undefined}
+        className="sm:max-w-2xl"
+      >
+        {resultModalMatch ? (
+          <div className="space-y-4">
+            <p className="text-center font-mono text-3xl font-black tabular-nums text-black">
+              {resultModalHomeGoals} - {resultModalAwayGoals}
+            </p>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <SectionLabel icon={Users} className="mb-2">{resultModalHomeTeam?.name ?? "Local"}</SectionLabel>
+                {resultModalHomePlayers.length > 0 ? (
+                  <div>
+                    {resultModalHomePlayers.map((player) => (
+                      <PlayerStatRow
+                        key={player.id}
+                        name={player.fullName}
+                        stat={statFor(player.id)}
+                        onChange={(patch) => updateStat(player.id, patch)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="font-mono text-[11px] uppercase tracking-wider text-muted">Sin jugadores en la plantilla</p>
+                )}
+              </div>
+              <div>
+                <SectionLabel icon={Users} className="mb-2">{resultModalAwayTeam?.name ?? "Visitante"}</SectionLabel>
+                {resultModalAwayPlayers.length > 0 ? (
+                  <div>
+                    {resultModalAwayPlayers.map((player) => (
+                      <PlayerStatRow
+                        key={player.id}
+                        name={player.fullName}
+                        stat={statFor(player.id)}
+                        onChange={(patch) => updateStat(player.id, patch)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="font-mono text-[11px] uppercase tracking-wider text-muted">Sin jugadores en la plantilla</p>
+                )}
+              </div>
+            </div>
+
+            {resultModalMatch.resultLocked ? (
+              <label className="flex items-center gap-2 border-t border-black pt-4">
+                <RowCheckbox
+                  checked={confirmSecondAuth}
+                  onCheckedChange={setConfirmSecondAuth}
+                  className="size-5"
+                />
+                <span className="font-mono text-[10px] uppercase tracking-wider text-muted">
+                  Segunda autorización para modificar resultado confirmado
+                </span>
+              </label>
+            ) : null}
+
+            <Button type="button" className="w-full" disabled={savingResult} onClick={saveMatchResult}>
+              {savingResult ? "Guardando…" : "Guardar resultado"}
+            </Button>
+          </div>
+        ) : null}
+      </Modal>
     </div>
   );
 }

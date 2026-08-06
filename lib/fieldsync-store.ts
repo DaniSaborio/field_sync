@@ -4,6 +4,7 @@ export type UserRole = "administrador" | "recepcionista" | "organizador" | "juga
 
 export type CourtSurface = "synthetic" | "natural" | "indoor";
 export type TournamentFormat = "eliminatorio" | "todos-contra-todos";
+export type TournamentFixtureMode = "aleatorio" | "manual";
 export type MatchStatus = "scheduled" | "confirmed";
 export type NotificationType = "reservation" | "cancellation" | "tournament" | "convocation" | "match-result" | "payment-split" | "match-invite" | "payment-pending";
 
@@ -76,6 +77,7 @@ export type TournamentRecord = {
   courtId: number;
   name: string;
   format: TournamentFormat;
+  fixtureMode: TournamentFixtureMode;
   teamsRequired: number;
   startDate: string;
   endDate: string;
@@ -99,6 +101,19 @@ export type MatchRecord = {
   status: MatchStatus;
   resultLocked: boolean;
   auditTrail: string[];
+};
+
+// Una fila por jugador por partido: sus goles y tarjetas en ese partido.
+// El marcador del equipo sale de sumar los goles de sus jugadores, no de un
+// número suelto tipeado por quien carga el resultado.
+export type MatchStatRecord = {
+  id: number;
+  matchId: number;
+  playerId: number;
+  teamId: number;
+  goals: number;
+  yellowCards: number;
+  redCards: number;
 };
 
 export type PlayerProfileRecord = {
@@ -133,6 +148,7 @@ type StoreState = {
   teams: TeamRecord[];
   tournaments: TournamentRecord[];
   matches: MatchRecord[];
+  matchStats: MatchStatRecord[];
   standings: StandingRecord[];
   playerProfiles: PlayerProfileRecord[];
 };
@@ -243,6 +259,7 @@ const seedState = (): StoreState => ({
     team: 4,
     tournament: 3,
     match: 5,
+    matchStat: 1,
     standing: 1,
     profile: 4,
   },
@@ -417,6 +434,7 @@ const seedState = (): StoreState => ({
       courtId: 1,
       name: "Torneo Apertura 2026",
       format: "todos-contra-todos",
+      fixtureMode: "aleatorio",
       teamsRequired: 3,
       startDate: "2026-07-25",
       endDate: "2026-08-15",
@@ -465,6 +483,7 @@ const seedState = (): StoreState => ({
       auditTrail: [],
     },
   ],
+  matchStats: [],
   standings: [
     {
       teamId: 1,
@@ -663,41 +682,46 @@ function recalculateStandings(tournamentId: number) {
   return standings;
 }
 
+function shuffle<T>(items: T[]): T[] {
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+function createMatchRecord(tournamentId: number, homeTeamId: number, awayTeamId: number, index: number): MatchRecord {
+  return {
+    id: nextId("match"),
+    tournamentId,
+    homeTeamId,
+    awayTeamId,
+    scheduledAt: new Date(Date.UTC(2026, 6, 28 + index, 19, 0, 0)).toISOString(),
+    homeGoals: null,
+    awayGoals: null,
+    status: "scheduled",
+    resultLocked: false,
+    auditTrail: [],
+  };
+}
+
+// Solo se llama para torneos en modo "aleatorio" (el modo "manual" arma el
+// fixture a través de setManualFixture) — por eso siempre sortea el orden de
+// los equipos antes de emparejarlos.
 function generateFixture(tournament: TournamentRecord) {
-  const teamIds = tournament.teamIds;
+  const teamIds = shuffle(tournament.teamIds);
   const matches: MatchRecord[] = [];
 
   if (tournament.format === "todos-contra-todos") {
     for (let homeIndex = 0; homeIndex < teamIds.length; homeIndex += 1) {
       for (let awayIndex = homeIndex + 1; awayIndex < teamIds.length; awayIndex += 1) {
-        matches.push({
-          id: nextId("match"),
-          tournamentId: tournament.id,
-          homeTeamId: teamIds[homeIndex],
-          awayTeamId: teamIds[awayIndex],
-          scheduledAt: new Date(Date.UTC(2026, 6, 28 + matches.length, 19, 0, 0)).toISOString(),
-          homeGoals: null,
-          awayGoals: null,
-          status: "scheduled",
-          resultLocked: false,
-          auditTrail: [],
-        });
+        matches.push(createMatchRecord(tournament.id, teamIds[homeIndex], teamIds[awayIndex], matches.length));
       }
     }
   } else {
     for (let index = 0; index < teamIds.length - 1; index += 2) {
-      matches.push({
-        id: nextId("match"),
-        tournamentId: tournament.id,
-        homeTeamId: teamIds[index],
-        awayTeamId: teamIds[index + 1],
-        scheduledAt: new Date(Date.UTC(2026, 6, 28 + matches.length, 19, 0, 0)).toISOString(),
-        homeGoals: null,
-        awayGoals: null,
-        status: "scheduled",
-        resultLocked: false,
-        auditTrail: [],
-      });
+      matches.push(createMatchRecord(tournament.id, teamIds[index], teamIds[index + 1], matches.length));
     }
   }
 
@@ -1081,6 +1105,7 @@ export function createTournament(input: {
   courtId: number;
   name: string;
   format: TournamentFormat;
+  fixtureMode?: TournamentFixtureMode;
   teamIds: number[];
   startDate: string;
   endDate: string;
@@ -1117,6 +1142,7 @@ export function createTournament(input: {
     courtId: input.courtId,
     name: input.name.trim(),
     format: input.format,
+    fixtureMode: input.fixtureMode === "manual" ? "manual" : "aleatorio",
     teamsRequired: teamIds.length,
     startDate: input.startDate,
     endDate: input.endDate,
@@ -1154,25 +1180,8 @@ export function enrollTeamToTournament(input: {
   return { ok: true as const, tournament: clone(tournament) };
 }
 
-export function startTournament(input: {
-  tournamentId: number;
-}) : TournamentResult {
-  const tournament = store.tournaments.find((item) => item.id === input.tournamentId) ?? null;
-  if (!tournament) {
-    return { ok: false, error: "No encontramos el torneo" };
-  }
-
-  if (tournament.requestStatus !== "aprobado") {
-    return { ok: false, error: "El torneo aún no ha sido aprobado por el dueño de la cancha" };
-  }
-
-  if (tournament.teamIds.length < tournament.teamsRequired) {
-    return { ok: false, error: "Aún no se completa el número mínimo de equipos" };
-  }
-
-  tournament.status = "active";
-  const fixture = generateFixture(tournament);
-  const notifications = store.teams
+function notifyTournamentStart(tournament: TournamentRecord) {
+  return store.teams
     .filter((team) => tournament.teamIds.includes(team.id))
     .flatMap((team) => {
       const captain = findUserById(team.captainUserId);
@@ -1182,14 +1191,88 @@ export function startTournament(input: {
 
       return [createNotification(captain.id, "tournament", `El torneo ${tournament.name} ya tiene fixture generado.`)];
     });
+}
+
+function validateTournamentReadyToStart(tournament: TournamentRecord): string | null {
+  if (tournament.requestStatus !== "aprobado") {
+    return "El torneo aún no ha sido aprobado por el dueño de la cancha";
+  }
+
+  if (tournament.teamIds.length < tournament.teamsRequired) {
+    return "Aún no se completa el número mínimo de equipos";
+  }
+
+  return null;
+}
+
+export function startTournament(input: {
+  tournamentId: number;
+}) : TournamentResult {
+  const tournament = store.tournaments.find((item) => item.id === input.tournamentId) ?? null;
+  if (!tournament) {
+    return { ok: false, error: "No encontramos el torneo" };
+  }
+
+  if (tournament.fixtureMode === "manual") {
+    return { ok: false, error: "Este torneo usa fixture manual: armá los partidos y guardalos para iniciarlo" };
+  }
+
+  const validationError = validateTournamentReadyToStart(tournament);
+  if (validationError) {
+    return { ok: false, error: validationError };
+  }
+
+  tournament.status = "active";
+  const fixture = generateFixture(tournament);
+  const notifications = notifyTournamentStart(tournament);
 
   return { ok: true, tournament: clone({ ...tournament, fixture }), notifications: clone(notifications) };
 }
 
+export function setManualFixture(input: {
+  tournamentId: number;
+  pairs: Array<{ homeTeamId: number; awayTeamId: number }>;
+}) : TournamentResult {
+  const tournament = store.tournaments.find((item) => item.id === input.tournamentId) ?? null;
+  if (!tournament) {
+    return { ok: false, error: "No encontramos el torneo" };
+  }
+
+  if (tournament.fixtureMode !== "manual") {
+    return { ok: false, error: "Este torneo no está configurado para fixture manual" };
+  }
+
+  const validationError = validateTournamentReadyToStart(tournament);
+  if (validationError) {
+    return { ok: false, error: validationError };
+  }
+
+  if (input.pairs.length === 0) {
+    return { ok: false, error: "Agrega al menos un partido al fixture" };
+  }
+
+  for (const pair of input.pairs) {
+    if (pair.homeTeamId === pair.awayTeamId) {
+      return { ok: false, error: "Un equipo no puede jugar contra sí mismo" };
+    }
+    if (!tournament.teamIds.includes(pair.homeTeamId) || !tournament.teamIds.includes(pair.awayTeamId)) {
+      return { ok: false, error: "Todos los partidos deben ser entre equipos inscritos en el torneo" };
+    }
+  }
+
+  const matches = input.pairs.map((pair, index) => createMatchRecord(tournament.id, pair.homeTeamId, pair.awayTeamId, index));
+  tournament.fixture = matches;
+  store.matches.push(...matches);
+  tournament.status = "active";
+
+  const notifications = notifyTournamentStart(tournament);
+
+  return { ok: true, tournament: clone({ ...tournament, fixture: matches }), notifications: clone(notifications) };
+}
+
 export function recordMatchResult(input: {
   matchId: number;
-  homeGoals: number;
-  awayGoals: number;
+  stats: Array<{ playerId: number; teamId: number; goals: number; yellowCards: number; redCards: number }>;
   confirmedByAdmin?: boolean;
 }) : MatchResultUpdate {
   const match = store.matches.find((item) => item.id === input.matchId) ?? null;
@@ -1207,15 +1290,45 @@ export function recordMatchResult(input: {
     };
   }
 
-  match.homeGoals = input.homeGoals;
-  match.awayGoals = input.awayGoals;
+  const homeTeam = store.teams.find((team) => team.id === match.homeTeamId);
+  const awayTeam = store.teams.find((team) => team.id === match.awayTeamId);
+
+  for (const stat of input.stats) {
+    if (stat.teamId !== match.homeTeamId && stat.teamId !== match.awayTeamId) {
+      return { ok: false, error: `El equipo #${stat.teamId} no juega este partido` };
+    }
+    const team = stat.teamId === match.homeTeamId ? homeTeam : awayTeam;
+    if (!team || !team.playerIds.includes(stat.playerId)) {
+      return { ok: false, error: `El jugador #${stat.playerId} no pertenece a ${team?.name ?? `equipo #${stat.teamId}`}` };
+    }
+  }
+
+  // Solo se guardan filas con algo cargado (gol o tarjeta); una fila en cero
+  // no cuenta como "jugó" el partido.
+  const statRows = input.stats.filter((stat) => stat.goals > 0 || stat.yellowCards > 0 || stat.redCards > 0);
+
+  const homeGoals = statRows.filter((stat) => stat.teamId === match.homeTeamId).reduce((sum, stat) => sum + stat.goals, 0);
+  const awayGoals = statRows.filter((stat) => stat.teamId === match.awayTeamId).reduce((sum, stat) => sum + stat.goals, 0);
+
+  match.homeGoals = homeGoals;
+  match.awayGoals = awayGoals;
   match.status = "confirmed";
   match.resultLocked = true;
   match.auditTrail.push(input.confirmedByAdmin ? "Resultado modificado con segunda autorización" : "Resultado confirmado");
 
+  store.matchStats = store.matchStats.filter((stat) => stat.matchId !== match.id).concat(
+    statRows.map((stat) => ({
+      id: nextId("matchStat"),
+      matchId: match.id,
+      playerId: stat.playerId,
+      teamId: stat.teamId,
+      goals: stat.goals,
+      yellowCards: stat.yellowCards,
+      redCards: stat.redCards,
+    })),
+  );
+
   const standings = recalculateStandings(match.tournamentId);
-  const homeTeam = store.teams.find((team) => team.id === match.homeTeamId);
-  const awayTeam = store.teams.find((team) => team.id === match.awayTeamId);
   const notifications: NotificationRecord[] = [];
 
   if (homeTeam) {
@@ -1232,18 +1345,10 @@ export function recordMatchResult(input: {
     }
   }
 
-  const homeProfile = store.playerProfiles.find((profile) => profile.userId === homeTeam?.captainUserId);
-  const awayProfile = store.playerProfiles.find((profile) => profile.userId === awayTeam?.captainUserId);
-  if (homeProfile) {
-    homeProfile.matchesPlayed += 1;
-    homeProfile.goals += input.homeGoals;
-    homeProfile.assists += input.homeGoals > 0 ? 1 : 0;
-  }
-
-  if (awayProfile) {
-    awayProfile.matchesPlayed += 1;
-    awayProfile.goals += input.awayGoals;
-    awayProfile.assists += input.awayGoals > 0 ? 1 : 0;
+  for (const stat of statRows) {
+    const profile = ensureProfile(stat.playerId);
+    profile.goals += stat.goals;
+    profile.matchesPlayed += 1;
   }
 
   return {
@@ -1257,7 +1362,12 @@ export function recordMatchResult(input: {
 export function getTournaments() {
   return clone(store.tournaments.map((tournament) => ({
     ...tournament,
-    fixture: store.matches.filter((match) => match.tournamentId === tournament.id),
+    fixture: store.matches
+      .filter((match) => match.tournamentId === tournament.id)
+      .map((match) => ({
+        ...match,
+        stats: store.matchStats.filter((stat) => stat.matchId === match.id),
+      })),
     standings: store.standings.filter((standing) => standing.tournamentId === tournament.id),
   })));
 }

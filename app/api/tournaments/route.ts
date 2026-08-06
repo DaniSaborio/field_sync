@@ -4,6 +4,7 @@ import {
   enrollTeamToTournament,
   getTournamentSnapshot,
   recordMatchResult,
+  setManualFixture,
   startTournament,
 } from "@/lib/fieldsync-store";
 
@@ -24,6 +25,7 @@ export async function POST(request: NextRequest) {
         courtId: Number(body?.courtId ?? 0),
         name: String(body?.name ?? ""),
         format: body?.format === "eliminatorio" ? "eliminatorio" : "todos-contra-todos",
+        fixtureMode: body?.fixtureMode === "manual" ? "manual" : "aleatorio",
         teamIds: Array.isArray(body?.teamIds) ? body.teamIds.map((id: unknown) => Number(id)) : [],
         startDate: String(body?.startDate ?? ""),
         endDate: String(body?.endDate ?? ""),
@@ -61,11 +63,49 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(result);
     }
 
+    if (action === "setManualFixture") {
+      const pairs = Array.isArray(body?.pairs)
+        ? body.pairs.map((pair: unknown) => ({
+            homeTeamId: Number((pair as { homeTeamId?: unknown })?.homeTeamId),
+            awayTeamId: Number((pair as { awayTeamId?: unknown })?.awayTeamId),
+          }))
+        : [];
+
+      const result = setManualFixture({
+        tournamentId: Number(body?.tournamentId),
+        pairs,
+      });
+
+      if (!result.ok) {
+        return NextResponse.json(result, { status: 409 });
+      }
+
+      return NextResponse.json(result);
+    }
+
     if (action === "result") {
+      const stats = Array.isArray(body?.stats)
+        ? body.stats.map((stat: unknown) => {
+            const record = stat as {
+              playerId?: unknown;
+              teamId?: unknown;
+              goals?: unknown;
+              yellowCards?: unknown;
+              redCards?: unknown;
+            };
+            return {
+              playerId: Number(record?.playerId),
+              teamId: Number(record?.teamId),
+              goals: Number(record?.goals ?? 0),
+              yellowCards: Number(record?.yellowCards ?? 0),
+              redCards: Number(record?.redCards ?? 0),
+            };
+          })
+        : [];
+
       const result = recordMatchResult({
         matchId: Number(body?.matchId),
-        homeGoals: Number(body?.homeGoals),
-        awayGoals: Number(body?.awayGoals),
+        stats,
         confirmedByAdmin: Boolean(body?.confirmedByAdmin),
       });
 
