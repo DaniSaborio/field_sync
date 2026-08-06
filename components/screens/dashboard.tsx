@@ -36,6 +36,8 @@ import { Modal } from "@/components/ui/modal";
 import { Row, RowCheckbox, RowTag } from "@/components/ui/row";
 import { SectionLabel } from "@/components/ui/section-label";
 import { cn, isNightSlot } from "@/lib/utils";
+import { Building2 } from "lucide-react";
+import { TenantRequestScreen } from "./tenant-request";
 
 const paymentMethodLabels: Record<PaymentMethod, string> = {
   sinpe: "SINPE Móvil",
@@ -235,6 +237,7 @@ const tabButtons = [
   { id: "perfil", label: "Perfil", icon: Settings2 },
   { id: "plantilla", label: "Plantilla", icon: Users },
   { id: "notificaciones", label: "Notificaciones", icon: Bell },
+  { id: "tenant-request", label: "Ser Tenant", icon: Building2,},
 ] as const;
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -1837,7 +1840,12 @@ function MyTournamentsPanel({ user }: { user: AppUser }) {
   );
 }
 
-function ProfilePanel({ user }: { user: AppUser }) {
+type ProfilePanelProps = {
+  user: AppUser;
+  onRequestTenant: () => void;
+};
+
+function ProfilePanel({user, onRequestTenant}: ProfilePanelProps) {
   const [profile, setProfile] = useState<AnyProfileSnapshot | null>(null);
   const [message, setMessage] = useState("");
 
@@ -1963,6 +1971,29 @@ function ProfilePanel({ user }: { user: AppUser }) {
               <div><p className="font-mono text-2xl font-black tabular-nums text-black">{profile.profile.matchesPlayed}</p><p className="font-mono text-[10px] uppercase tracking-wider text-muted">Partidos</p></div>
             </div>
           </Card>
+          {/* NUEVA TARJETA */}
+
+          <Card nested>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-muted">
+             Conviértete en Tenant
+            </p>
+            <h3 className="mt-2 font-display text-xl font-black leading-tight tracking-tight text-black">
+              Administra tus propias canchas
+            </h3>
+            <p className="mt-2 text-sm text-muted">
+               Solicita convertirte en dueño de cancha para administrar tus instalaciones,
+                reservas, horarios e ingresos desde un panel exclusivo para tenants.
+            </p>
+           <Button
+             type="button"
+             size="sm"
+              className="mt-4"
+              onClick={onRequestTenant}
+              >
+             Solicitar ser dueño de cancha
+            </Button>
+          </Card>
+
           <Card nested>
             <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Privacidad</p>
             <div className="mt-3 flex flex-wrap gap-2">
@@ -2429,8 +2460,9 @@ export function DashboardScreen({ user, onLogout }: DashboardScreenProps) {
           )
         ) : null}
         {activeTab === "torneos" ? (isAdmin(user) || isTenant(user) ? <TournamentsPanel user={user} /> : <MyTournamentsPanel user={user} />) : null}
-        {activeTab === "perfil" ? <ProfilePanel user={user} /> : null}
+       {activeTab === "perfil" ? (<ProfilePanel user={user}onRequestTenant={() => setActiveTab("tenant-request")}/>) : null}
         {activeTab === "plantilla" ? <TeamsPanel user={user} /> : null}
+        {activeTab === "tenant-request" ? (<TenantRequestScreen />) : null}
         {activeTab === "notificaciones" ? <NotificationsPanel user={user} /> : null}
       </div>
     </div>
