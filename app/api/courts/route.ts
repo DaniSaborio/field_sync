@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
-  cancelReservation,
   getTeamById,
   listCourts as listCourtsMemory,
   notifyTeamCaptain,
   notifyTeamMembers,
-  reserveCourt as reserveCourtMemory,
-  verifyPayment as verifyPaymentMemory,
 } from "@/lib/fieldsync-store";
 import { isNightHour } from "@/lib/utils";
 import { resolveNightRate, type RateCandidate } from "@/lib/rates";
@@ -204,7 +201,14 @@ export async function POST(request: NextRequest) {
         prisma.user.findUnique({ where: { id_user: userId } }),
       ]);
 
-      if (courtExists && userExists) {
+      if (!courtExists || !userExists) {
+        return NextResponse.json(
+          { ok: false, error: "No encontramos la cancha o el usuario indicado" },
+          { status: 404 },
+        );
+      }
+
+      {
         const [hourPart] = timeSlot.split(":");
         const nightRate = isNightHour(Number(hourPart))
           ? resolveNightRate(
@@ -347,14 +351,17 @@ export async function POST(request: NextRequest) {
         );
       }
     } catch (dbError) {
-      console.warn("Prisma reserve court failed, falling back to in-memory store:", dbError);
+      // Antes esto caía en un fallback silencioso al store en memoria: la
+      // reserva "se creaba" ahí, pero como el GET siempre lee de Postgres
+      // (que sí responde normalmente), quedaba invisible para siempre tanto
+      // para el jugador como para el dueño de la cancha. Mejor devolver el
+      // error real para que el usuario reintente.
+      console.error("Reserve court failed:", dbError);
+      return NextResponse.json(
+        { ok: false, error: "No pudimos procesar la reserva. Intenta de nuevo." },
+        { status: 503 },
+      );
     }
-
-    const result = reserveCourtMemory({ userId, courtId, date, timeSlot, paymentMethod, teamId, splitPayment, rivalTeamId });
-    if (!result.ok) {
-      return NextResponse.json(result, { status: 409 });
-    }
-    return NextResponse.json(result, { status: 201 });
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : "No pudimos procesar la reserva" },
@@ -383,65 +390,71 @@ export async function DELETE(request: NextRequest) {
         include: { court: true, user: true },
       });
 
-      if (reservation) {
-        if (reservation.id_user !== userId) {
-          return NextResponse.json(
-            { ok: false, error: "No encontramos la reserva solicitada" },
-            { status: 409 },
-          );
-        }
-
-        const reservationDateTime = new Date(reservation.start_time);
-        const hoursDifference =
-          (reservationDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
-
-        if (hoursDifference < 24) {
-          return NextResponse.json(
-            { ok: false, error: "No es posible cancelar con menos de 24 horas de anticipación" },
-            { status: 409 },
-          );
-        }
-
-        const updated = await prisma.reservation.update({
-          where: { id_reservation: reservationId },
-          data: { status: "cancelada" },
-        });
-
-        const notifications = [];
-        if (reservation.user?.notifications_enabled) {
-          const notif = await prisma.notification.create({
-            data: {
-              id_user: userId,
-              type: "cancellation",
-              message: `Cancelamos tu reserva en ${reservation.court?.name ?? "la cancha"} para ${updated.date.toISOString().slice(0, 10)}.`,
-            },
-          });
-          notifications.push(notif);
-        }
-
-        return NextResponse.json({
-          ok: true,
-          reservation: {
-            id: updated.id_reservation,
-            userId: updated.id_user,
-            courtId: updated.id_court,
-            date: updated.date.toISOString().slice(0, 10),
-            timeSlot: `${updated.start_time.getUTCHours().toString().padStart(2, "0")}:${updated.start_time.getUTCMinutes().toString().padStart(2, "0")}`,
-            status: updated.status,
-            createdAt: updated.created_at.toISOString(),
-          },
-          notifications,
-        });
+      if (!reservation) {
+        return NextResponse.json(
+          { ok: false, error: "No encontramos la reserva solicitada" },
+          { status: 404 },
+        );
       }
-    } catch (dbError) {
-      console.warn("Prisma cancel reservation failed, falling back to in-memory store:", dbError);
-    }
 
-    const result = cancelReservation({ reservationId, userId, now });
-    if (!result.ok) {
-      return NextResponse.json(result, { status: 409 });
+      if (reservation.id_user !== userId) {
+        return NextResponse.json(
+          { ok: false, error: "No encontramos la reserva solicitada" },
+          { status: 409 },
+        );
+      }
+
+      const reservationDateTime = new Date(reservation.start_time);
+      const hoursDifference =
+        (reservationDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+
+      if (hoursDifference < 24) {
+        return NextResponse.json(
+          { ok: false, error: "No es posible cancelar con menos de 24 horas de anticipación" },
+          { status: 409 },
+        );
+      }
+
+      const updated = await prisma.reservation.update({
+        where: { id_reservation: reservationId },
+        data: { status: "cancelada" },
+      });
+
+      const notifications = [];
+      if (reservation.user?.notifications_enabled) {
+        const notif = await prisma.notification.create({
+          data: {
+            id_user: userId,
+            type: "cancellation",
+            message: `Cancelamos tu reserva en ${reservation.court?.name ?? "la cancha"} para ${updated.date.toISOString().slice(0, 10)}.`,
+          },
+        });
+        notifications.push(notif);
+      }
+
+      return NextResponse.json({
+        ok: true,
+        reservation: {
+          id: updated.id_reservation,
+          userId: updated.id_user,
+          courtId: updated.id_court,
+          date: updated.date.toISOString().slice(0, 10),
+          timeSlot: `${updated.start_time.getUTCHours().toString().padStart(2, "0")}:${updated.start_time.getUTCMinutes().toString().padStart(2, "0")}`,
+          status: updated.status,
+          createdAt: updated.created_at.toISOString(),
+        },
+        notifications,
+      });
+    } catch (dbError) {
+      // Ver nota en POST: un fallback silencioso al store en memoria dejaba
+      // la cancelación invisible para el dueño de la cancha. Se propaga el
+      // error real en su lugar.
+      console.error("Cancel reservation failed:", dbError);
+      return NextResponse.json(
+        { ok: false, error: "No pudimos cancelar la reserva. Intenta de nuevo." },
+        { status: 503 },
+      );
     }
-    return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : "No pudimos cancelar la reserva" },
@@ -480,85 +493,86 @@ export async function PATCH(request: NextRequest) {
         include: { court: true, user: true, payments: true },
       });
 
-      if (reservation) {
-        if (reservation.court.id_tenant !== tenantId) {
-          return NextResponse.json(
-            { ok: false, error: "Esta reserva no pertenece a una de tus canchas" },
-            { status: 403 },
-          );
-        }
+      if (!reservation) {
+        return NextResponse.json(
+          { ok: false, error: "No encontramos la reserva solicitada" },
+          { status: 404 },
+        );
+      }
 
-        if (reservation.status !== "pendiente") {
-          return NextResponse.json(
-            { ok: false, error: "Esta reserva ya fue procesada" },
-            { status: 409 },
-          );
-        }
+      if (reservation.court.id_tenant !== tenantId) {
+        return NextResponse.json(
+          { ok: false, error: "Esta reserva no pertenece a una de tus canchas" },
+          { status: 403 },
+        );
+      }
 
-        const payment = reservation.payments[0];
-        if (!payment) {
-          return NextResponse.json({ ok: false, error: "No encontramos el pago asociado" }, { status: 404 });
-        }
+      if (reservation.status !== "pendiente") {
+        return NextResponse.json(
+          { ok: false, error: "Esta reserva ya fue procesada" },
+          { status: 409 },
+        );
+      }
 
-        const [updatedReservation, updatedPayment] = await prisma.$transaction([
-          prisma.reservation.update({
-            where: { id_reservation: reservationId },
-            data: { status: action === "confirm" ? "confirmada" : "rechazada" },
-          }),
-          prisma.payment.update({
-            where: { id_payment: payment.id_payment },
-            data: {
-              status: action === "confirm" ? "verificado" : "rechazado",
-              id_verified_by: tenantId,
-              verified_at: new Date(),
-              rejection_reason: action === "reject" ? rejectionReason : null,
-            },
-          }),
-        ]);
+      const payment = reservation.payments[0];
+      if (!payment) {
+        return NextResponse.json({ ok: false, error: "No encontramos el pago asociado" }, { status: 404 });
+      }
 
-        if (reservation.user.notifications_enabled) {
-          const timeSlot = `${reservation.start_time.getUTCHours().toString().padStart(2, "0")}:${reservation.start_time.getUTCMinutes().toString().padStart(2, "0")}`;
-          const message =
-            action === "confirm"
-              ? `¡Pago verificado! Tu reserva en ${reservation.court.name} el ${reservation.date.toISOString().slice(0, 10)} a las ${timeSlot} quedó confirmada.`
-              : `Tu reserva en ${reservation.court.name} el ${reservation.date.toISOString().slice(0, 10)} a las ${timeSlot} fue rechazada: ${rejectionReason}.`;
-
-          await prisma.notification.create({
-            data: {
-              id_user: reservation.id_user,
-              type: action === "confirm" ? "reservation" : "cancellation",
-              message,
-            },
-          });
-        }
-
-        return NextResponse.json({
-          ok: true,
-          reservation: {
-            id: updatedReservation.id_reservation,
-            status: updatedReservation.status,
+      const [updatedReservation, updatedPayment] = await prisma.$transaction([
+        prisma.reservation.update({
+          where: { id_reservation: reservationId },
+          data: { status: action === "confirm" ? "confirmada" : "rechazada" },
+        }),
+        prisma.payment.update({
+          where: { id_payment: payment.id_payment },
+          data: {
+            status: action === "confirm" ? "verificado" : "rechazado",
+            id_verified_by: tenantId,
+            verified_at: new Date(),
+            rejection_reason: action === "reject" ? rejectionReason : null,
           },
-          payment: {
-            id: updatedPayment.id_payment,
-            status: updatedPayment.status,
-            rejectionReason: updatedPayment.rejection_reason,
+        }),
+      ]);
+
+      if (reservation.user.notifications_enabled) {
+        const timeSlot = `${reservation.start_time.getUTCHours().toString().padStart(2, "0")}:${reservation.start_time.getUTCMinutes().toString().padStart(2, "0")}`;
+        const message =
+          action === "confirm"
+            ? `¡Pago verificado! Tu reserva en ${reservation.court.name} el ${reservation.date.toISOString().slice(0, 10)} a las ${timeSlot} quedó confirmada.`
+            : `Tu reserva en ${reservation.court.name} el ${reservation.date.toISOString().slice(0, 10)} a las ${timeSlot} fue rechazada: ${rejectionReason}.`;
+
+        await prisma.notification.create({
+          data: {
+            id_user: reservation.id_user,
+            type: action === "confirm" ? "reservation" : "cancellation",
+            message,
           },
         });
       }
-    } catch (dbError) {
-      console.warn("Prisma verify payment failed, falling back to in-memory store:", dbError);
-    }
 
-    const result = verifyPaymentMemory({
-      reservationId,
-      tenantId,
-      action,
-      reason: rejectionReason,
-    });
-    if (!result.ok) {
-      return NextResponse.json(result, { status: 409 });
+      return NextResponse.json({
+        ok: true,
+        reservation: {
+          id: updatedReservation.id_reservation,
+          status: updatedReservation.status,
+        },
+        payment: {
+          id: updatedPayment.id_payment,
+          status: updatedPayment.status,
+          rejectionReason: updatedPayment.rejection_reason,
+        },
+      });
+    } catch (dbError) {
+      // Ver nota en POST: un fallback silencioso al store en memoria dejaba
+      // la confirmación/rechazo sin efecto real, porque la reserva vivía en
+      // Postgres y el store en memoria no la conocía. Se propaga el error.
+      console.error("Verify payment failed:", dbError);
+      return NextResponse.json(
+        { ok: false, error: "No pudimos verificar el pago. Intenta de nuevo." },
+        { status: 503 },
+      );
     }
-    return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : "No pudimos verificar el pago" },
