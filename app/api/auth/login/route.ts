@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { loginUser as loginUserMemory } from "@/lib/fieldsync-store";
+import { loginUser as loginUserMemory, upsertStoreUser } from "@/lib/fieldsync-store";
+import { DEMO_TENANT_ID, mapPrismaRole } from "@/lib/hydrate-user";
 
 export async function POST(req: NextRequest) {
   try {
@@ -34,6 +35,18 @@ export async function POST(req: NextRequest) {
           { status: 401 }
         );
       }
+
+      // Equipos/torneos/perfil viven en el store en memoria, separado de
+      // Postgres: sincronizamos al usuario acá para que esas funciones lo
+      // reconozcan desde el primer login, no solo a los 4 de la semilla.
+      upsertStoreUser({
+        id: dbUser.id_user,
+        fullName: dbUser.full_name,
+        email: dbUser.email,
+        role: mapPrismaRole(dbUser.role.name),
+        tenantId: DEMO_TENANT_ID,
+        notificationsEnabled: dbUser.notifications_enabled,
+      });
 
       return NextResponse.json(
         {

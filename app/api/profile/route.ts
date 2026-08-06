@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getPlayerProfile, toggleNotifications, updateProfileVisibility } from "@/lib/fieldsync-store";
+import { hydrateStoreUser } from "@/lib/hydrate-user";
 
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
@@ -57,6 +58,12 @@ export async function GET(request: NextRequest) {
   } catch (dbError) {
     console.warn("Prisma profile lookup failed, falling back to in-memory store:", dbError);
   }
+
+  // Torneos/plantillas/perfil de jugador viven en el store en memoria, separado
+  // de Postgres: cualquier jugador que no sea de la semilla de demo (registro
+  // nuevo o login con Google) necesita sincronizarse acá primero o si no
+  // getPlayerProfile nunca lo va a encontrar.
+  await hydrateStoreUser(userId);
 
   const profile = getPlayerProfile(userId);
   if (!profile) {

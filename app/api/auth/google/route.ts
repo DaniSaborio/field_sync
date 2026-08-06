@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { OAuth2Client } from "google-auth-library";
 import { prisma } from "@/lib/prisma";
+import { upsertStoreUser } from "@/lib/fieldsync-store";
+import { DEMO_TENANT_ID, mapPrismaRole } from "@/lib/hydrate-user";
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -58,6 +60,18 @@ export async function POST(req: NextRequest) {
         },
       });
     }
+
+    // Equipos/torneos/perfil viven en el store en memoria, separado de
+    // Postgres: sincronizamos al usuario acá para que esas funciones lo
+    // reconozcan desde el primer login con Google, no solo a los 4 de la semilla.
+    upsertStoreUser({
+      id: user.id_user,
+      fullName: user.full_name,
+      email: user.email,
+      role: mapPrismaRole(user.role.name),
+      tenantId: DEMO_TENANT_ID,
+      notificationsEnabled: user.notifications_enabled,
+    });
 
     return NextResponse.json({
       success: true,

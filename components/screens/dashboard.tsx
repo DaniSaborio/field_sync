@@ -245,14 +245,6 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function nextHourDateTimeLocal() {
-  const date = new Date();
-  date.setMinutes(0, 0, 0);
-  date.setHours(date.getHours() + 1);
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("es-CR", {
     dateStyle: "medium",
@@ -1146,14 +1138,21 @@ function TournamentsPanel({ user }: { user: AppUser }) {
     }));
   }
   const [resultModalMatch, setResultModalMatch] = useState<TournamentMatch | null>(null);
-  const [statsDraft, setStatsDraft] = useState<Record<number, { goals: number; yellowCards: number; redCards: number }>>({});
+  // Clave compuesta "teamId:playerId": un jugador podría figurar en la
+  // plantilla de ambos equipos (nada lo impide hoy), así que indexar solo por
+  // playerId mezclaría sus goles/tarjetas entre los dos lados del partido.
+  const [statsDraft, setStatsDraft] = useState<Record<string, { goals: number; yellowCards: number; redCards: number }>>({});
   const [confirmSecondAuth, setConfirmSecondAuth] = useState(false);
   const [savingResult, setSavingResult] = useState(false);
 
+  function statKey(teamId: number, playerId: number) {
+    return `${teamId}:${playerId}`;
+  }
+
   function openResultModal(match: TournamentMatch) {
-    const draft: Record<number, { goals: number; yellowCards: number; redCards: number }> = {};
+    const draft: Record<string, { goals: number; yellowCards: number; redCards: number }> = {};
     for (const stat of match.stats) {
-      draft[stat.playerId] = { goals: stat.goals, yellowCards: stat.yellowCards, redCards: stat.redCards };
+      draft[statKey(stat.teamId, stat.playerId)] = { goals: stat.goals, yellowCards: stat.yellowCards, redCards: stat.redCards };
     }
     setStatsDraft(draft);
     setConfirmSecondAuth(false);
@@ -1166,15 +1165,15 @@ function TournamentsPanel({ user }: { user: AppUser }) {
     setConfirmSecondAuth(false);
   }
 
-  function statFor(playerId: number) {
-    return statsDraft[playerId] ?? { goals: 0, yellowCards: 0, redCards: 0 };
+  function statFor(teamId: number, playerId: number) {
+    return statsDraft[statKey(teamId, playerId)] ?? { goals: 0, yellowCards: 0, redCards: 0 };
   }
 
-  function updateStat(playerId: number, patch: Partial<{ goals: number; yellowCards: number; redCards: number }>) {
+  function updateStat(teamId: number, playerId: number, patch: Partial<{ goals: number; yellowCards: number; redCards: number }>) {
     setStatsDraft((current) => {
-      const next = { ...statFor(playerId), ...patch };
+      const next = { ...statFor(teamId, playerId), ...patch };
       next.goals = Math.max(0, next.goals);
-      return { ...current, [playerId]: next };
+      return { ...current, [statKey(teamId, playerId)]: next };
     });
   }
 
@@ -1327,21 +1326,17 @@ function TournamentsPanel({ user }: { user: AppUser }) {
 
   async function saveMatchResult() {
     if (!resultModalMatch) return;
-    const homeTeam = teams.find((team) => team.id === resultModalMatch.homeTeamId);
-    const awayTeam = teams.find((team) => team.id === resultModalMatch.awayTeamId);
 
-    const stats = Object.entries(statsDraft)
-      .map(([playerIdText, stat]) => {
-        const playerId = Number(playerIdText);
-        const teamId = homeTeam?.playerIds.includes(playerId)
-          ? resultModalMatch.homeTeamId
-          : awayTeam?.playerIds.includes(playerId)
-            ? resultModalMatch.awayTeamId
-            : null;
-        if (teamId === null) return null;
-        return { playerId, teamId, goals: stat.goals, yellowCards: stat.yellowCards, redCards: stat.redCards };
-      })
-      .filter((stat) => stat !== null);
+    const stats = Object.entries(statsDraft).map(([key, stat]) => {
+      const [teamIdText, playerIdText] = key.split(":");
+      return {
+        teamId: Number(teamIdText),
+        playerId: Number(playerIdText),
+        goals: stat.goals,
+        yellowCards: stat.yellowCards,
+        redCards: stat.redCards,
+      };
+    });
 
     setSavingResult(true);
     const response = await fetch("/api/tournaments", {
@@ -1382,8 +1377,12 @@ function TournamentsPanel({ user }: { user: AppUser }) {
   const resultModalAwayPlayers = (resultModalAwayTeam?.players ?? []).filter(
     (player): player is { id: number; fullName: string; email: string } => player !== null,
   );
-  const resultModalHomeGoals = resultModalHomePlayers.reduce((sum, player) => sum + statFor(player.id).goals, 0);
-  const resultModalAwayGoals = resultModalAwayPlayers.reduce((sum, player) => sum + statFor(player.id).goals, 0);
+  const resultModalHomeGoals = resultModalMatch
+    ? resultModalHomePlayers.reduce((sum, player) => sum + statFor(resultModalMatch.homeTeamId, player.id).goals, 0)
+    : 0;
+  const resultModalAwayGoals = resultModalMatch
+    ? resultModalAwayPlayers.reduce((sum, player) => sum + statFor(resultModalMatch.awayTeamId, player.id).goals, 0)
+    : 0;
 
   return (
     <div className="space-y-8">
@@ -1660,8 +1659,8 @@ function TournamentsPanel({ user }: { user: AppUser }) {
                       <PlayerStatRow
                         key={player.id}
                         name={player.fullName}
-                        stat={statFor(player.id)}
-                        onChange={(patch) => updateStat(player.id, patch)}
+                        stat={statFor(resultModalMatch.homeTeamId, player.id)}
+                        onChange={(patch) => updateStat(resultModalMatch.homeTeamId, player.id, patch)}
                       />
                     ))}
                   </div>
@@ -1677,8 +1676,8 @@ function TournamentsPanel({ user }: { user: AppUser }) {
                       <PlayerStatRow
                         key={player.id}
                         name={player.fullName}
-                        stat={statFor(player.id)}
-                        onChange={(patch) => updateStat(player.id, patch)}
+                        stat={statFor(resultModalMatch.awayTeamId, player.id)}
+                        onChange={(patch) => updateStat(resultModalMatch.awayTeamId, player.id, patch)}
                       />
                     ))}
                   </div>
@@ -1993,12 +1992,12 @@ function ProfilePanel({ user }: { user: AppUser }) {
 function TeamsPanel({ user }: { user: AppUser }) {
   const [teams, setTeams] = useState<TeamCard[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
+  const [courts, setCourts] = useState<CourtCard[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState<number | null>(null);
   const [playerSearch, setPlayerSearch] = useState("");
   const [newTeamName, setNewTeamName] = useState("");
-  const [scheduledAt, setScheduledAt] = useState(nextHourDateTimeLocal());
-  const [courtName, setCourtName] = useState("Complejo Norte - Cancha A");
+  const [selectedReservationId, setSelectedReservationId] = useState<number | null>(null);
   const [message, setMessage] = useState("");
 
   const myTeams = useMemo(
@@ -2046,10 +2045,34 @@ function TeamsPanel({ user }: { user: AppUser }) {
     }
   }
 
+  async function loadCourts() {
+    const response = await fetch(`/api/courts?userId=${user.id}`);
+    const payload = await readJson<ApiResponse<{ courts: CourtCard[] }>>(response);
+    if (!response.ok) {
+      throw new Error(payload.error || "No pudimos cargar tus reservas");
+    }
+    setCourts(payload.courts);
+  }
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadTeams().catch((error) => setMessage(error instanceof Error ? error.message : "No pudimos cargar la plantilla"));
+    void Promise.all([loadTeams(), loadCourts()]).catch((error) =>
+      setMessage(error instanceof Error ? error.message : "No pudimos cargar la plantilla"),
+    );
   }, []);
+
+  // Reservas propias del capitán (cualquier cancha), para convocar sin tener
+  // que tipear fecha/hora/cancha a mano — se eligen entre lo que ya reservó.
+  const myReservations = useMemo(
+    () =>
+      courts
+        .flatMap((court) => court.reservations.map((reservation) => ({ ...reservation, courtName: court.name })))
+        .filter((reservation) => reservation.userId === user.id && reservation.status !== "cancelada" && reservation.status !== "rechazada" && reservation.date >= todayIso())
+        .sort((left, right) => (left.date === right.date ? left.timeSlot.localeCompare(right.timeSlot) : left.date.localeCompare(right.date))),
+    [courts, user.id],
+  );
+
+  const selectedReservation = myReservations.find((reservation) => reservation.id === selectedReservationId) ?? null;
 
   async function createNewTeam() {
     if (!newTeamName.trim()) return;
@@ -2089,11 +2112,17 @@ function TeamsPanel({ user }: { user: AppUser }) {
   }
 
   async function sendConvocation() {
-    if (!selectedTeamId) return;
+    if (!selectedTeamId || !selectedReservation) return;
     const response = await fetch("/api/teams", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "convocation", teamId: selectedTeamId, userId: user.id, scheduledAt, courtName }),
+      body: JSON.stringify({
+        action: "convocation",
+        teamId: selectedTeamId,
+        userId: user.id,
+        scheduledAt: `${selectedReservation.date} ${selectedReservation.timeSlot}`,
+        courtName: selectedReservation.courtName,
+      }),
     });
     const payload = await readJson<ApiResponse<Record<string, never>>>(response);
     if (!response.ok) {
@@ -2147,14 +2176,30 @@ function TeamsPanel({ user }: { user: AppUser }) {
         </Card>
 
         <Card className="gap-3">
-          <div className="grid gap-3 md:grid-cols-2">
-            <input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} className={fieldClassName} />
-            <input value={courtName} onChange={(event) => setCourtName(event.target.value)} className={fieldClassName} placeholder="Cancha" />
+          <div className="relative">
+            <select
+              className={fieldClassName}
+              value={selectedReservationId ?? ""}
+              onChange={(event) => setSelectedReservationId(event.target.value ? Number(event.target.value) : null)}
+            >
+              <option value="">Selecciona una de tus reservas</option>
+              {myReservations.map((reservation) => (
+                <option key={reservation.id} value={reservation.id}>
+                  {reservation.courtName} · {reservation.date} · {reservation.timeSlot}
+                </option>
+              ))}
+            </select>
+            <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
           </div>
+          {myReservations.length === 0 ? (
+            <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
+              No tenés reservas próximas. Reservá una cancha para poder convocar a la plantilla.
+            </p>
+          ) : null}
           <Button
             type="button"
             onClick={sendConvocation}
-            disabled={!selectedTeam || !isCaptainOfSelected}
+            disabled={!selectedTeam || !isCaptainOfSelected || !selectedReservation}
             title={selectedTeam && !isCaptainOfSelected ? "Solo el capitán del equipo puede enviar convocatorias" : undefined}
           >
             Enviar convocatoria

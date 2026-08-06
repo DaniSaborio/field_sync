@@ -591,6 +591,42 @@ function findUserById(userId: number) {
   return store.users.find((user) => user.id === userId) ?? null;
 }
 
+// Equipos, torneos y perfiles viven solo en este store en memoria, separado de
+// los usuarios reales de Postgres — así que cualquier usuario que no sea uno
+// de los 4 de la semilla de demo (cualquier registro nuevo o inicio de sesión
+// con Google) es invisible para findUserById hasta que se registre aquí una
+// vez. Las rutas de API llaman a esto para sincronizar un usuario real antes
+// de operarlo (agregarlo a una plantilla, consultar su perfil, etc.).
+export function upsertStoreUser(input: {
+  id: number;
+  fullName: string;
+  email: string;
+  role: UserRole;
+  tenantId: number;
+  notificationsEnabled: boolean;
+}): UserRecord {
+  const existing = store.users.find((user) => user.id === input.id);
+  if (existing) {
+    existing.fullName = input.fullName;
+    existing.email = input.email;
+    existing.notificationsEnabled = input.notificationsEnabled;
+    return existing;
+  }
+
+  const record: UserRecord = {
+    id: input.id,
+    fullName: input.fullName,
+    email: input.email,
+    password: "",
+    role: input.role,
+    tenantId: input.tenantId,
+    notificationsEnabled: input.notificationsEnabled,
+  };
+  store.users.push(record);
+  ensureProfile(input.id);
+  return record;
+}
+
 function findUserByEmail(email: string) {
   return store.users.find((user) => user.email === normalizeEmail(email)) ?? null;
 }
