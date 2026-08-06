@@ -1,4 +1,7 @@
-import { CalendarDays, Clock3, Filter } from "lucide-react";
+import { CalendarDays, ChevronDown, Clock3, Filter } from "lucide-react";
+
+import { Card } from "@/components/ui/card";
+import { SectionLabel } from "@/components/ui/section-label";
 
 type AvailabilityFiltersProps = {
   date: string;
@@ -9,6 +12,12 @@ type AvailabilityFiltersProps = {
   onSurfaceChange: (value: string) => void;
 };
 
+const fieldClassName =
+  "h-11 w-full appearance-none border border-black bg-paper px-3 text-sm font-medium text-black outline-none focus:outline-2 focus:outline-black focus:outline-offset-2";
+
+const labelClassName =
+  "flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-muted";
+
 export function AvailabilityFilters({
   date,
   timeSlot,
@@ -17,63 +26,75 @@ export function AvailabilityFilters({
   onTimeSlotChange,
   onSurfaceChange,
 }: AvailabilityFiltersProps) {
-  const inputClassName =
-    "h-12 w-full rounded-xl border border-white/10 bg-slate-900/80 px-3.5 text-sm text-slate-100 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-400/10";
-
   return (
-    <section className="mb-10 rounded-2xl border border-white/10 bg-slate-950/40 p-6 backdrop-blur-sm sm:p-7">
-      <div className="mb-5 flex items-center gap-2 text-xs font-semibold tracking-[0.2em] text-slate-400">
-        <Filter size={14} />
-        FILTRAR DISPONIBILIDAD
-      </div>
+    <section className="mb-8">
+      <SectionLabel icon={Filter} className="mb-3">
+        Filtrar disponibilidad
+      </SectionLabel>
 
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
-        <label className="block space-y-2.5">
-          <span className="inline-flex items-center gap-2 text-xs font-semibold text-slate-400">
-            <CalendarDays size={14} />
-            Fecha
-          </span>
-          <input
-            type="date"
-            value={date}
-            onChange={(event) => onDateChange(event.target.value)}
-            className={inputClassName}
-          />
-        </label>
+      <Card>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <label className="block space-y-1.5">
+            <span className={labelClassName}>
+              <CalendarDays size={13} strokeWidth={2} aria-hidden />
+              Fecha
+            </span>
+            <input
+              type="date"
+              value={date}
+              onChange={(event) => onDateChange(event.target.value)}
+              className={fieldClassName}
+            />
+          </label>
 
-        <label className="block space-y-2.5">
-          <span className="inline-flex items-center gap-2 text-xs font-semibold text-slate-400">
-            <Clock3 size={14} />
-            Franja horaria
-          </span>
-          <select
-            value={timeSlot}
-            onChange={(event) => onTimeSlotChange(event.target.value)}
-            className={inputClassName}
-          >
-            <option value="all">Todo el día</option>
-            <option value="morning">Mañana</option>
-            <option value="afternoon">Tarde</option>
-            <option value="night">Noche</option>
-          </select>
-        </label>
+          <label className="block space-y-1.5">
+            <span className={labelClassName}>
+              <Clock3 size={13} strokeWidth={2} aria-hidden />
+              Franja horaria
+            </span>
+            <div className="relative">
+              <select
+                value={timeSlot}
+                onChange={(event) => onTimeSlotChange(event.target.value)}
+                className={fieldClassName}
+              >
+                <option value="all">Todo el día</option>
+                <option value="morning">Mañana</option>
+                <option value="afternoon">Tarde</option>
+                <option value="night">Noche</option>
+              </select>
+              <ChevronDown
+                size={14}
+                strokeWidth={2}
+                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black"
+                aria-hidden
+              />
+            </div>
+          </label>
 
-        <label className="block space-y-2.5">
-          <span className="inline-flex items-center gap-2 text-xs font-semibold text-slate-400">
-            Tipo de superficie
-          </span>
-          <select
-            value={surface}
-            onChange={(event) => onSurfaceChange(event.target.value)}
-            className={inputClassName}
-          >
-            <option value="all">Todas</option>
-            <option value="synthetic">Sintética</option>
-            <option value="natural">Natural</option>
-            <option value="indoor">Indoor</option>
-          </select>
-        </label>
-      </div>
+          <label className="block space-y-1.5">
+            <span className={labelClassName}>Tipo de superficie</span>
+            <div className="relative">
+              <select
+                value={surface}
+                onChange={(event) => onSurfaceChange(event.target.value)}
+                className={fieldClassName}
+              >
+                <option value="all">Todas</option>
+                <option value="synthetic">Sintética</option>
+                <option value="natural">Natural</option>
+                <option value="indoor">Indoor</option>
+              </select>
+              <ChevronDown
+                size={14}
+                strokeWidth={2}
+                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black"
+                aria-hidden
+              />
+            </div>
+          </label>
+        </div>
+      </Card>
     </section>
   );
 }

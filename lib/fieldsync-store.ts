@@ -1,9 +1,12 @@
+import { isNightHour } from "./utils";
+
 export type UserRole = "administrador" | "recepcionista" | "organizador" | "jugador";
 
 export type CourtSurface = "synthetic" | "natural" | "indoor";
 export type TournamentFormat = "eliminatorio" | "todos-contra-todos";
+export type TournamentFixtureMode = "aleatorio" | "manual";
 export type MatchStatus = "scheduled" | "confirmed";
-export type NotificationType = "reservation" | "cancellation" | "tournament" | "convocation" | "match-result";
+export type NotificationType = "reservation" | "cancellation" | "tournament" | "convocation" | "match-result" | "payment-split" | "match-invite" | "payment-pending";
 
 export type UserRecord = {
   id: number;
@@ -20,12 +23,18 @@ export type CourtRecord = {
   tenantId: number;
   name: string;
   location: string;
+  mapsUrl?: string | null;
   surface: CourtSurface;
   capacity: string;
   pricePerHour: number;
+  pricePerHourNight?: number | null;
   rating: number;
   availableSlots: string[];
 };
+
+export type PaymentMethod = "sinpe" | "efectivo";
+export type ReservationStatus = "pendiente" | "confirmada" | "rechazada" | "cancelada";
+export type PaymentStatus = "pendiente" | "verificado" | "rechazado";
 
 export type ReservationRecord = {
   id: number;
@@ -33,8 +42,13 @@ export type ReservationRecord = {
   courtId: number;
   date: string;
   timeSlot: string;
-  status: "confirmed" | "cancelled";
+  status: ReservationStatus;
   createdAt: string;
+  holdExpiresAt: string | null;
+  paymentMethod: PaymentMethod | null;
+  paymentStatus: PaymentStatus | null;
+  rejectionReason: string | null;
+  amount: number | null;
 };
 
 export type NotificationRecord = {
@@ -60,8 +74,10 @@ export type TournamentRecord = {
   id: number;
   tenantId: number;
   createdByUserId: number;
+  courtId: number;
   name: string;
   format: TournamentFormat;
+  fixtureMode: TournamentFixtureMode;
   teamsRequired: number;
   startDate: string;
   endDate: string;
@@ -85,6 +101,19 @@ export type MatchRecord = {
   status: MatchStatus;
   resultLocked: boolean;
   auditTrail: string[];
+};
+
+// Una fila por jugador por partido: sus goles y tarjetas en ese partido.
+// El marcador del equipo sale de sumar los goles de sus jugadores, no de un
+// número suelto tipeado por quien carga el resultado.
+export type MatchStatRecord = {
+  id: number;
+  matchId: number;
+  playerId: number;
+  teamId: number;
+  goals: number;
+  yellowCards: number;
+  redCards: number;
 };
 
 export type PlayerProfileRecord = {
@@ -119,6 +148,7 @@ type StoreState = {
   teams: TeamRecord[];
   tournaments: TournamentRecord[];
   matches: MatchRecord[];
+  matchStats: MatchStatRecord[];
   standings: StandingRecord[];
   playerProfiles: PlayerProfileRecord[];
 };
@@ -140,6 +170,17 @@ export type ReservationResult =
       ok: false;
       error: string;
       suggestedSlot?: string | null;
+    };
+
+export type PaymentVerificationResult =
+  | {
+      ok: true;
+      reservation: ReservationRecord;
+      notifications: NotificationRecord[];
+    }
+  | {
+      ok: false;
+      error: string;
     };
 
 export type CancelResult =
@@ -218,6 +259,7 @@ const seedState = (): StoreState => ({
     team: 4,
     tournament: 3,
     match: 5,
+    matchStat: 1,
     standing: 1,
     profile: 4,
   },
@@ -312,8 +354,13 @@ const seedState = (): StoreState => ({
       courtId: 1,
       date: "2026-07-30",
       timeSlot: "18:00",
-      status: "confirmed",
+      status: "confirmada",
       createdAt: "2026-07-20T10:00:00.000Z",
+      holdExpiresAt: null,
+      paymentMethod: "sinpe",
+      paymentStatus: "verificado",
+      rejectionReason: null,
+      amount: 55,
     },
     {
       id: 2,
@@ -321,8 +368,13 @@ const seedState = (): StoreState => ({
       courtId: 3,
       date: "2026-07-29",
       timeSlot: "15:00",
-      status: "confirmed",
+      status: "confirmada",
       createdAt: "2026-07-20T11:00:00.000Z",
+      holdExpiresAt: null,
+      paymentMethod: "efectivo",
+      paymentStatus: "verificado",
+      rejectionReason: null,
+      amount: 72,
     },
   ],
   notifications: [
@@ -379,8 +431,10 @@ const seedState = (): StoreState => ({
       id: 1,
       tenantId: 1,
       createdByUserId: 3,
+      courtId: 1,
       name: "Torneo Apertura 2026",
       format: "todos-contra-todos",
+      fixtureMode: "aleatorio",
       teamsRequired: 3,
       startDate: "2026-07-25",
       endDate: "2026-08-15",
@@ -429,6 +483,7 @@ const seedState = (): StoreState => ({
       auditTrail: [],
     },
   ],
+  matchStats: [],
   standings: [
     {
       teamId: 1,
@@ -506,6 +561,16 @@ function normalizeEmail(email: string) {
 
 function formatDateTime(date: string, timeSlot: string) {
   return new Date(`${date}T${timeSlot}:00.000Z`);
+}
+
+// Una reserva bloquea el horario si está "confirmada", o "pendiente" mientras
+// el hold no venza (esperando que el dueño de la cancha verifique el pago).
+function isSlotActive(reservation: ReservationRecord, now: Date = new Date()) {
+  if (reservation.status === "confirmada") return true;
+  if (reservation.status === "pendiente") {
+    return !reservation.holdExpiresAt || new Date(reservation.holdExpiresAt).getTime() > now.getTime();
+  }
+  return false;
 }
 
 function createNotification(userId: number, type: NotificationType, message: string) {
@@ -617,41 +682,46 @@ function recalculateStandings(tournamentId: number) {
   return standings;
 }
 
+function shuffle<T>(items: T[]): T[] {
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+function createMatchRecord(tournamentId: number, homeTeamId: number, awayTeamId: number, index: number): MatchRecord {
+  return {
+    id: nextId("match"),
+    tournamentId,
+    homeTeamId,
+    awayTeamId,
+    scheduledAt: new Date(Date.UTC(2026, 6, 28 + index, 19, 0, 0)).toISOString(),
+    homeGoals: null,
+    awayGoals: null,
+    status: "scheduled",
+    resultLocked: false,
+    auditTrail: [],
+  };
+}
+
+// Solo se llama para torneos en modo "aleatorio" (el modo "manual" arma el
+// fixture a través de setManualFixture) — por eso siempre sortea el orden de
+// los equipos antes de emparejarlos.
 function generateFixture(tournament: TournamentRecord) {
-  const teamIds = tournament.teamIds;
+  const teamIds = shuffle(tournament.teamIds);
   const matches: MatchRecord[] = [];
 
   if (tournament.format === "todos-contra-todos") {
     for (let homeIndex = 0; homeIndex < teamIds.length; homeIndex += 1) {
       for (let awayIndex = homeIndex + 1; awayIndex < teamIds.length; awayIndex += 1) {
-        matches.push({
-          id: nextId("match"),
-          tournamentId: tournament.id,
-          homeTeamId: teamIds[homeIndex],
-          awayTeamId: teamIds[awayIndex],
-          scheduledAt: new Date(Date.UTC(2026, 6, 28 + matches.length, 19, 0, 0)).toISOString(),
-          homeGoals: null,
-          awayGoals: null,
-          status: "scheduled",
-          resultLocked: false,
-          auditTrail: [],
-        });
+        matches.push(createMatchRecord(tournament.id, teamIds[homeIndex], teamIds[awayIndex], matches.length));
       }
     }
   } else {
     for (let index = 0; index < teamIds.length - 1; index += 2) {
-      matches.push({
-        id: nextId("match"),
-        tournamentId: tournament.id,
-        homeTeamId: teamIds[index],
-        awayTeamId: teamIds[index + 1],
-        scheduledAt: new Date(Date.UTC(2026, 6, 28 + matches.length, 19, 0, 0)).toISOString(),
-        homeGoals: null,
-        awayGoals: null,
-        status: "scheduled",
-        resultLocked: false,
-        auditTrail: [],
-      });
+      matches.push(createMatchRecord(tournament.id, teamIds[index], teamIds[index + 1], matches.length));
     }
   }
 
@@ -743,7 +813,7 @@ export function listCourts(filters: ReservationFilter = {}) {
     }
     return true;
   }).map((court) => {
-    const reservedSlots = store.reservations.filter((reservation) => reservation.courtId === court.id && reservation.status === "confirmed" && (!date || reservation.date === date)).map((reservation) => reservation.timeSlot);
+    const reservedSlots = store.reservations.filter((reservation) => reservation.courtId === court.id && isSlotActive(reservation) && (!date || reservation.date === date)).map((reservation) => reservation.timeSlot);
 
     const slots = court.availableSlots.filter((slot) => {
       if (timeSlot && timeSlot !== "all") {
@@ -765,8 +835,9 @@ export function listCourts(filters: ReservationFilter = {}) {
 
     return {
       ...clone(court),
+      pricePerHourNight: court.pricePerHourNight ?? null,
       availableSlots: slots,
-      reservations: store.reservations.filter((reservation) => reservation.courtId === court.id && reservation.status === "confirmed" && (!date || reservation.date === date) && (!userId || reservation.userId === userId)).map(clone),
+      reservations: store.reservations.filter((reservation) => reservation.courtId === court.id && reservation.status !== "cancelada" && (!date || reservation.date === date) && (!userId || reservation.userId === userId)).map(clone),
     };
   }).filter((court) => court.availableSlots.length > 0 || court.reservations.length > 0);
 
@@ -778,11 +849,58 @@ export function getReservations(userId?: number) {
   return clone(reservations);
 }
 
+export function notifyTeamMembers(input: {
+  teamId: number;
+  excludeUserId?: number;
+  type: NotificationType;
+  message: (member: UserRecord) => string;
+}) {
+  const team = store.teams.find((item) => item.id === input.teamId);
+  if (!team) return [] as NotificationRecord[];
+
+  return team.playerIds
+    .filter((playerId) => playerId !== input.excludeUserId)
+    .flatMap((playerId) => {
+      const member = findUserById(playerId);
+      if (!member || !member.notificationsEnabled) return [] as NotificationRecord[];
+      return [createNotification(playerId, input.type, input.message(member))];
+    });
+}
+
+export function notifyTeamCaptain(input: {
+  teamId: number;
+  type: NotificationType;
+  message: string;
+}) {
+  const team = store.teams.find((item) => item.id === input.teamId);
+  if (!team) return null;
+  const captain = findUserById(team.captainUserId);
+  if (!captain || !captain.notificationsEnabled) return null;
+  return createNotification(team.captainUserId, input.type, input.message);
+}
+
+export function getTeamById(teamId: number) {
+  const team = store.teams.find((item) => item.id === teamId);
+  return team ? clone(team) : null;
+}
+
+const HOLD_DURATION_MS = 30 * 60 * 1000;
+
+function notifyCourtOwner(court: CourtRecord, type: NotificationType, message: string) {
+  const owner = store.users.find((candidate) => candidate.tenantId === court.tenantId && candidate.role === "administrador");
+  if (!owner || !owner.notificationsEnabled) return null;
+  return createNotification(owner.id, type, message);
+}
+
 export function reserveCourt(input: {
   userId: number;
   courtId: number;
   date: string;
   timeSlot: string;
+  paymentMethod: PaymentMethod | null;
+  teamId?: number | null;
+  splitPayment?: boolean;
+  rivalTeamId?: number | null;
 }) : ReservationResult {
   const user = findUserById(input.userId);
   const court = store.courts.find((item) => item.id === input.courtId) ?? null;
@@ -791,10 +909,14 @@ export function reserveCourt(input: {
     return { ok: false, error: "No pudimos identificar el usuario o la cancha" };
   }
 
-  const conflict = store.reservations.find((reservation) => reservation.courtId === input.courtId && reservation.date === input.date && reservation.timeSlot === input.timeSlot && reservation.status === "confirmed");
+  if (!input.paymentMethod) {
+    return { ok: false, error: "Selecciona un método de pago (SINPE o efectivo)" };
+  }
+
+  const conflict = store.reservations.find((reservation) => reservation.courtId === input.courtId && reservation.date === input.date && reservation.timeSlot === input.timeSlot && isSlotActive(reservation));
   if (conflict) {
     const availableLater = court.availableSlots.find((slot) => {
-      const reserved = store.reservations.some((reservation) => reservation.courtId === input.courtId && reservation.date === input.date && reservation.timeSlot === slot && reservation.status === "confirmed");
+      const reserved = store.reservations.some((reservation) => reservation.courtId === input.courtId && reservation.date === input.date && reservation.timeSlot === slot && isSlotActive(reservation));
       return !reserved && slot > input.timeSlot;
     });
 
@@ -805,20 +927,68 @@ export function reserveCourt(input: {
     };
   }
 
+  const [hourPart] = input.timeSlot.split(":");
+  const amount =
+    isNightHour(Number(hourPart)) && court.pricePerHourNight != null
+      ? court.pricePerHourNight
+      : court.pricePerHour;
+
+  const paymentLabel = input.paymentMethod === "sinpe" ? "SINPE Móvil" : "efectivo";
   const reservation: ReservationRecord = {
     id: nextId("reservation"),
     userId: input.userId,
     courtId: input.courtId,
     date: input.date,
     timeSlot: input.timeSlot,
-    status: "confirmed",
+    status: "pendiente",
     createdAt: new Date().toISOString(),
+    holdExpiresAt: new Date(Date.now() + HOLD_DURATION_MS).toISOString(),
+    paymentMethod: input.paymentMethod,
+    paymentStatus: "pendiente",
+    rejectionReason: null,
+    amount,
   };
 
   store.reservations.push(reservation);
   const notifications = user.notificationsEnabled
-    ? [createNotification(input.userId, "reservation", `Reserva confirmada para ${court.name} a las ${input.timeSlot}.`)]
+    ? [createNotification(input.userId, "reservation", `Reserva en ${court.name} a las ${input.timeSlot} pendiente de confirmación de pago (${paymentLabel}) por el dueño de la cancha.`)]
     : [];
+
+  const ownerNotification = notifyCourtOwner(
+    court,
+    "payment-pending",
+    `Nueva reserva en ${court.name} el ${input.date} a las ${input.timeSlot}. Verifica el pago por ${paymentLabel} (₡${amount}) para confirmarla.`,
+  );
+  if (ownerNotification) {
+    notifications.push(ownerNotification);
+  }
+
+  if (input.teamId && input.splitPayment) {
+    const team = store.teams.find((item) => item.id === input.teamId);
+    if (team) {
+      const perPerson = (amount / team.playerIds.length).toFixed(2);
+      notifications.push(
+        ...notifyTeamMembers({
+          teamId: input.teamId,
+          excludeUserId: input.userId,
+          type: "payment-split",
+          message: () =>
+            `${user.fullName} reservó ${court.name} el ${input.date} a las ${input.timeSlot}. Tu parte del pago: $${perPerson}.`,
+        }),
+      );
+    }
+  }
+
+  if (input.rivalTeamId) {
+    const notification = notifyTeamCaptain({
+      teamId: input.rivalTeamId,
+      type: "match-invite",
+      message: `${user.fullName} te invita a jugar en ${court.name} el ${input.date} a las ${input.timeSlot}.`,
+    });
+    if (notification) {
+      notifications.push(notification);
+    }
+  }
 
   const profile = ensureProfile(input.userId);
   if (!profile.courts.includes(court.name)) {
@@ -848,10 +1018,58 @@ export function cancelReservation(input: {
     return { ok: false, error: "No es posible cancelar con menos de 24 horas de anticipación" };
   }
 
-  reservation.status = "cancelled";
+  reservation.status = "cancelada";
   const court = store.courts.find((item) => item.id === reservation.courtId);
   const notifications = user.notificationsEnabled && court
     ? [createNotification(input.userId, "cancellation", `Cancelamos tu reserva en ${court.name} para ${reservation.date} ${reservation.timeSlot}.`)]
+    : [];
+
+  return { ok: true, reservation: clone(reservation), notifications: clone(notifications) };
+}
+
+// El dueño de la cancha (administrador del tenant) confirma o rechaza el pago
+// declarado por el jugador. Solo entonces la reserva sale de "pendiente".
+export function verifyPayment(input: {
+  reservationId: number;
+  tenantId: number;
+  action: "confirm" | "reject";
+  reason?: string | null;
+}) : PaymentVerificationResult {
+  const reservation = store.reservations.find((item) => item.id === input.reservationId) ?? null;
+  const court = reservation ? store.courts.find((item) => item.id === reservation.courtId) : null;
+
+  if (!reservation || !court) {
+    return { ok: false, error: "No encontramos la reserva" };
+  }
+
+  if (court.tenantId !== input.tenantId) {
+    return { ok: false, error: "Esta reserva no pertenece a una de tus canchas" };
+  }
+
+  if (reservation.status !== "pendiente") {
+    return { ok: false, error: "Esta reserva ya fue procesada" };
+  }
+
+  if (input.action === "reject" && !input.reason) {
+    return { ok: false, error: "Indica el motivo del rechazo" };
+  }
+
+  reservation.status = input.action === "confirm" ? "confirmada" : "rechazada";
+  reservation.paymentStatus = input.action === "confirm" ? "verificado" : "rechazado";
+  reservation.rejectionReason = input.action === "reject" ? input.reason ?? null : null;
+  reservation.holdExpiresAt = null;
+
+  const user = findUserById(reservation.userId);
+  const notifications = user?.notificationsEnabled
+    ? [
+        createNotification(
+          reservation.userId,
+          input.action === "confirm" ? "reservation" : "cancellation",
+          input.action === "confirm"
+            ? `¡Pago verificado! Tu reserva en ${court.name} el ${reservation.date} a las ${reservation.timeSlot} quedó confirmada.`
+            : `Tu reserva en ${court.name} el ${reservation.date} a las ${reservation.timeSlot} fue rechazada: ${input.reason}.`,
+        ),
+      ]
     : [];
 
   return { ok: true, reservation: clone(reservation), notifications: clone(notifications) };
@@ -878,12 +1096,17 @@ export function listTeams() {
   })));
 }
 
+const TOURNAMENT_CREATOR_ROLES = ["administrador", "admin_plataforma", "tenant"];
+
 export function createTournament(input: {
   tenantId: number;
   createdByUserId: number;
+  creatorRole?: string;
+  courtId: number;
   name: string;
   format: TournamentFormat;
-  teamsRequired: number;
+  fixtureMode?: TournamentFixtureMode;
+  teamIds: number[];
   startDate: string;
   endDate: string;
 }) : TournamentResult {
@@ -891,71 +1114,48 @@ export function createTournament(input: {
     return { ok: false, error: "El nombre del torneo es obligatorio" };
   }
 
+  // El sistema de torneos vive en este store en memoria, separado de los usuarios
+  // reales en Postgres, así que el rol se toma tal cual lo declara el cliente
+  // (mismo nivel de confianza que el resto de la API en este prototipo).
+  if (!input.creatorRole || !TOURNAMENT_CREATOR_ROLES.includes(input.creatorRole)) {
+    return { ok: false, error: "Solo un administrador o el dueño de la cancha pueden crear torneos" };
+  }
+
+  if (!store.courts.some((court) => court.id === input.courtId)) {
+    return { ok: false, error: "Selecciona una cancha válida para el torneo" };
+  }
+
+  const teamIds = Array.from(new Set(input.teamIds));
+  if (teamIds.length < 2) {
+    return { ok: false, error: "Selecciona al menos dos equipos participantes" };
+  }
+
+  const unknownTeamId = teamIds.find((teamId) => !store.teams.some((team) => team.id === teamId));
+  if (unknownTeamId !== undefined) {
+    return { ok: false, error: `No encontramos el equipo #${unknownTeamId}` };
+  }
+
   const tournament: TournamentRecord = {
     id: nextId("tournament"),
     tenantId: input.tenantId,
     createdByUserId: input.createdByUserId,
+    courtId: input.courtId,
     name: input.name.trim(),
     format: input.format,
-    teamsRequired: input.teamsRequired,
+    fixtureMode: input.fixtureMode === "manual" ? "manual" : "aleatorio",
+    teamsRequired: teamIds.length,
     startDate: input.startDate,
     endDate: input.endDate,
     status: "draft",
-    requestStatus: "pendiente",
+    requestStatus: "aprobado",
     rejectionReason: null,
-    teamIds: [],
+    teamIds,
     fixture: [],
   };
 
   store.tournaments.push(tournament);
 
-  // Notifica al dueño de la cancha (rol "administrador") para que revise la solicitud.
-  const tenantOwner = store.users.find((user) => user.tenantId === tournament.tenantId && user.role === "administrador");
-  const notifications = tenantOwner?.notificationsEnabled
-    ? [createNotification(tenantOwner.id, "tournament", `Nueva solicitud de torneo "${tournament.name}" pendiente de aprobación.`)]
-    : [];
-
-  return { ok: true, tournament: clone(tournament), notifications: clone(notifications) };
-}
-
-export function reviewTournamentRequest(input: {
-  tournamentId: number;
-  reviewerUserId: number;
-  decision: "aprobado" | "rechazado";
-  reason?: string;
-}) : TournamentResult {
-  const tournament = store.tournaments.find((item) => item.id === input.tournamentId) ?? null;
-  const reviewer = findUserById(input.reviewerUserId);
-
-  if (!tournament) {
-    return { ok: false, error: "No encontramos el torneo" };
-  }
-
-  if (!reviewer || reviewer.role !== "administrador" || reviewer.tenantId !== tournament.tenantId) {
-    return { ok: false, error: "Solo el dueño de la cancha puede aprobar o rechazar esta solicitud" };
-  }
-
-  if (tournament.requestStatus !== "pendiente") {
-    return { ok: false, error: "Esta solicitud ya fue revisada" };
-  }
-
-  tournament.requestStatus = input.decision;
-  tournament.rejectionReason = input.decision === "rechazado" ? (input.reason?.trim() || "Sin motivo especificado") : null;
-
-  const requester = findUserById(tournament.createdByUserId);
-  const notifications = requester?.notificationsEnabled
-    ? [
-        createNotification(
-          requester.id,
-          "tournament",
-          input.decision === "aprobado"
-            ? `Tu solicitud de torneo "${tournament.name}" fue aprobada. Ya puedes inscribir equipos.`
-            : `Tu solicitud de torneo "${tournament.name}" fue rechazada: ${tournament.rejectionReason}`,
-        ),
-      ]
-    : [];
-
-  return { ok: true, tournament: clone(tournament), notifications: clone(notifications) };
+  return { ok: true, tournament: clone(tournament), notifications: [] };
 }
 
 export function enrollTeamToTournament(input: {
@@ -980,25 +1180,8 @@ export function enrollTeamToTournament(input: {
   return { ok: true as const, tournament: clone(tournament) };
 }
 
-export function startTournament(input: {
-  tournamentId: number;
-}) : TournamentResult {
-  const tournament = store.tournaments.find((item) => item.id === input.tournamentId) ?? null;
-  if (!tournament) {
-    return { ok: false, error: "No encontramos el torneo" };
-  }
-
-  if (tournament.requestStatus !== "aprobado") {
-    return { ok: false, error: "El torneo aún no ha sido aprobado por el dueño de la cancha" };
-  }
-
-  if (tournament.teamIds.length < tournament.teamsRequired) {
-    return { ok: false, error: "Aún no se completa el número mínimo de equipos" };
-  }
-
-  tournament.status = "active";
-  const fixture = generateFixture(tournament);
-  const notifications = store.teams
+function notifyTournamentStart(tournament: TournamentRecord) {
+  return store.teams
     .filter((team) => tournament.teamIds.includes(team.id))
     .flatMap((team) => {
       const captain = findUserById(team.captainUserId);
@@ -1008,14 +1191,88 @@ export function startTournament(input: {
 
       return [createNotification(captain.id, "tournament", `El torneo ${tournament.name} ya tiene fixture generado.`)];
     });
+}
+
+function validateTournamentReadyToStart(tournament: TournamentRecord): string | null {
+  if (tournament.requestStatus !== "aprobado") {
+    return "El torneo aún no ha sido aprobado por el dueño de la cancha";
+  }
+
+  if (tournament.teamIds.length < tournament.teamsRequired) {
+    return "Aún no se completa el número mínimo de equipos";
+  }
+
+  return null;
+}
+
+export function startTournament(input: {
+  tournamentId: number;
+}) : TournamentResult {
+  const tournament = store.tournaments.find((item) => item.id === input.tournamentId) ?? null;
+  if (!tournament) {
+    return { ok: false, error: "No encontramos el torneo" };
+  }
+
+  if (tournament.fixtureMode === "manual") {
+    return { ok: false, error: "Este torneo usa fixture manual: armá los partidos y guardalos para iniciarlo" };
+  }
+
+  const validationError = validateTournamentReadyToStart(tournament);
+  if (validationError) {
+    return { ok: false, error: validationError };
+  }
+
+  tournament.status = "active";
+  const fixture = generateFixture(tournament);
+  const notifications = notifyTournamentStart(tournament);
 
   return { ok: true, tournament: clone({ ...tournament, fixture }), notifications: clone(notifications) };
 }
 
+export function setManualFixture(input: {
+  tournamentId: number;
+  pairs: Array<{ homeTeamId: number; awayTeamId: number }>;
+}) : TournamentResult {
+  const tournament = store.tournaments.find((item) => item.id === input.tournamentId) ?? null;
+  if (!tournament) {
+    return { ok: false, error: "No encontramos el torneo" };
+  }
+
+  if (tournament.fixtureMode !== "manual") {
+    return { ok: false, error: "Este torneo no está configurado para fixture manual" };
+  }
+
+  const validationError = validateTournamentReadyToStart(tournament);
+  if (validationError) {
+    return { ok: false, error: validationError };
+  }
+
+  if (input.pairs.length === 0) {
+    return { ok: false, error: "Agrega al menos un partido al fixture" };
+  }
+
+  for (const pair of input.pairs) {
+    if (pair.homeTeamId === pair.awayTeamId) {
+      return { ok: false, error: "Un equipo no puede jugar contra sí mismo" };
+    }
+    if (!tournament.teamIds.includes(pair.homeTeamId) || !tournament.teamIds.includes(pair.awayTeamId)) {
+      return { ok: false, error: "Todos los partidos deben ser entre equipos inscritos en el torneo" };
+    }
+  }
+
+  const matches = input.pairs.map((pair, index) => createMatchRecord(tournament.id, pair.homeTeamId, pair.awayTeamId, index));
+  tournament.fixture = matches;
+  store.matches.push(...matches);
+  tournament.status = "active";
+
+  const notifications = notifyTournamentStart(tournament);
+
+  return { ok: true, tournament: clone({ ...tournament, fixture: matches }), notifications: clone(notifications) };
+}
+
 export function recordMatchResult(input: {
   matchId: number;
-  homeGoals: number;
-  awayGoals: number;
+  stats: Array<{ playerId: number; teamId: number; goals: number; yellowCards: number; redCards: number }>;
   confirmedByAdmin?: boolean;
 }) : MatchResultUpdate {
   const match = store.matches.find((item) => item.id === input.matchId) ?? null;
@@ -1033,15 +1290,45 @@ export function recordMatchResult(input: {
     };
   }
 
-  match.homeGoals = input.homeGoals;
-  match.awayGoals = input.awayGoals;
+  const homeTeam = store.teams.find((team) => team.id === match.homeTeamId);
+  const awayTeam = store.teams.find((team) => team.id === match.awayTeamId);
+
+  for (const stat of input.stats) {
+    if (stat.teamId !== match.homeTeamId && stat.teamId !== match.awayTeamId) {
+      return { ok: false, error: `El equipo #${stat.teamId} no juega este partido` };
+    }
+    const team = stat.teamId === match.homeTeamId ? homeTeam : awayTeam;
+    if (!team || !team.playerIds.includes(stat.playerId)) {
+      return { ok: false, error: `El jugador #${stat.playerId} no pertenece a ${team?.name ?? `equipo #${stat.teamId}`}` };
+    }
+  }
+
+  // Solo se guardan filas con algo cargado (gol o tarjeta); una fila en cero
+  // no cuenta como "jugó" el partido.
+  const statRows = input.stats.filter((stat) => stat.goals > 0 || stat.yellowCards > 0 || stat.redCards > 0);
+
+  const homeGoals = statRows.filter((stat) => stat.teamId === match.homeTeamId).reduce((sum, stat) => sum + stat.goals, 0);
+  const awayGoals = statRows.filter((stat) => stat.teamId === match.awayTeamId).reduce((sum, stat) => sum + stat.goals, 0);
+
+  match.homeGoals = homeGoals;
+  match.awayGoals = awayGoals;
   match.status = "confirmed";
   match.resultLocked = true;
   match.auditTrail.push(input.confirmedByAdmin ? "Resultado modificado con segunda autorización" : "Resultado confirmado");
 
+  store.matchStats = store.matchStats.filter((stat) => stat.matchId !== match.id).concat(
+    statRows.map((stat) => ({
+      id: nextId("matchStat"),
+      matchId: match.id,
+      playerId: stat.playerId,
+      teamId: stat.teamId,
+      goals: stat.goals,
+      yellowCards: stat.yellowCards,
+      redCards: stat.redCards,
+    })),
+  );
+
   const standings = recalculateStandings(match.tournamentId);
-  const homeTeam = store.teams.find((team) => team.id === match.homeTeamId);
-  const awayTeam = store.teams.find((team) => team.id === match.awayTeamId);
   const notifications: NotificationRecord[] = [];
 
   if (homeTeam) {
@@ -1058,18 +1345,10 @@ export function recordMatchResult(input: {
     }
   }
 
-  const homeProfile = store.playerProfiles.find((profile) => profile.userId === homeTeam?.captainUserId);
-  const awayProfile = store.playerProfiles.find((profile) => profile.userId === awayTeam?.captainUserId);
-  if (homeProfile) {
-    homeProfile.matchesPlayed += 1;
-    homeProfile.goals += input.homeGoals;
-    homeProfile.assists += input.homeGoals > 0 ? 1 : 0;
-  }
-
-  if (awayProfile) {
-    awayProfile.matchesPlayed += 1;
-    awayProfile.goals += input.awayGoals;
-    awayProfile.assists += input.awayGoals > 0 ? 1 : 0;
+  for (const stat of statRows) {
+    const profile = ensureProfile(stat.playerId);
+    profile.goals += stat.goals;
+    profile.matchesPlayed += 1;
   }
 
   return {
@@ -1083,7 +1362,12 @@ export function recordMatchResult(input: {
 export function getTournaments() {
   return clone(store.tournaments.map((tournament) => ({
     ...tournament,
-    fixture: store.matches.filter((match) => match.tournamentId === tournament.id),
+    fixture: store.matches
+      .filter((match) => match.tournamentId === tournament.id)
+      .map((match) => ({
+        ...match,
+        stats: store.matchStats.filter((stat) => stat.matchId === match.id),
+      })),
     standings: store.standings.filter((standing) => standing.tournamentId === tournament.id),
   })));
 }

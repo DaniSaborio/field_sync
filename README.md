@@ -1,37 +1,82 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# FieldSync
 
-## Getting Started
+App de gestión de reservas y torneos de canchas, construida con [Next.js](https://nextjs.org).
 
-First, run the development server:
+## Requisitos previos
+
+- Node.js 20+ y npm
+- Una base de datos Postgres (el proyecto usa [Neon](https://neon.tech) en la nube, no hace falta instalar Postgres localmente)
+- Docker Desktop, si prefieres levantar todo en contenedor (ver [DOCKER.md](DOCKER.md))
+
+## Levantar el proyecto en local
+
+1. Instala las dependencias:
+
+   ```bash
+   npm install
+   ```
+
+2. Crea el archivo `.env.local` en la raíz con las siguientes variables (pide los valores a quien te compartió el proyecto si no los tienes):
+
+   ```bash
+   DATABASE_URL=
+   GOOGLE_CLIENT_ID=
+   GOOGLE_CLIENT_SECRET=
+   NEXTAUTH_SECRET=
+   NEXTAUTH_URL=
+   NEXT_PUBLIC_GOOGLE_CLIENT_ID=
+   ```
+
+3. Genera el cliente de Prisma y sincroniza el esquema con la base de datos:
+
+   ```bash
+   npm run db:generate
+   npm run db:push
+   ```
+
+   Si además quieres poblar la base con datos de prueba:
+
+   ```bash
+   npm run db:seed
+   ```
+
+   O ambos pasos juntos:
+
+   ```bash
+   npm run db:setup
+   ```
+
+4. Levanta el servidor de desarrollo:
+
+   ```bash
+   npm run dev
+   ```
+
+5. Abre [http://localhost:3000](http://localhost:3000) en tu navegador.
+
+## Levantar el proyecto con Docker
+
+Si prefieres no instalar Node localmente, puedes levantar todo con Docker (hot reload incluido). Ver la guía completa en [DOCKER.md](DOCKER.md).
+
+Resumen rápido:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+docker compose up --build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Y abre [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Otros comandos útiles
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run lint        # linter
+npm run test         # correr tests (vitest)
+npm run test:watch   # tests en modo watch
+npm run build        # build de producción
+npm run start        # levantar build de producción
+```
 
-## Learn More
+## Aprender más
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-# field_sync
+- [Next.js Documentation](https://nextjs.org/docs) - features y API de Next.js.
+- [Prisma Documentation](https://www.prisma.io/docs) - ORM usado para la base de datos.

@@ -30,17 +30,17 @@ ls .env.local
 
 Debe contener una línea `DATABASE_URL="postgresql://..."`. Si no existe, pide ese archivo a quien te compartió el proyecto — sin él la app no podrá conectarse a la base de datos.
 
-## 3. Construir la imagen
+## 3. Levantar la app en modo desarrollo (recomendado, hot reload)
 
-Desde la raíz del proyecto (donde está el archivo `Dockerfile`), ejecuta:
+`docker-compose.yml` está configurado en modo desarrollo por defecto: monta tu carpeta del proyecto dentro del contenedor, así que **los cambios de código se reflejan solos** (hot reload de Next.js) y no hace falta reconstruir la imagen cada vez.
+
+Primera vez (o cuando cambies `package.json`):
 
 ```bash
-docker compose build
+docker compose up --build
 ```
 
-Esto puede tardar unos minutos la primera vez (descarga la imagen base de Node e instala dependencias). Verás mucho texto en pantalla, es normal.
-
-## 4. Levantar la aplicación
+Las siguientes veces, con que quede corriendo alcanza:
 
 ```bash
 docker compose up
@@ -57,6 +57,8 @@ la app ya está corriendo. Abre tu navegador en:
 
 http://localhost:3000
 
+Edita cualquier archivo del proyecto y guarda: verás el cambio reflejado en el navegador sin volver a construir nada.
+
 Para detenerla, presiona `Ctrl + C` en esa misma terminal.
 
 Si prefieres que quede corriendo "en segundo plano" (sin ocupar la terminal):
@@ -65,7 +67,7 @@ Si prefieres que quede corriendo "en segundo plano" (sin ocupar la terminal):
 docker compose up -d
 ```
 
-Para verla en segundo plano:
+Para ver los logs en segundo plano:
 
 ```bash
 docker compose logs -f
@@ -77,26 +79,41 @@ Para apagarla:
 docker compose down
 ```
 
-## 5. Volver a construir tras cambios en el código
+### ¿Cuándo sí hace falta reconstruir?
 
-Cada vez que cambies código y quieras probarlo dentro de Docker, vuelve a construir la imagen:
+Solo cuando cambias `package.json` (nuevas dependencias) o el propio `Dockerfile`:
 
 ```bash
 docker compose up --build
 ```
 
+Cambios de código (`.tsx`, `.ts`, componentes, rutas, etc.) **no** requieren reconstruir — eso es justamente lo que soluciona el volumen montado.
+
+## 4. Modo producción
+
+Para probar la build real de producción (la que se compila con `next build` y corre optimizada) usa el archivo aparte `docker-compose.prod.yml`:
+
+```bash
+docker compose -f docker-compose.prod.yml up --build
+```
+
+Ahí sí, cada cambio de código requiere volver a construir, porque es una imagen compilada, no un servidor de desarrollo.
+
 ## Problemas comunes
 
-- **"port is already allocated"**: ya tienes algo corriendo en el puerto 3000 (por ejemplo, `npm run dev`). Detén ese proceso o cambia el puerto en `docker-compose.yml`, por ejemplo `"3001:3000"`, y entra por http://localhost:3001.
-- **La app no conecta a la base de datos**: revisa que `.env.local` exista y tenga un `DATABASE_URL` válido. Si lo modificas, debes reiniciar el contenedor (`docker compose up --build`).
-- **Quiero reinstalar todo desde cero**: `docker compose down` y luego `docker compose build --no-cache`.
+- **"port is already allocated"**: ya tienes algo corriendo en el puerto 3000 (por ejemplo, `npm run dev` fuera de Docker). Detén ese proceso o cambia el puerto en `docker-compose.yml`, por ejemplo `"3001:3000"`, y entra por http://localhost:3001.
+- **La app no conecta a la base de datos**: revisa que `.env.local` exista y tenga un `DATABASE_URL` válido. En modo dev basta con reiniciar (`docker compose restart`), no hace falta reconstruir.
+- **Instalé una dependencia nueva y no aparece dentro del contenedor**: reconstruye con `docker compose up --build` (el `node_modules` vive en un volumen propio del contenedor, separado del de tu máquina).
+- **En Windows/Mac los cambios no se reflejan solos**: descomenta el bloque `WATCHPACK_POLLING=true` en `docker-compose.yml` — en algunos sistemas la notificación de cambios de archivos no llega bien al contenedor y hay que revisar por sondeo (polling).
+- **Quiero reinstalar todo desde cero**: `docker compose down -v` (el `-v` borra también los volúmenes de `node_modules`/`.next`) y luego `docker compose build --no-cache`.
 
 ## ¿Qué hace el Dockerfile? (opcional, para entender)
 
-El `Dockerfile` usa una construcción en 3 etapas para mantener la imagen final pequeña:
+El `Dockerfile` tiene varias etapas:
 
 1. **deps**: instala las dependencias de `package.json`.
-2. **builder**: genera el cliente de Prisma (`prisma generate`) y compila la app con `next build`.
-3. **runner**: copia solo lo necesario para ejecutar la app en producción (`next start` en modo *standalone*) y la corre con un usuario sin privilegios de root, por seguridad.
+2. **dev**: la que usa `docker-compose.yml` por defecto. Corre `next dev` dentro del contenedor; el código real vive en tu máquina y se monta como volumen, por eso hay hot reload sin reconstruir.
+3. **builder**: genera el cliente de Prisma (`prisma generate`) y compila la app con `next build` (solo se usa en modo producción).
+4. **runner**: copia solo lo necesario para ejecutar la app en producción (`next start` en modo *standalone*) y la corre con un usuario sin privilegios de root, por seguridad. Se usa vía `docker-compose.prod.yml`.
 
 La base de datos **no** corre dentro de Docker: es una base Postgres en la nube (Neon), a la que el contenedor se conecta usando `DATABASE_URL` desde `.env.local`.

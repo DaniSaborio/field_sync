@@ -3,8 +3,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: dev
     ports:
       - "3000:3000"
     env_file:
       - .env.local
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    # Si en Windows/Mac los cambios no se reflejan solos, descomenta esto:
+    # environment:
+    #   - WATCHPACK_POLLING=true
     restart: unless-stopped

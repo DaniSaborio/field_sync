@@ -39,28 +39,30 @@ export function ForgotPasswordScreen({ onBackToLogin }: ForgotPasswordScreenProp
       <button
         type="button"
         onClick={onBackToLogin}
-        className="mb-6 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400 transition hover:text-slate-200"
+        className="mb-6 inline-flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-black"
       >
-        <ArrowLeft size={14} />
+        <ArrowLeft size={14} strokeWidth={2} aria-hidden />
         Volver a iniciar sesión
       </button>
 
       {isSent ? (
         <div className="text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-400/10 text-emerald-300">
-            <MailCheck size={22} />
+          <div className="mx-auto mb-4 flex size-12 items-center justify-center border border-black bg-neon text-black">
+            <MailCheck size={22} strokeWidth={2} aria-hidden />
           </div>
-          <p className="text-base font-semibold text-slate-100">Revisa tu correo</p>
-          <p className="mx-auto mt-2 max-w-xs text-xs leading-relaxed text-slate-500">
-            Si <span className="text-slate-300">{email}</span> tiene una cuenta con nosotros, te
-            enviamos un enlace para restablecer tu contraseña.
+          <p className="font-display text-xl font-black text-black">Revisá tu correo</p>
+          <p className="mx-auto mt-2 max-w-xs font-sans text-xs leading-relaxed text-muted">
+            Si <span className="font-semibold text-black">{email}</span> tiene una cuenta con
+            nosotros, te enviamos un enlace para restablecer tu contraseña.
           </p>
         </div>
       ) : (
         <>
-          <p className="text-base font-semibold text-slate-100">¿Olvidaste tu contraseña?</p>
-          <p className="mb-6 mt-1 text-xs text-slate-500">
-            Ingresa tu correo y te enviamos un enlace para restablecerla
+          <p className="font-sans text-base font-semibold text-black">
+            ¿Olvidaste tu contraseña?
+          </p>
+          <p className="mb-6 mt-1 font-mono text-[11px] uppercase tracking-wider text-muted">
+            Ingresá tu correo y te enviamos un enlace para restablecerla
           </p>
 
           <ForgotPasswordForm

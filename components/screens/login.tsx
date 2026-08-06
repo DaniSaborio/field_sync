@@ -2,6 +2,7 @@
 
 import type { FormEvent } from "react";
 import { useState } from "react";
+import { ArrowLeft, TriangleAlert } from "lucide-react";
 import { AuthShell } from "./auth/auth-shell";
 import { ForgotPasswordScreen } from "./forgot-password"; 
 import { LoginFooter } from "./login/login-footer";
@@ -15,9 +16,10 @@ export type Screen = "dashboard" | "login" | "register" | "forgot-password";
 
 type LoginScreenProps = {
   onNavigate?: (screen: Screen, user?: AppUser) => void;
+  onBack?: () => void;
 };
 
-export function LoginScreen({ onNavigate }: LoginScreenProps) {
+export function LoginScreen({ onNavigate, onBack }: LoginScreenProps) {
   const [currentScreen, setCurrentScreen] = useState<Screen>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -70,15 +72,30 @@ export function LoginScreen({ onNavigate }: LoginScreenProps) {
 
   return (
     <AuthShell>
-      <p className="text-center text-base font-semibold text-slate-100 sm:text-left">
+      {onBack ? (
+        <button
+          type="button"
+          onClick={onBack}
+          className="mb-4 inline-flex items-center gap-1 font-mono text-[10px] font-bold uppercase tracking-wider text-black"
+        >
+          <ArrowLeft size={14} strokeWidth={2} aria-hidden />
+          Volver
+        </button>
+      ) : null}
+
+      <p className="text-center font-sans text-base font-semibold text-black sm:text-left">
         Bienvenido de nuevo
       </p>
-      <p className="mb-6 mt-1 text-center text-xs text-slate-500 sm:text-left">
-        Ingresa tus datos para continuar
+      <p className="mb-6 mt-1 text-center font-mono text-[11px] uppercase tracking-wider text-muted sm:text-left">
+        Ingresá tus datos para continuar
       </p>
 
       {errorMessage ? (
-        <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+        <div
+          role="alert"
+          className="mb-4 flex items-center gap-2 border border-black bg-black px-3 py-2 font-mono text-xs uppercase tracking-wider text-paper"
+        >
+          <TriangleAlert size={14} strokeWidth={2} aria-hidden />
           {errorMessage}
         </div>
       ) : null}
@@ -98,11 +115,11 @@ export function LoginScreen({ onNavigate }: LoginScreenProps) {
       />
 
       <div className="my-6 flex items-center gap-4">
-        <div className="h-px flex-1 bg-white/10" />
-        <span className="text-[10px] font-semibold tracking-[0.2em] text-slate-500">
-          O CONTINUA CON
+        <div className="h-px flex-1 bg-black/15" />
+        <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted">
+          O continuá con
         </span>
-        <div className="h-px flex-1 bg-white/10" />
+        <div className="h-px flex-1 bg-black/15" />
       </div>
 
       <LoginSocialButtons

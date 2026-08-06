@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx eslint *)",
+      "Bash(npx vitest *)",
+      "Bash(npx playwright *)",
+      "Bash(node check-courts.mjs)",
+      "Bash(npm init *)",
+      "Bash(node check-create.mjs)",
+      "Bash(lsof -ti:3000 -sTCP:LISTEN)",
+      "Bash(xargs -r kill)",
+      "Bash(timeout 90 npx next build)",
+      "Bash(npx shadcn@latest --help)",
+      "Bash(npx shadcn@latest init --help)",
+      "Bash(pkill -f \"shadcn@latest init\")",
+      "Bash(npx shadcn@latest init -y --no-css-variables -b radix)",
+      "Bash(npx shadcn@latest init -y -d -b radix --no-css-variables)",
+      "Bash(pkill -f \"shadcn@latest\")",
+      "Bash(timeout 25 bash -c 'yes \"\" | npx shadcn@latest init -y -b radix --no-css-variables')"
+    ]
+  }
+}

@@ -1,4 +1,9 @@
-import { BadgeCheck, CircleDollarSign, Clock3, MapPin, Users } from "lucide-react";
+import { BadgeCheck, CircleDollarSign, Clock3, MapPin, Moon, Users } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardFooter } from "@/components/ui/card";
+import { RowTag } from "@/components/ui/row";
+import { isNightSlot } from "@/lib/utils";
 
 export type FieldPreview = {
   id: string;
@@ -7,6 +12,7 @@ export type FieldPreview = {
   surface: "synthetic" | "natural" | "indoor";
   capacity: string;
   pricePerHour: number;
+  pricePerHourNight: number | null;
   availableSlots: string[];
   rating: number;
 };
@@ -22,62 +28,75 @@ const surfaceLabel: Record<FieldPreview["surface"], string> = {
 };
 
 export function FieldPreviewCard({ field }: FieldPreviewCardProps) {
+  const hasNightSlots = field.availableSlots.some(isNightSlot);
+
   return (
-    <article className="flex flex-col rounded-2xl border border-white/10 bg-slate-900/70 p-6 transition hover:-translate-y-0.5 hover:border-emerald-400/40 hover:shadow-[0_12px_24px_rgba(16,185,129,0.12)]">
-      <div className="mb-5 flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-bold text-slate-100">{field.name}</h3>
-          <p className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-slate-400">
-            <MapPin size={13} />
+    <Card className="gap-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="truncate font-display text-lg font-black leading-tight tracking-tight text-black">
+            {field.name}
+          </h3>
+          <p className="mt-1 flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-muted">
+            <MapPin size={12} strokeWidth={2} aria-hidden />
             {field.location}
           </p>
         </div>
 
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-xs font-semibold text-emerald-300">
-          <BadgeCheck size={12} />
+        <RowTag className="inline-flex shrink-0 items-center gap-1">
+          <BadgeCheck size={12} strokeWidth={2} aria-hidden />
           {field.rating.toFixed(1)}
-        </span>
+        </RowTag>
       </div>
 
-      <div className="mb-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-slate-400">
-        <span className="inline-flex items-center gap-1.5">
-          <Users size={13} className="text-slate-500" />
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 font-mono text-[11px] uppercase tracking-wider text-muted">
+        <span className="flex items-center gap-1.5">
+          <Users size={13} strokeWidth={2} aria-hidden />
           {field.capacity}
         </span>
-        <span className="inline-flex items-center gap-1.5">
-          <Clock3 size={13} className="text-slate-500" />
+        <span className="flex items-center gap-1.5">
+          <Clock3 size={13} strokeWidth={2} aria-hidden />
           {field.availableSlots.length} horarios
         </span>
-        <span className="rounded-full border border-white/10 px-2.5 py-1 text-[11px] font-medium text-slate-300">
-          {surfaceLabel[field.surface]}
-        </span>
+        <RowTag>{surfaceLabel[field.surface]}</RowTag>
       </div>
 
-      <div className="mb-6 flex flex-wrap gap-2">
-        {field.availableSlots.map((slot) => (
-          <span
-            key={`${field.id}-${slot}`}
-            className="rounded-lg border border-white/10 bg-slate-800/60 px-2.5 py-1.5 text-[11px] font-semibold text-slate-300"
-          >
-            {slot}
+      <div className="flex flex-wrap gap-1.5">
+        {field.availableSlots.map((slot) => {
+          const isNight = isNightSlot(slot);
+          return (
+            <RowTag
+              key={`${field.id}-${slot}`}
+              tone={isNight ? "night" : "positive"}
+              className={isNight ? "inline-flex items-center gap-1" : undefined}
+            >
+              {isNight ? <Moon size={10} strokeWidth={2.5} aria-hidden /> : null}
+              {slot}
+            </RowTag>
+          );
+        })}
+      </div>
+
+      {hasNightSlots ? (
+        <p className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-muted">
+          <Moon size={12} strokeWidth={2} className="text-night" aria-hidden />
+          {field.pricePerHourNight != null
+            ? `Horario nocturno a $${field.pricePerHourNight}/h`
+            : "Horario nocturno con tarifa más alta"}
+        </p>
+      ) : null}
+
+      <CardFooter className="justify-between">
+        <p className="flex items-baseline gap-1 font-mono text-black">
+          <CircleDollarSign size={14} strokeWidth={2} className="mb-0.5" aria-hidden />
+          <span className="text-xl font-black">${field.pricePerHour}</span>
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
+            / hora
           </span>
-        ))}
-      </div>
-
-      <div className="mt-auto flex items-center justify-between gap-4 border-t border-white/5 pt-5">
-        <p className="inline-flex items-baseline gap-1 text-slate-100">
-          <CircleDollarSign size={15} className="mb-0.5 text-emerald-400" />
-          <span className="text-xl font-bold">${field.pricePerHour}</span>
-          <span className="text-xs font-medium text-slate-500">/ hora</span>
         </p>
 
-        <button
-          type="button"
-          className="rounded-xl bg-linear-to-br from-emerald-400 to-emerald-600 px-5 py-2.5 text-sm font-bold text-slate-950 transition hover:brightness-105"
-        >
-          Ver detalles
-        </button>
-      </div>
-    </article>
+        <Button size="sm">Ver detalles</Button>
+      </CardFooter>
+    </Card>
   );
 }

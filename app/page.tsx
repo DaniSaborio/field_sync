@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { DashboardScreen, type AppUser } from "@/components/screens/dashboard";
+import { DashboardScreen, GuestBookingScreen, type AppUser } from "@/components/screens/dashboard";
 import { LoginScreen } from "@/components/screens/login";
 
 export default function Home() {
-  const [screen, setScreen] = useState<"login" | "dashboard">("login");
+  const [screen, setScreen] = useState<"guest" | "login" | "dashboard">("guest");
   const [user, setUser] = useState<AppUser | null>(null);
 // Verifica si hay un usuario guardado en el almacenamiento local al cargar la página
   useEffect(() => {
@@ -24,20 +24,25 @@ export default function Home() {
         onLogout={() => {
         localStorage.removeItem("user"); // Elimina el usuario del almacenamiento local al cerrar sesión
         setUser(null);// Restablece el estado del usuario a null
-        setScreen("login"); // Cambia la pantalla a "login" al cerrar sesión
+        setScreen("guest"); // Vuelve a la vista de invitado al cerrar sesión, sin forzar el login
       }}
       />
     );
   }
 
-  return (
-    <LoginScreen
-      onNavigate={(nextScreen, nextUser) => {
-        if (nextScreen === "dashboard" && nextUser) {
-          setUser(nextUser);
-          setScreen("dashboard");
-        }
-      }}
-    />
-  );
+  if (screen === "login") {
+    return (
+      <LoginScreen
+        onBack={() => setScreen("guest")}
+        onNavigate={(nextScreen, nextUser) => {
+          if (nextScreen === "dashboard" && nextUser) {
+            setUser(nextUser);
+            setScreen("dashboard");
+          }
+        }}
+      />
+    );
+  }
+
+  return <GuestBookingScreen onRequireLogin={() => setScreen("login")} />;
 }
