@@ -12,6 +12,7 @@ const config: Config = {
         ink: "#000000",
         neon: "#00FF41",
         muted: "#6B6B6B",
+        night: "#0B2545",
       },
       borderRadius: {
         none: "0px",

@@ -20,6 +20,7 @@ type CourtApiResponse = {
     surface: "synthetic" | "natural" | "indoor";
     capacity: string;
     pricePerHour: number;
+    pricePerHourNight: number | null;
     rating: number;
     availableSlots: string[];
   }>;
@@ -74,6 +75,7 @@ export function BookingsScreen({ onLogout, userId }: BookingsScreenProps) {
         surface: court.surface,
         capacity: court.capacity,
         pricePerHour: court.pricePerHour,
+        pricePerHourNight: court.pricePerHourNight,
         rating: court.rating,
         availableSlots: court.availableSlots,
       }));

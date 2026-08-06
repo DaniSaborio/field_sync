@@ -69,7 +69,7 @@ function RowCheckbox({
 }
 
 type RowTagProps = React.ComponentProps<"span"> & {
-  tone?: "default" | "positive" | "negative";
+  tone?: "default" | "positive" | "negative" | "night";
 };
 
 function RowTag({ tone = "default", className, ...props }: RowTagProps) {
@@ -81,6 +81,7 @@ function RowTag({ tone = "default", className, ...props }: RowTagProps) {
         tone === "default" && "bg-paper text-black",
         tone === "positive" && "bg-neon text-black",
         tone === "negative" && "bg-black text-paper",
+        tone === "night" && "bg-night text-paper",
         className
       )}
       {...props}

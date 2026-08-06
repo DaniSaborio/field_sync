@@ -1,3 +1,5 @@
+import { isNightHour } from "./utils";
+
 export type UserRole = "administrador" | "recepcionista" | "organizador" | "jugador";
 
 export type CourtSurface = "synthetic" | "natural" | "indoor";
@@ -24,6 +26,7 @@ export type CourtRecord = {
   surface: CourtSurface;
   capacity: string;
   pricePerHour: number;
+  pricePerHourNight?: number | null;
   rating: number;
   availableSlots: string[];
 };
@@ -808,6 +811,7 @@ export function listCourts(filters: ReservationFilter = {}) {
 
     return {
       ...clone(court),
+      pricePerHourNight: court.pricePerHourNight ?? null,
       availableSlots: slots,
       reservations: store.reservations.filter((reservation) => reservation.courtId === court.id && reservation.status !== "cancelada" && (!date || reservation.date === date) && (!userId || reservation.userId === userId)).map(clone),
     };
@@ -899,6 +903,12 @@ export function reserveCourt(input: {
     };
   }
 
+  const [hourPart] = input.timeSlot.split(":");
+  const amount =
+    isNightHour(Number(hourPart)) && court.pricePerHourNight != null
+      ? court.pricePerHourNight
+      : court.pricePerHour;
+
   const paymentLabel = input.paymentMethod === "sinpe" ? "SINPE Móvil" : "efectivo";
   const reservation: ReservationRecord = {
     id: nextId("reservation"),
@@ -912,7 +922,7 @@ export function reserveCourt(input: {
     paymentMethod: input.paymentMethod,
     paymentStatus: "pendiente",
     rejectionReason: null,
-    amount: court.pricePerHour,
+    amount,
   };
 
   store.reservations.push(reservation);
@@ -923,7 +933,7 @@ export function reserveCourt(input: {
   const ownerNotification = notifyCourtOwner(
     court,
     "payment-pending",
-    `Nueva reserva en ${court.name} el ${input.date} a las ${input.timeSlot}. Verifica el pago por ${paymentLabel} (₡${court.pricePerHour}) para confirmarla.`,
+    `Nueva reserva en ${court.name} el ${input.date} a las ${input.timeSlot}. Verifica el pago por ${paymentLabel} (₡${amount}) para confirmarla.`,
   );
   if (ownerNotification) {
     notifications.push(ownerNotification);
@@ -932,7 +942,7 @@ export function reserveCourt(input: {
   if (input.teamId && input.splitPayment) {
     const team = store.teams.find((item) => item.id === input.teamId);
     if (team) {
-      const perPerson = (court.pricePerHour / team.playerIds.length).toFixed(2);
+      const perPerson = (amount / team.playerIds.length).toFixed(2);
       notifications.push(
         ...notifyTeamMembers({
           teamId: input.teamId,

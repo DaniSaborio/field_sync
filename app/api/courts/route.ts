@@ -9,6 +9,8 @@ import {
   reserveCourt as reserveCourtMemory,
   verifyPayment as verifyPaymentMemory,
 } from "@/lib/fieldsync-store";
+import { isNightHour } from "@/lib/utils";
+import { resolveNightRate, type RateCandidate } from "@/lib/rates";
 
 const DEFAULT_SLOTS = [
   "08:00", "09:00", "09:30", "10:30", "11:00", "12:00",
@@ -66,6 +68,7 @@ export async function GET(request: NextRequest) {
           where: date ? { date: new Date(date) } : undefined,
           include: { payments: true },
         },
+        rates: true,
       },
     });
 
@@ -115,6 +118,16 @@ export async function GET(request: NextRequest) {
               };
             });
 
+          const nightRate = resolveNightRate(
+            court.rates.map((rate) => ({
+              id_rate: rate.id_rate,
+              id_court: rate.id_court,
+              schedule_type: rate.schedule_type,
+              amount: Number(rate.amount),
+              priority: rate.priority,
+            })),
+          );
+
           return {
             id: court.id_court,
             tenantId: court.id_tenant,
@@ -124,6 +137,7 @@ export async function GET(request: NextRequest) {
             surface: court.surface as "synthetic" | "natural" | "indoor",
             capacity: court.capacity,
             pricePerHour: Number(court.price_per_hour),
+            pricePerHourNight: nightRate ? nightRate.amount : null,
             rating: Number(court.rating),
             availableSlots,
             reservations,
@@ -186,12 +200,26 @@ export async function POST(request: NextRequest) {
 
     try {
       const [courtExists, userExists] = await Promise.all([
-        prisma.court.findUnique({ where: { id_court: courtId } }),
+        prisma.court.findUnique({ where: { id_court: courtId }, include: { rates: true } }),
         prisma.user.findUnique({ where: { id_user: userId } }),
       ]);
 
       if (courtExists && userExists) {
-        const amount = courtExists.price_per_hour ?? 0;
+        const [hourPart] = timeSlot.split(":");
+        const nightRate = isNightHour(Number(hourPart))
+          ? resolveNightRate(
+              courtExists.rates.map(
+                (rate): RateCandidate => ({
+                  id_rate: rate.id_rate,
+                  id_court: rate.id_court,
+                  schedule_type: rate.schedule_type,
+                  amount: Number(rate.amount),
+                  priority: rate.priority,
+                }),
+              ),
+            )
+          : null;
+        const amount = nightRate ? nightRate.amount : Number(courtExists.price_per_hour ?? 0);
 
         const outcome = await prisma.$transaction(async (tx) => {
           // Bloquea la fila de la cancha para serializar cualquier intento
@@ -210,6 +238,7 @@ export async function POST(request: NextRequest) {
             data: {
               id_court: courtId,
               id_user: userId,
+              id_rate: nightRate?.id_rate ?? null,
               date: dateOnly,
               start_time: startDateTime,
               end_time: endDateTime,

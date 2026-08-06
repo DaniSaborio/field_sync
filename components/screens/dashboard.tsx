@@ -14,6 +14,7 @@ import {
   Filter,
   LogIn,
   LogOut,
+  Moon,
   Search,
   ShieldCheck,
   Smartphone,
@@ -31,6 +32,7 @@ import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { Modal } from "@/components/ui/modal";
 import { Row, RowCheckbox, RowTag } from "@/components/ui/row";
 import { SectionLabel } from "@/components/ui/section-label";
+import { isNightSlot } from "@/lib/utils";
 
 const paymentMethodLabels: Record<PaymentMethod, string> = {
   sinpe: "SINPE Móvil",
@@ -93,6 +95,7 @@ type CourtCard = {
   surface: "synthetic" | "natural" | "indoor";
   capacity: string;
   pricePerHour: number;
+  pricePerHourNight: number | null;
   rating: number;
   availableSlots: string[];
   reservations: CourtReservation[];
@@ -351,9 +354,14 @@ function CourtResultCard({
   const [rivalTeamId, setRivalTeamId] = useState<number | null>(null);
   const hasSlots = court.availableSlots.length > 0;
 
+  const selectedAmount =
+    selectedSlot && isNightSlot(selectedSlot) && court.pricePerHourNight != null
+      ? court.pricePerHourNight
+      : court.pricePerHour;
+
   const selectedTeam = teamId ? myTeams.find((team) => team.id === teamId) ?? null : null;
   const perPersonAmount = selectedTeam
-    ? (court.pricePerHour / Math.max(1, selectedTeam.playerIds.length)).toFixed(2)
+    ? (selectedAmount / Math.max(1, selectedTeam.playerIds.length)).toFixed(2)
     : null;
 
   function closeDetail() {
@@ -446,24 +454,37 @@ function CourtResultCard({
               <SectionLabel icon={Clock3}>Horarios disponibles</SectionLabel>
               <div className="flex flex-wrap gap-1.5">
                 {hasSlots ? (
-                  court.availableSlots.map((slot) => (
-                    <Button
-                      key={`${court.id}-${slot}`}
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      disabled={busy}
-                      onClick={() => handleSlotClick(slot)}
-                    >
-                      {slot}
-                    </Button>
-                  ))
+                  court.availableSlots.map((slot) => {
+                    const isNight = isNightSlot(slot);
+                    return (
+                      <Button
+                        key={`${court.id}-${slot}`}
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => handleSlotClick(slot)}
+                        className={isNight ? "gap-1 bg-night text-paper" : undefined}
+                      >
+                        {isNight ? <Moon size={12} strokeWidth={2.5} aria-hidden /> : null}
+                        {slot}
+                      </Button>
+                    );
+                  })
                 ) : (
                   <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
                     Sin horarios libres
                   </p>
                 )}
               </div>
+              {court.availableSlots.some(isNightSlot) ? (
+                <p className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-muted">
+                  <Moon size={12} strokeWidth={2} className="text-night" aria-hidden />
+                  {court.pricePerHourNight != null
+                    ? `Horario nocturno (18:00+) a $${court.pricePerHourNight}/h`
+                    : "Horario nocturno (18:00+) con tarifa más alta"}
+                </p>
+              ) : null}
             </div>
           ) : (
             <div className="space-y-4 border-t border-black pt-4">
@@ -478,12 +499,25 @@ function CourtResultCard({
 
               <div className="border border-black bg-paper p-3">
                 <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Resumen</p>
-                <p className="mt-1 font-sans text-sm font-semibold text-black">
+                <p className="mt-1 flex items-center gap-1.5 font-sans text-sm font-semibold text-black">
                   {court.name} · {date} · {selectedSlot}
+                  {isNightSlot(selectedSlot) ? (
+                    <RowTag tone="night" className="inline-flex items-center gap-1">
+                      <Moon size={10} strokeWidth={2.5} aria-hidden />
+                      Nocturno
+                    </RowTag>
+                  ) : null}
                 </p>
                 <p className="mt-1 font-mono text-lg font-black tabular-nums text-black">
-                  ${court.pricePerHour}
+                  ${selectedAmount}
                 </p>
+                {isNightSlot(selectedSlot) ? (
+                  <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-muted">
+                    {court.pricePerHourNight != null
+                      ? "Los horarios nocturnos tienen una tarifa más alta"
+                      : "Horario nocturno (esta cancha aún no tiene tarifa nocturna configurada)"}
+                  </p>
+                ) : null}
               </div>
 
               {myTeams.length > 0 ? (

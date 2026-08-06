@@ -1,8 +1,9 @@
-import { BadgeCheck, CircleDollarSign, Clock3, MapPin, Users } from "lucide-react";
+import { BadgeCheck, CircleDollarSign, Clock3, MapPin, Moon, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardFooter } from "@/components/ui/card";
 import { RowTag } from "@/components/ui/row";
+import { isNightSlot } from "@/lib/utils";
 
 export type FieldPreview = {
   id: string;
@@ -11,6 +12,7 @@ export type FieldPreview = {
   surface: "synthetic" | "natural" | "indoor";
   capacity: string;
   pricePerHour: number;
+  pricePerHourNight: number | null;
   availableSlots: string[];
   rating: number;
 };
@@ -26,6 +28,8 @@ const surfaceLabel: Record<FieldPreview["surface"], string> = {
 };
 
 export function FieldPreviewCard({ field }: FieldPreviewCardProps) {
+  const hasNightSlots = field.availableSlots.some(isNightSlot);
+
   return (
     <Card className="gap-3">
       <div className="flex items-start justify-between gap-3">
@@ -58,12 +62,29 @@ export function FieldPreviewCard({ field }: FieldPreviewCardProps) {
       </div>
 
       <div className="flex flex-wrap gap-1.5">
-        {field.availableSlots.map((slot) => (
-          <RowTag key={`${field.id}-${slot}`} tone="positive">
-            {slot}
-          </RowTag>
-        ))}
+        {field.availableSlots.map((slot) => {
+          const isNight = isNightSlot(slot);
+          return (
+            <RowTag
+              key={`${field.id}-${slot}`}
+              tone={isNight ? "night" : "positive"}
+              className={isNight ? "inline-flex items-center gap-1" : undefined}
+            >
+              {isNight ? <Moon size={10} strokeWidth={2.5} aria-hidden /> : null}
+              {slot}
+            </RowTag>
+          );
+        })}
       </div>
+
+      {hasNightSlots ? (
+        <p className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-muted">
+          <Moon size={12} strokeWidth={2} className="text-night" aria-hidden />
+          {field.pricePerHourNight != null
+            ? `Horario nocturno a $${field.pricePerHourNight}/h`
+            : "Horario nocturno con tarifa más alta"}
+        </p>
+      ) : null}
 
       <CardFooter className="justify-between">
         <p className="flex items-baseline gap-1 font-mono text-black">
