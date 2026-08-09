@@ -30,6 +30,7 @@ export async function hydrateStoreUser(userId: number) {
   return upsertStoreUser({
     id: dbUser.id_user,
     fullName: dbUser.full_name,
+    nickname: dbUser.nickname,
     email: dbUser.email,
     role: mapPrismaRole(dbUser.role.name),
     tenantId: DEMO_TENANT_ID,
@@ -48,6 +49,7 @@ export async function listAllRealUsers() {
   return dbUsers.map((dbUser) => ({
     id: dbUser.id_user,
     fullName: dbUser.full_name,
+    nickname: dbUser.nickname,
     email: dbUser.email,
     role: mapPrismaRole(dbUser.role.name),
     tenantId: DEMO_TENANT_ID,

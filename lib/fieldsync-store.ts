@@ -11,6 +11,7 @@ export type NotificationType = "reservation" | "cancellation" | "tournament" | "
 export type UserRecord = {
   id: number;
   fullName: string;
+  nickname: string | null;
   email: string;
   password: string;
   role: UserRole;
@@ -267,6 +268,7 @@ const seedState = (): StoreState => ({
     {
       id: 1,
       fullName: "Admin FieldSync",
+      nickname: null,
       email: "admin@fieldsync.test",
       password: "Admin1234!",
       role: "administrador",
@@ -276,6 +278,7 @@ const seedState = (): StoreState => ({
     {
       id: 2,
       fullName: "Recepción Principal",
+      nickname: null,
       email: "recepcion@fieldsync.test",
       password: "Recepcion1234!",
       role: "recepcionista",
@@ -285,6 +288,7 @@ const seedState = (): StoreState => ({
     {
       id: 3,
       fullName: "Capitán Deportivo",
+      nickname: "Capi",
       email: "capitan@fieldsync.test",
       password: "Capitan1234!",
       role: "organizador",
@@ -294,6 +298,7 @@ const seedState = (): StoreState => ({
     {
       id: 4,
       fullName: "Jugador Demo",
+      nickname: "Duki",
       email: "jugador@fieldsync.test",
       password: "Jugador1234!",
       role: "jugador",
@@ -600,6 +605,7 @@ function findUserById(userId: number) {
 export function upsertStoreUser(input: {
   id: number;
   fullName: string;
+  nickname?: string | null;
   email: string;
   role: UserRole;
   tenantId: number;
@@ -608,6 +614,7 @@ export function upsertStoreUser(input: {
   const existing = store.users.find((user) => user.id === input.id);
   if (existing) {
     existing.fullName = input.fullName;
+    existing.nickname = input.nickname ?? null;
     existing.email = input.email;
     existing.notificationsEnabled = input.notificationsEnabled;
     return existing;
@@ -616,6 +623,7 @@ export function upsertStoreUser(input: {
   const record: UserRecord = {
     id: input.id,
     fullName: input.fullName,
+    nickname: input.nickname ?? null,
     email: input.email,
     password: "",
     role: input.role,
@@ -790,6 +798,7 @@ export function loginUser(email: string, password: string) {
     id: user.id,
     email: user.email,
     fullName: user.fullName,
+    nickname: user.nickname,
     role: user.role,
     tenantId: user.tenantId,
     notificationsEnabled: user.notificationsEnabled,
@@ -798,6 +807,7 @@ export function loginUser(email: string, password: string) {
 
 export function registerUser(input: {
   fullName: string;
+  nickname?: string | null;
   email: string;
   password: string;
   role?: UserRole;
@@ -814,6 +824,7 @@ export function registerUser(input: {
   const user: UserRecord = {
     id: nextId("user"),
     fullName: input.fullName.trim(),
+    nickname: input.nickname?.trim() || null,
     email,
     password: input.password,
     role: input.role ?? "jugador",
@@ -830,6 +841,7 @@ export function registerUser(input: {
       id: user.id,
       email: user.email,
       fullName: user.fullName,
+      nickname: user.nickname,
       role: user.role,
       tenantId: user.tenantId,
       notificationsEnabled: user.notificationsEnabled,
@@ -1115,6 +1127,7 @@ export function listUsers() {
   return clone(store.users.map((user) => ({
     id: user.id,
     fullName: user.fullName,
+    nickname: user.nickname,
     email: user.email,
     role: user.role,
     tenantId: user.tenantId,
@@ -1127,7 +1140,7 @@ export function listTeams() {
     ...team,
     players: team.playerIds.map((playerId) => {
       const user = findUserById(playerId);
-      return user ? { id: user.id, fullName: user.fullName, email: user.email } : null;
+      return user ? { id: user.id, fullName: user.fullName, nickname: user.nickname, email: user.email } : null;
     }).filter(Boolean),
   })));
 }
@@ -1427,6 +1440,7 @@ export function getPlayerProfile(userId: number) {
     user: {
       id: user.id,
       fullName: user.fullName,
+      nickname: user.nickname,
       email: user.email,
       role: user.role,
       tenantId: user.tenantId,
@@ -1437,6 +1451,16 @@ export function getPlayerProfile(userId: number) {
     courts: profile.courts,
     standings: store.standings.filter((standing) => store.tournaments.some((tournament) => tournament.id === standing.tournamentId && tournament.teamIds.some((teamId) => store.teams.some((team) => team.id === teamId && team.playerIds.includes(userId))))),
   });
+}
+
+export function updateNickname(userId: number, nickname: string | null) {
+  const user = findUserById(userId);
+  if (!user) {
+    return { ok: false, error: "No encontramos el usuario" } as const;
+  }
+
+  user.nickname = nickname?.trim() || null;
+  return { ok: true as const, user: clone(user) };
 }
 
 export function updateProfileVisibility(input: { userId: number; visibility: "public" | "private" }) {

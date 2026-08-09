@@ -26,6 +26,10 @@ export default function Home() {
         setUser(null);// Restablece el estado del usuario a null
         setScreen("guest"); // Vuelve a la vista de invitado al cerrar sesión, sin forzar el login
       }}
+        onUserUpdate={(updatedUser) => {
+          localStorage.setItem("user", JSON.stringify(updatedUser));
+          setUser(updatedUser);
+        }}
       />
     );
   }

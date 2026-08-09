@@ -42,6 +42,7 @@ export async function POST(req: NextRequest) {
       upsertStoreUser({
         id: dbUser.id_user,
         fullName: dbUser.full_name,
+        nickname: dbUser.nickname,
         email: dbUser.email,
         role: mapPrismaRole(dbUser.role.name),
         tenantId: DEMO_TENANT_ID,
@@ -55,6 +56,7 @@ export async function POST(req: NextRequest) {
             id: dbUser.id_user,
             email: dbUser.email,
             fullName: dbUser.full_name,
+            nickname: dbUser.nickname,
             role: dbUser.role.name,
             notificationsEnabled: dbUser.notifications_enabled,
           },

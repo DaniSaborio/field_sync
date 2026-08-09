@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
       include: {
         reservations: {
           where: date ? { date: new Date(date) } : undefined,
-          include: { payments: true },
+          include: { payments: { include: { estado: true } } },
         },
         rates: true,
       },
@@ -110,7 +110,7 @@ export async function GET(request: NextRequest) {
                 status: r.status as "pendiente" | "confirmada" | "rechazada" | "cancelada",
                 createdAt: r.created_at.toISOString(),
                 paymentMethod: payment?.payment_method ?? null,
-                paymentStatus: payment?.status ?? null,
+                paymentStatus: payment?.estado.name ?? null,
                 amount: payment ? Number(payment.amount) : null,
               };
             });
@@ -196,9 +196,10 @@ export async function POST(request: NextRequest) {
     const dateOnly = new Date(`${date}T00:00:00.000Z`);
 
     try {
-      const [courtExists, userExists] = await Promise.all([
+      const [courtExists, userExists, pendienteEstado] = await Promise.all([
         prisma.court.findUnique({ where: { id_court: courtId }, include: { rates: true } }),
         prisma.user.findUnique({ where: { id_user: userId } }),
+        prisma.estado.findUniqueOrThrow({ where: { name: "pendiente" } }),
       ]);
 
       if (!courtExists || !userExists) {
@@ -256,6 +257,7 @@ export async function POST(request: NextRequest) {
               id_reservation: reservation.id_reservation,
               amount,
               payment_method: paymentMethod,
+              id_estado: pendienteEstado.id_estado,
             },
           });
 
@@ -343,7 +345,7 @@ export async function POST(request: NextRequest) {
               status: reservation.status,
               createdAt: reservation.created_at.toISOString(),
               paymentMethod: payment.payment_method,
-              paymentStatus: payment.status,
+              paymentStatus: pendienteEstado.name,
               amount: Number(payment.amount),
             },
           },
@@ -490,7 +492,7 @@ export async function PATCH(request: NextRequest) {
     try {
       const reservation = await prisma.reservation.findUnique({
         where: { id_reservation: reservationId },
-        include: { court: true, user: true, payments: true },
+        include: { court: true, user: true, payments: { include: { estado: true } } },
       });
 
       if (!reservation) {
@@ -519,6 +521,10 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ ok: false, error: "No encontramos el pago asociado" }, { status: 404 });
       }
 
+      const nuevoEstado = await prisma.estado.findUniqueOrThrow({
+        where: { name: action === "confirm" ? "verificado" : "rechazado" },
+      });
+
       const [updatedReservation, updatedPayment] = await prisma.$transaction([
         prisma.reservation.update({
           where: { id_reservation: reservationId },
@@ -527,10 +533,21 @@ export async function PATCH(request: NextRequest) {
         prisma.payment.update({
           where: { id_payment: payment.id_payment },
           data: {
-            status: action === "confirm" ? "verificado" : "rechazado",
+            id_estado: nuevoEstado.id_estado,
             id_verified_by: tenantId,
             verified_at: new Date(),
             rejection_reason: action === "reject" ? rejectionReason : null,
+          },
+        }),
+        // Auditoría: registra quién verificó/rechazó el pago y por qué.
+        prisma.estadoHistorial.create({
+          data: {
+            entidad: "payment",
+            id_entidad: payment.id_payment,
+            id_estado_previo: payment.id_estado,
+            id_estado_nuevo: nuevoEstado.id_estado,
+            id_changed_by: tenantId,
+            reason: action === "reject" ? rejectionReason : null,
           },
         }),
       ]);
@@ -559,7 +576,7 @@ export async function PATCH(request: NextRequest) {
         },
         payment: {
           id: updatedPayment.id_payment,
-          status: updatedPayment.status,
+          status: nuevoEstado.name,
           rejectionReason: updatedPayment.rejection_reason,
         },
       });

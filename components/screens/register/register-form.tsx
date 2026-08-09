@@ -1,4 +1,4 @@
-import { ArrowRight, Eye, EyeOff, Lock, Mail, User } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, Lock, Mail, Tag, User } from "lucide-react";
 import type { FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { FloatingInput } from "../auth/floating-input";
 
 type RegisterFormProps = {
   fullName: string;
+  nickname: string;
   email: string;
   password: string;
   confirmPassword: string;
@@ -16,6 +17,7 @@ type RegisterFormProps = {
   acceptTerms: boolean;
   isLoading: boolean;
   onFullNameChange: (value: string) => void;
+  onNicknameChange: (value: string) => void;
   onEmailChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
   onConfirmPasswordChange: (value: string) => void;
@@ -27,6 +29,7 @@ type RegisterFormProps = {
 
 export function RegisterForm({
   fullName,
+  nickname,
   email,
   password,
   confirmPassword,
@@ -35,6 +38,7 @@ export function RegisterForm({
   acceptTerms,
   isLoading,
   onFullNameChange,
+  onNicknameChange,
   onEmailChange,
   onPasswordChange,
   onConfirmPasswordChange,
@@ -54,6 +58,16 @@ export function RegisterForm({
         placeholder="Tu nombre"
         required
         icon={<User size={16} strokeWidth={2} aria-hidden />}
+      />
+
+      <FloatingInput
+        id="register-nickname"
+        label="Apodo (opcional)"
+        type="text"
+        value={nickname}
+        onChange={onNicknameChange}
+        placeholder="Cómo te dicen en la cancha"
+        icon={<Tag size={16} strokeWidth={2} aria-hidden />}
       />
 
       <FloatingInput

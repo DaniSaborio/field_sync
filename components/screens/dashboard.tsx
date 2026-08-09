@@ -65,6 +65,7 @@ const surfaceFilterLabels: Record<string, string> = {
 export type AppUser = {
   id: number;
   fullName: string;
+  nickname?: string | null;
   email: string;
   role: string;
   // Los jugadores y administradores de plataforma no pertenecen a un tenant fijo;
@@ -163,12 +164,13 @@ type TeamCard = {
   name: string;
   captainUserId: number;
   playerIds: number[];
-  players: Array<{ id: number; fullName: string; email: string } | null>;
+  players: Array<{ id: number; fullName: string; nickname?: string | null; email: string } | null>;
 };
 
 type UserOption = {
   id: number;
   fullName: string;
+  nickname?: string | null;
   email: string;
   role: string;
 };
@@ -204,7 +206,7 @@ type OwnedCourtSummary = {
 
 type TenantProfileSnapshot = {
   kind: "tenant";
-  user: { id: number; fullName: string; email: string; role: string; notificationsEnabled: boolean };
+  user: { id: number; fullName: string; nickname?: string | null; email: string; role: string; notificationsEnabled: boolean };
   courts: OwnedCourtSummary[];
 };
 
@@ -213,6 +215,7 @@ type AnyProfileSnapshot = ProfileSnapshot | TenantProfileSnapshot;
 type DashboardScreenProps = {
   user: AppUser;
   onLogout: () => void;
+  onUserUpdate: (user: AppUser) => void;
 };
 
 type ApiResponse<T> = {
@@ -276,6 +279,11 @@ function humanRole(role: string) {
 
 function isAdmin(user: AppUser) {
   return user.role === "administrador" || user.role === "admin_plataforma";
+}
+
+// Muestra el apodo junto al nombre completo para diferenciar jugadores que comparten nombre.
+function displayName(person: { fullName: string; nickname?: string | null }) {
+  return person.nickname ? `${person.fullName} "${person.nickname}"` : person.fullName;
 }
 
 function StatusPill({ children }: { children: React.ReactNode }) {
@@ -1372,10 +1380,10 @@ function TournamentsPanel({ user }: { user: AppUser }) {
   const resultModalHomeTeam = resultModalMatch ? teams.find((team) => team.id === resultModalMatch.homeTeamId) ?? null : null;
   const resultModalAwayTeam = resultModalMatch ? teams.find((team) => team.id === resultModalMatch.awayTeamId) ?? null : null;
   const resultModalHomePlayers = (resultModalHomeTeam?.players ?? []).filter(
-    (player): player is { id: number; fullName: string; email: string } => player !== null,
+    (player): player is { id: number; fullName: string; nickname?: string | null; email: string } => player !== null,
   );
   const resultModalAwayPlayers = (resultModalAwayTeam?.players ?? []).filter(
-    (player): player is { id: number; fullName: string; email: string } => player !== null,
+    (player): player is { id: number; fullName: string; nickname?: string | null; email: string } => player !== null,
   );
   const resultModalHomeGoals = resultModalMatch
     ? resultModalHomePlayers.reduce((sum, player) => sum + statFor(resultModalMatch.homeTeamId, player.id).goals, 0)
@@ -1658,7 +1666,7 @@ function TournamentsPanel({ user }: { user: AppUser }) {
                     {resultModalHomePlayers.map((player) => (
                       <PlayerStatRow
                         key={player.id}
-                        name={player.fullName}
+                        name={displayName(player)}
                         stat={statFor(resultModalMatch.homeTeamId, player.id)}
                         onChange={(patch) => updateStat(resultModalMatch.homeTeamId, player.id, patch)}
                       />
@@ -1675,7 +1683,7 @@ function TournamentsPanel({ user }: { user: AppUser }) {
                     {resultModalAwayPlayers.map((player) => (
                       <PlayerStatRow
                         key={player.id}
-                        name={player.fullName}
+                        name={displayName(player)}
                         stat={statFor(resultModalMatch.awayTeamId, player.id)}
                         onChange={(patch) => updateStat(resultModalMatch.awayTeamId, player.id, patch)}
                       />
@@ -1836,9 +1844,81 @@ function MyTournamentsPanel({ user }: { user: AppUser }) {
   );
 }
 
+// Aviso opcional y descartable tras iniciar sesión para quien todavía no tiene
+// apodo: no bloquea el uso de la app, solo invita a diferenciarse de otros
+// jugadores con el mismo nombre. Se recuerda el "ahora no" por pestaña/sesión
+// (sessionStorage), así que vuelve a aparecer en el próximo login si sigue sin apodo.
+function NicknamePrompt({ user, onSaved }: { user: AppUser; onSaved: (nickname: string) => void }) {
+  const dismissKey = `nickname-prompt-dismissed-${user.id}`;
+  const [dismissed, setDismissed] = useState(
+    () => typeof window !== "undefined" && sessionStorage.getItem(dismissKey) === "1",
+  );
+  const [nickname, setNickname] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  function dismiss() {
+    sessionStorage.setItem(dismissKey, "1");
+    setDismissed(true);
+  }
+
+  async function save() {
+    if (!nickname.trim()) {
+      dismiss();
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, nickname: nickname.trim() }),
+      });
+      const payload = await readJson<ApiResponse<Record<string, never>>>(response);
+      if (!response.ok) {
+        setError(payload.error || "No pudimos guardar el apodo");
+        return;
+      }
+      onSaved(nickname.trim());
+      dismiss();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal open={!user.nickname && !dismissed} onClose={dismiss} title="Agregá un apodo">
+      <div className="space-y-3">
+        <p className="font-sans text-sm text-black">
+          Un apodo te ayuda a diferenciarte de otros jugadores con el mismo nombre en plantillas y torneos. Es opcional y lo podés cambiar cuando quieras desde tu perfil.
+        </p>
+        <input
+          value={nickname}
+          onChange={(event) => setNickname(event.target.value)}
+          placeholder="Cómo te dicen en la cancha"
+          maxLength={50}
+          autoFocus
+          className={fieldClassName}
+        />
+        {error ? <p className="font-mono text-[11px] uppercase tracking-wider text-red-700">{error}</p> : null}
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" size="sm" onClick={save} disabled={saving}>
+            {saving ? "Guardando…" : "Guardar apodo"}
+          </Button>
+          <Button type="button" size="sm" variant="secondary" onClick={dismiss}>
+            Ahora no
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function ProfilePanel({ user }: { user: AppUser }) {
   const [profile, setProfile] = useState<AnyProfileSnapshot | null>(null);
   const [message, setMessage] = useState("");
+  const [nicknameDraft, setNicknameDraft] = useState("");
 
   async function loadProfile() {
     const response = await fetch(`/api/profile?userId=${user.id}`);
@@ -1847,12 +1927,28 @@ function ProfilePanel({ user }: { user: AppUser }) {
       throw new Error(payload.error || "No pudimos cargar el perfil");
     }
     setProfile(payload);
+    setNicknameDraft(payload.user.nickname ?? "");
   }
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadProfile().catch((error) => setMessage(error instanceof Error ? error.message : "No pudimos cargar el perfil"));
   }, []);
+
+  async function saveNickname() {
+    const response = await fetch("/api/profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: user.id, nickname: nicknameDraft.trim() || null }),
+    });
+    const payload = await readJson<ApiResponse<Record<string, never>>>(response);
+    if (!response.ok) {
+      setMessage(payload.error || "No pudimos actualizar el apodo");
+      return;
+    }
+    setMessage("Apodo actualizado.");
+    await loadProfile();
+  }
 
   async function updateVisibility(nextVisibility: "public" | "private") {
     const response = await fetch("/api/profile", {
@@ -1897,8 +1993,18 @@ function ProfilePanel({ user }: { user: AppUser }) {
         <div className="grid gap-4 xl:grid-cols-3">
           <Card nested>
             <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Dueño de cancha</p>
-            <h3 className="mt-2 font-display text-xl font-black leading-tight tracking-tight text-black">{profile.user.fullName}</h3>
+            <h3 className="mt-2 font-display text-xl font-black leading-tight tracking-tight text-black">{displayName(profile.user)}</h3>
             <p className="font-sans text-sm text-muted">{profile.user.email}</p>
+            <div className="mt-3 flex items-center gap-2">
+              <input
+                value={nicknameDraft}
+                onChange={(event) => setNicknameDraft(event.target.value)}
+                placeholder="Apodo (opcional)"
+                maxLength={50}
+                className={`${fieldClassName} h-9 flex-1`}
+              />
+              <Button type="button" size="sm" variant="secondary" onClick={saveNickname}>Guardar</Button>
+            </div>
             <Button type="button" size="sm" variant="secondary" className="mt-3" onClick={() => updateNotifications(!profile.user.notificationsEnabled)}>
               {profile.user.notificationsEnabled ? "Desactivar notificaciones" : "Activar notificaciones"}
             </Button>
@@ -1949,8 +2055,18 @@ function ProfilePanel({ user }: { user: AppUser }) {
         <div className="grid gap-4 xl:grid-cols-3">
           <Card nested>
             <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Jugador</p>
-            <h3 className="mt-2 font-display text-xl font-black leading-tight tracking-tight text-black">{profile.user.fullName}</h3>
+            <h3 className="mt-2 font-display text-xl font-black leading-tight tracking-tight text-black">{displayName(profile.user)}</h3>
             <p className="font-sans text-sm text-muted">{profile.user.email}</p>
+            <div className="mt-3 flex items-center gap-2">
+              <input
+                value={nicknameDraft}
+                onChange={(event) => setNicknameDraft(event.target.value)}
+                placeholder="Apodo (opcional)"
+                maxLength={50}
+                className={`${fieldClassName} h-9 flex-1`}
+              />
+              <Button type="button" size="sm" variant="secondary" onClick={saveNickname}>Guardar</Button>
+            </div>
             <p className="mt-3 font-sans text-sm text-black">Rol: {humanRole(profile.user.role)}</p>
             <p className="font-sans text-sm text-black">Notificaciones: {profile.user.notificationsEnabled ? "activas" : "desactivadas"}</p>
           </Card>
@@ -2017,16 +2133,16 @@ function TeamsPanel({ user }: { user: AppUser }) {
     return users.filter(
       (candidate) =>
         candidate.fullName.toLowerCase().includes(query) ||
+        (candidate.nickname?.toLowerCase().includes(query) ?? false) ||
         candidate.email.toLowerCase().includes(query)
     );
   }, [users, playerSearch]);
 
   function captainName(team: TeamCard) {
-    return (
-      team.players.find((player) => player?.id === team.captainUserId)?.fullName ??
-      users.find((candidate) => candidate.id === team.captainUserId)?.fullName ??
-      `Jugador #${team.captainUserId}`
-    );
+    const captain =
+      team.players.find((player) => player?.id === team.captainUserId) ??
+      users.find((candidate) => candidate.id === team.captainUserId);
+    return captain ? displayName(captain) : `Jugador #${team.captainUserId}`;
   }
 
   async function loadTeams() {
@@ -2156,7 +2272,7 @@ function TeamsPanel({ user }: { user: AppUser }) {
             </div>
             <input
               type="search"
-              placeholder="Buscar jugador por nombre o correo…"
+              placeholder="Buscar jugador por nombre, apodo o correo…"
               value={playerSearch}
               onChange={(event) => setPlayerSearch(event.target.value)}
               className={fieldClassName}
@@ -2165,7 +2281,7 @@ function TeamsPanel({ user }: { user: AppUser }) {
           <div className="relative">
             <select className={fieldClassName} value={selectedPlayerId ?? ""} onChange={(event) => setSelectedPlayerId(event.target.value ? Number(event.target.value) : null)}>
               <option value="">Selecciona un jugador ({filteredUsers.length} resultados)</option>
-              {filteredUsers.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.fullName} · {humanRole(candidate.role)}</option>)}
+              {filteredUsers.map((candidate) => <option key={candidate.id} value={candidate.id}>{displayName(candidate)} · {humanRole(candidate.role)}</option>)}
             </select>
             <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
           </div>
@@ -2226,7 +2342,7 @@ function TeamsPanel({ user }: { user: AppUser }) {
               {team.players.map((player) => (
                 <Row
                   key={player?.id ?? `${team.id}-empty`}
-                  title={player ? player.fullName : "Vacante"}
+                  title={player ? displayName(player) : "Vacante"}
                   disabled={!player}
                 />
               ))}
@@ -2422,17 +2538,18 @@ function TenantPaymentsPanel({ user }: { user: AppUser }) {
   );
 }
 
-export function DashboardScreen({ user, onLogout }: DashboardScreenProps) {
+export function DashboardScreen({ user, onLogout, onUserUpdate }: DashboardScreenProps) {
   const [activeTab, setActiveTab] = useState<(typeof tabButtons)[number]["id"]>("reservas");
 
   return (
     <div className="min-h-screen bg-paper px-4 py-6 font-sans sm:px-6 lg:px-8">
+      <NicknamePrompt user={user} onSaved={(nickname) => onUserUpdate({ ...user, nickname })} />
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
         <header className="flex flex-col gap-4 border border-black bg-paper p-5 shadow-hard lg:flex-row lg:items-center lg:justify-between">
           <div>
             <StatusPill>Sesión activa</StatusPill>
             <h1 className="mt-3 font-display text-3xl font-black leading-none tracking-tight text-black">
-              Hola, {user.fullName}
+              Hola, {user.nickname || user.fullName}
             </h1>
             <p className="mt-2 font-mono text-[11px] uppercase tracking-wider text-muted">
               {humanRole(user.role)} · {user.email}

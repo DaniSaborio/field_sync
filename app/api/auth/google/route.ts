@@ -45,6 +45,8 @@ export async function POST(req: NextRequest) {
     });
 
     if (!user) {
+      const pendienteEstado = await prisma.estado.findUniqueOrThrow({ where: { name: "pendiente" } });
+
       user = await prisma.user.create({
         data: {
           full_name: fullName,
@@ -53,6 +55,7 @@ export async function POST(req: NextRequest) {
           provider: "google",
           provider_id: providerId,
           id_role: 3,
+          id_estado: pendienteEstado.id_estado,
           notifications_enabled: true,
         },
         include: {
@@ -67,6 +70,7 @@ export async function POST(req: NextRequest) {
     upsertStoreUser({
       id: user.id_user,
       fullName: user.full_name,
+      nickname: user.nickname,
       email: user.email,
       role: mapPrismaRole(user.role.name),
       tenantId: DEMO_TENANT_ID,
@@ -78,6 +82,7 @@ export async function POST(req: NextRequest) {
       user: {
         id: user.id_user,
         fullName: user.full_name,
+        nickname: user.nickname,
         email: user.email,
         role: user.role.name,
       },
