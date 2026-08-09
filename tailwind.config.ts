@@ -8,10 +8,11 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        paper: "#F9F9F7",
-        ink: "#000000",
+        paper: "#EDEAE1",
+        ink: "#1A1815",
+        black: "#1A1815",
         neon: "#00FF41",
-        muted: "#6B6B6B",
+        muted: "#5C5B54",
         night: "#0B2545",
       },
       borderRadius: {
@@ -19,8 +20,8 @@ const config: Config = {
         DEFAULT: "0px",
       },
       boxShadow: {
-        hard: "4px 4px 0px 0px rgba(0,0,0,1)",
-        "hard-sm": "2px 2px 0px 0px rgba(0,0,0,1)",
+        hard: "4px 4px 0px 0px rgba(26,24,21,1)",
+        "hard-sm": "2px 2px 0px 0px rgba(26,24,21,1)",
       },
       fontFamily: {
         display: ["var(--font-playfair)", "serif"],
