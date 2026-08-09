@@ -670,6 +670,10 @@ function BookingPanel({
   const [surface, setSurface] = useState("all");
   const [courtSearch, setCourtSearch] = useState("");
   const [courts, setCourts] = useState<CourtCard[]>([]);
+  // Reservas propias, cargadas sin filtro de fecha: "Mis reservas" no debe
+  // depender de qué fecha esté seleccionada en el buscador de disponibilidad,
+  // o una reserva futura "desaparece" de la lista en cuanto ese filtro vuelve a hoy.
+  const [myCourtsData, setMyCourtsData] = useState<CourtCard[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>("");
   const [teams, setTeams] = useState<TeamCard[]>([]);
@@ -706,10 +710,32 @@ function BookingPanel({
     }
   }
 
+  async function loadMyReservations() {
+    if (!user) {
+      setMyCourtsData([]);
+      return;
+    }
+    try {
+      const response = await fetch(`/api/courts?userId=${user.id}`);
+      const payload = await readJson<ApiResponse<{ courts: CourtCard[] }>>(response);
+      if (!response.ok) {
+        throw new Error(payload.error || "No pudimos cargar tus reservas");
+      }
+      setMyCourtsData(payload.courts);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No pudimos cargar tus reservas");
+    }
+  }
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadCourts();
   }, [date, timeSlot, surface]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadMyReservations();
+  }, [user]);
 
   async function reserve(
     courtId: number,
@@ -757,7 +783,7 @@ function BookingPanel({
       if (options?.splitPayment) parts.push("pago dividido notificado a la plantilla");
       if (options?.rivalTeamId) parts.push("rival invitado");
       setMessage(`${parts.join(", ")}.`);
-      await loadCourts();
+      await Promise.all([loadCourts(), loadMyReservations()]);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No pudimos reservar");
     } finally {
@@ -790,7 +816,7 @@ function BookingPanel({
       }
 
       setMessage("Reserva cancelada correctamente.");
-      await loadCourts();
+      await Promise.all([loadCourts(), loadMyReservations()]);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No pudimos cancelar");
     } finally {
@@ -798,7 +824,7 @@ function BookingPanel({
     }
   }
 
-  const myReservations = useMemo(() => courts.flatMap((court) => court.reservations.map((reservation) => ({ ...reservation, courtName: court.name }))), [courts]);
+  const myReservations = useMemo(() => myCourtsData.flatMap((court) => court.reservations.map((reservation) => ({ ...reservation, courtName: court.name }))), [myCourtsData]);
 
   const filteredCourts = useMemo(() => {
     const scoped = restrictToTenantId ? courts.filter((court) => court.tenantId === restrictToTenantId) : courts;
@@ -1249,7 +1275,6 @@ function TournamentsPanel({ user }: { user: AppUser }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "create",
-        tenantId: user.tenantId,
         userId: user.id,
         role: user.role,
         ...createForm,
@@ -1264,6 +1289,27 @@ function TournamentsPanel({ user }: { user: AppUser }) {
     setCreateForm((current) => ({ ...current, name: "", courtId: null, teamIds: [] }));
     setManualPairs([]);
     setManualPairDraft({ homeTeamId: null, awayTeamId: null });
+    await loadTournaments();
+  }
+
+  async function respondToRequest(tournamentId: number, decision: "approve" | "reject") {
+    let reason: string | null = null;
+    if (decision === "reject") {
+      reason = window.prompt("Motivo del rechazo de la solicitud:");
+      if (!reason || !reason.trim()) return;
+    }
+
+    const response = await fetch("/api/tournaments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "respond", tournamentId, userId: user.id, role: user.role, decision, reason }),
+    });
+    const payload = await readJson<ApiResponse<Record<string, never>>>(response);
+    if (!response.ok) {
+      setMessage(payload.error || "No pudimos procesar la solicitud");
+      return;
+    }
+    setMessage(decision === "approve" ? "Solicitud aprobada." : "Solicitud rechazada.");
     await loadTournaments();
   }
 
@@ -1467,7 +1513,8 @@ function TournamentsPanel({ user }: { user: AppUser }) {
             <Button
               type="button"
               variant="secondary"
-              disabled={!currentTournament}
+              disabled={!currentTournament || currentTournament.requestStatus !== "aprobado"}
+              title={currentTournament && currentTournament.requestStatus !== "aprobado" ? "Este torneo todavía no fue aprobado" : undefined}
               onClick={() => selectedTournamentId ? startTournament(selectedTournamentId) : null}
             >
               Iniciar torneo
@@ -1543,40 +1590,69 @@ function TournamentsPanel({ user }: { user: AppUser }) {
         <section>
           <SectionLabel icon={Trophy} className="mb-3">Torneos existentes</SectionLabel>
           <div className="space-y-4">
-            {data.tournaments.map((tournament) => (
-              <Card key={tournament.id} className="gap-3">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-display text-lg font-black leading-tight tracking-tight text-black">{tournament.name}</h3>
-                    <p className="mt-1 font-mono text-[11px] uppercase tracking-wider text-muted">{tournament.format} · {tournament.startDate} a {tournament.endDate}</p>
-                    <p className="mt-1 flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-muted">
-                      <MapPin size={12} strokeWidth={2} aria-hidden />
-                      {courtName(tournament.courtId)}
-                    </p>
+            {data.tournaments.map((tournament) => {
+              const canRespond =
+                tournament.requestStatus === "pendiente" &&
+                (isAdmin(user) || courts.find((court) => court.id === tournament.courtId)?.tenantId === user.id);
+
+              return (
+                <Card key={tournament.id} className="gap-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-display text-lg font-black leading-tight tracking-tight text-black">{tournament.name}</h3>
+                      <p className="mt-1 font-mono text-[11px] uppercase tracking-wider text-muted">{tournament.format} · {tournament.startDate} a {tournament.endDate}</p>
+                      <p className="mt-1 flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-muted">
+                        <MapPin size={12} strokeWidth={2} aria-hidden />
+                        {courtName(tournament.courtId)}
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1.5">
+                      <Badge>{tournament.status}</Badge>
+                      <RowTag tone={tournament.requestStatus === "aprobado" ? "positive" : tournament.requestStatus === "rechazado" ? "negative" : "default"}>
+                        {tournament.requestStatus === "pendiente" ? "Solicitud pendiente" : tournament.requestStatus === "aprobado" ? "Aprobado" : "Rechazado"}
+                      </RowTag>
+                    </div>
                   </div>
-                  <Badge>{tournament.status}</Badge>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {teams.map((team) => (
-                    <Button
-                      key={team.id}
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        setSelectedTournamentId(tournament.id);
-                        void enrollTeam(team.id);
-                      }}
-                    >
-                      + {team.name}
-                    </Button>
-                  ))}
-                </div>
-                <p className="font-mono text-[10px] uppercase tracking-wider text-muted">
-                  Equipos inscritos: {tournament.teamIds.length} / {tournament.teamsRequired}
-                </p>
-              </Card>
-            ))}
+
+                  {tournament.requestStatus === "rechazado" && tournament.rejectionReason ? (
+                    <p className="font-mono text-[11px] uppercase tracking-wider text-muted">Motivo: {tournament.rejectionReason}</p>
+                  ) : null}
+
+                  {canRespond ? (
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" size="sm" onClick={() => respondToRequest(tournament.id, "approve")}>
+                        Aprobar solicitud
+                      </Button>
+                      <Button type="button" variant="destructive" size="sm" onClick={() => respondToRequest(tournament.id, "reject")}>
+                        Rechazar solicitud
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {teams.map((team) => (
+                        <Button
+                          key={team.id}
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          disabled={tournament.requestStatus !== "aprobado"}
+                          title={tournament.requestStatus !== "aprobado" ? "Este torneo todavía no fue aprobado" : undefined}
+                          onClick={() => {
+                            setSelectedTournamentId(tournament.id);
+                            void enrollTeam(team.id);
+                          }}
+                        >
+                          + {team.name}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                  <p className="font-mono text-[10px] uppercase tracking-wider text-muted">
+                    Equipos inscritos: {tournament.teamIds.length} / {tournament.teamsRequired}
+                  </p>
+                </Card>
+              );
+            })}
           </div>
         </section>
 
@@ -1727,30 +1803,49 @@ function MyTournamentsPanel({ user }: { user: AppUser }) {
   const [teams, setTeams] = useState<TeamCard[]>([]);
   const [courts, setCourts] = useState<CourtCard[]>([]);
   const [message, setMessage] = useState("");
+  const [requestForm, setRequestForm] = useState<{
+    name: string;
+    format: string;
+    fixtureMode: "aleatorio" | "manual";
+    courtId: number | null;
+    teamIds: number[];
+    startDate: string;
+    endDate: string;
+  }>({
+    name: "",
+    format: "todos-contra-todos",
+    fixtureMode: "aleatorio",
+    courtId: null,
+    teamIds: [],
+    startDate: todayIso(),
+    endDate: todayIso(),
+  });
+
+  async function load() {
+    const [tournamentsResponse, teamsResponse, courtsResponse] = await Promise.all([
+      fetch("/api/tournaments"),
+      fetch("/api/teams"),
+      fetch("/api/courts"),
+    ]);
+    const tournamentsPayload = await readJson<ApiResponse<{ tournaments: TournamentCard[] }>>(tournamentsResponse);
+    const teamsPayload = await readJson<ApiResponse<{ teams: TeamCard[] }>>(teamsResponse);
+    const courtsPayload = await readJson<ApiResponse<{ courts: CourtCard[] }>>(courtsResponse);
+    if (!tournamentsResponse.ok) {
+      throw new Error(tournamentsPayload.error || "No pudimos cargar los torneos");
+    }
+    if (!teamsResponse.ok) {
+      throw new Error(teamsPayload.error || "No pudimos cargar los equipos");
+    }
+    if (!courtsResponse.ok) {
+      throw new Error(courtsPayload.error || "No pudimos cargar las canchas");
+    }
+    setTournaments(tournamentsPayload.tournaments);
+    setTeams(teamsPayload.teams);
+    setCourts(courtsPayload.courts);
+  }
 
   useEffect(() => {
-    async function load() {
-      const [tournamentsResponse, teamsResponse, courtsResponse] = await Promise.all([
-        fetch("/api/tournaments"),
-        fetch("/api/teams"),
-        fetch("/api/courts"),
-      ]);
-      const tournamentsPayload = await readJson<ApiResponse<{ tournaments: TournamentCard[] }>>(tournamentsResponse);
-      const teamsPayload = await readJson<ApiResponse<{ teams: TeamCard[] }>>(teamsResponse);
-      const courtsPayload = await readJson<ApiResponse<{ courts: CourtCard[] }>>(courtsResponse);
-      if (!tournamentsResponse.ok) {
-        throw new Error(tournamentsPayload.error || "No pudimos cargar los torneos");
-      }
-      if (!teamsResponse.ok) {
-        throw new Error(teamsPayload.error || "No pudimos cargar los equipos");
-      }
-      if (!courtsResponse.ok) {
-        throw new Error(courtsPayload.error || "No pudimos cargar las canchas");
-      }
-      setTournaments(tournamentsPayload.tournaments);
-      setTeams(teamsPayload.teams);
-      setCourts(courtsPayload.courts);
-    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load().catch((error) => setMessage(error instanceof Error ? error.message : "No pudimos cargar los torneos"));
   }, []);
 
@@ -1764,6 +1859,45 @@ function MyTournamentsPanel({ user }: { user: AppUser }) {
     [tournaments, myTeamIds]
   );
 
+  function toggleRequestFormTeam(teamId: number) {
+    setRequestForm((current) => ({
+      ...current,
+      teamIds: current.teamIds.includes(teamId)
+        ? current.teamIds.filter((id) => id !== teamId)
+        : [...current.teamIds, teamId],
+    }));
+  }
+
+  async function requestTournament() {
+    setMessage("");
+    if (!requestForm.name.trim()) {
+      setMessage("Ponele un nombre al torneo");
+      return;
+    }
+    if (!requestForm.courtId) {
+      setMessage("Selecciona la cancha donde te gustaría jugar el torneo");
+      return;
+    }
+    if (requestForm.teamIds.length < 2) {
+      setMessage("Selecciona al menos dos equipos participantes");
+      return;
+    }
+
+    const response = await fetch("/api/tournaments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "create", userId: user.id, role: user.role, ...requestForm }),
+    });
+    const payload = await readJson<ApiResponse<{ tournament?: TournamentCard }>>(response);
+    if (!response.ok) {
+      setMessage(payload.error || "No pudimos enviar la solicitud");
+      return;
+    }
+    setMessage("Solicitud enviada al dueño de la cancha. Te avisaremos cuando la revise.");
+    setRequestForm((current) => ({ ...current, name: "", courtId: null, teamIds: [] }));
+    await load();
+  }
+
   function teamName(teamId: number) {
     return teams.find((team) => team.id === teamId)?.name ?? `Equipo #${teamId}`;
   }
@@ -1773,12 +1907,69 @@ function MyTournamentsPanel({ user }: { user: AppUser }) {
   }
 
   return (
-    <PanelShell
-      title="Mis torneos"
-      description="Torneos en los que participás junto con el calendario de partidos y la tabla de posiciones."
-      action={<StatusPill>{myTournaments.length} torneos</StatusPill>}
-    >
-      {message ? <MessageBanner message={message} /> : null}
+    <div className="space-y-8">
+      <PanelShell
+        title="Solicitar un torneo"
+        description="Completá los datos y el dueño de la cancha revisará tu solicitud antes de aprobarla."
+      >
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <input className={fieldClassName} placeholder="Nombre del torneo" value={requestForm.name} onChange={(event) => setRequestForm((current) => ({ ...current, name: event.target.value }))} />
+          <div className="relative">
+            <select className={fieldClassName} value={requestForm.format} onChange={(event) => setRequestForm((current) => ({ ...current, format: event.target.value }))}>
+              <option value="todos-contra-todos">Todos contra todos</option>
+              <option value="eliminatorio">Eliminatorio</option>
+            </select>
+            <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
+          </div>
+          <div className="relative">
+            <select className={fieldClassName} value={requestForm.fixtureMode} onChange={(event) => setRequestForm((current) => ({ ...current, fixtureMode: event.target.value === "manual" ? "manual" : "aleatorio" }))}>
+              <option value="aleatorio">Fixture aleatorio</option>
+              <option value="manual">Fixture manual</option>
+            </select>
+            <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
+          </div>
+          <div className="relative">
+            <select className={fieldClassName} value={requestForm.courtId ?? ""} onChange={(event) => setRequestForm((current) => ({ ...current, courtId: event.target.value ? Number(event.target.value) : null }))}>
+              <option value="">Selecciona la cancha</option>
+              {courts.map((court) => <option key={court.id} value={court.id}>{court.name}</option>)}
+            </select>
+            <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
+          </div>
+          <Button type="button" onClick={requestTournament}>Solicitar torneo</Button>
+        </div>
+        <div className="mt-4">
+          <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-muted">
+            Equipos participantes ({requestForm.teamIds.length} seleccionados)
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {teams.length > 0 ? teams.map((team) => {
+              const isSelected = requestForm.teamIds.includes(team.id);
+              return (
+                <Button
+                  key={team.id}
+                  type="button"
+                  variant={isSelected ? "default" : "secondary"}
+                  size="sm"
+                  onClick={() => toggleRequestFormTeam(team.id)}
+                >
+                  {isSelected ? "✓ " : "+ "}{team.name}
+                </Button>
+              );
+            }) : <p className="font-mono text-[11px] uppercase tracking-wider text-muted">No hay equipos creados todavía. Creá equipos en la pestaña Plantilla.</p>}
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <input type="date" className={fieldClassName} value={requestForm.startDate} onChange={(event) => setRequestForm((current) => ({ ...current, startDate: event.target.value }))} />
+          <input type="date" className={fieldClassName} value={requestForm.endDate} onChange={(event) => setRequestForm((current) => ({ ...current, endDate: event.target.value }))} />
+        </div>
+        {message ? <div className="mt-4"><MessageBanner message={message} /></div> : null}
+      </PanelShell>
+
+      <PanelShell
+        title="Mis torneos"
+        description="Torneos en los que participás junto con el calendario de partidos y la tabla de posiciones."
+        action={<StatusPill>{myTournaments.length} torneos</StatusPill>}
+      >
       {myTournaments.length > 0 ? (
         <div className="space-y-4">
           {myTournaments.map((tournament) => (
@@ -1792,8 +1983,16 @@ function MyTournamentsPanel({ user }: { user: AppUser }) {
                     {courtName(tournament.courtId)}
                   </p>
                 </div>
-                <Badge>{tournament.status}</Badge>
+                <div className="flex flex-col items-end gap-1.5">
+                  <Badge>{tournament.status}</Badge>
+                  <RowTag tone={tournament.requestStatus === "aprobado" ? "positive" : tournament.requestStatus === "rechazado" ? "negative" : "default"}>
+                    {tournament.requestStatus === "pendiente" ? "Solicitud pendiente" : tournament.requestStatus === "aprobado" ? "Aprobado" : "Rechazado"}
+                  </RowTag>
+                </div>
               </div>
+              {tournament.requestStatus === "rechazado" && tournament.rejectionReason ? (
+                <p className="font-mono text-[11px] uppercase tracking-wider text-muted">Motivo: {tournament.rejectionReason}</p>
+              ) : null}
 
               <div className="space-y-2">
                 {tournament.fixture.length > 0 ? (
@@ -1844,7 +2043,8 @@ function MyTournamentsPanel({ user }: { user: AppUser }) {
       ) : (
         <p className="font-mono text-[11px] uppercase tracking-wider text-muted">Todavía no participás en ningún torneo.</p>
       )}
-    </PanelShell>
+      </PanelShell>
+    </div>
   );
 }
 

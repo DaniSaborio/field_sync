@@ -1145,10 +1145,36 @@ export function listTeams() {
   })));
 }
 
-const TOURNAMENT_CREATOR_ROLES = ["administrador", "admin_plataforma", "tenant"];
+// Torneos creados por el dueño de la cancha o un admin de plataforma quedan
+// aprobados al instante; cualquier otro rol (jugador, capitán/organizador)
+// solo puede *solicitar* un torneo, que queda "pendiente" hasta que el
+// dueño de la cancha lo revise.
+const AUTO_APPROVE_ROLES = ["administrador", "admin_plataforma", "tenant"];
+
+function teamsSharePlayers(teamA: TeamRecord, teamB: TeamRecord): boolean {
+  const playersInB = new Set(teamB.playerIds);
+  return teamA.playerIds.some((playerId) => playersInB.has(playerId));
+}
+
+// Ningún par de equipos dentro de un mismo torneo puede compartir jugadores:
+// si comparten, ese jugador podría terminar emparejado contra sí mismo
+// cuando el fixture (automático o manual) los haga jugar entre sí.
+function findSharedPlayerConflict(teamIds: number[]): { teamA: TeamRecord; teamB: TeamRecord } | null {
+  const selectedTeams = teamIds
+    .map((id) => store.teams.find((team) => team.id === id))
+    .filter((team): team is TeamRecord => Boolean(team));
+
+  for (let i = 0; i < selectedTeams.length; i += 1) {
+    for (let j = i + 1; j < selectedTeams.length; j += 1) {
+      if (teamsSharePlayers(selectedTeams[i], selectedTeams[j])) {
+        return { teamA: selectedTeams[i], teamB: selectedTeams[j] };
+      }
+    }
+  }
+  return null;
+}
 
 export function createTournament(input: {
-  tenantId: number;
   createdByUserId: number;
   creatorRole?: string;
   courtId: number;
@@ -1166,11 +1192,12 @@ export function createTournament(input: {
   // El sistema de torneos vive en este store en memoria, separado de los usuarios
   // reales en Postgres, así que el rol se toma tal cual lo declara el cliente
   // (mismo nivel de confianza que el resto de la API en este prototipo).
-  if (!input.creatorRole || !TOURNAMENT_CREATOR_ROLES.includes(input.creatorRole)) {
-    return { ok: false, error: "Solo un administrador o el dueño de la cancha pueden crear torneos" };
+  if (!input.creatorRole) {
+    return { ok: false, error: "No pudimos identificar tu rol de usuario" };
   }
 
-  if (!store.courts.some((court) => court.id === input.courtId)) {
+  const court = store.courts.find((item) => item.id === input.courtId);
+  if (!court) {
     return { ok: false, error: "Selecciona una cancha válida para el torneo" };
   }
 
@@ -1184,9 +1211,19 @@ export function createTournament(input: {
     return { ok: false, error: `No encontramos el equipo #${unknownTeamId}` };
   }
 
+  const conflict = findSharedPlayerConflict(teamIds);
+  if (conflict) {
+    return {
+      ok: false,
+      error: `${conflict.teamA.name} y ${conflict.teamB.name} comparten jugadores: no pueden estar en el mismo torneo`,
+    };
+  }
+
+  const autoApproved = AUTO_APPROVE_ROLES.includes(input.creatorRole);
+
   const tournament: TournamentRecord = {
     id: nextId("tournament"),
-    tenantId: input.tenantId,
+    tenantId: court.tenantId,
     createdByUserId: input.createdByUserId,
     courtId: input.courtId,
     name: input.name.trim(),
@@ -1196,7 +1233,7 @@ export function createTournament(input: {
     startDate: input.startDate,
     endDate: input.endDate,
     status: "draft",
-    requestStatus: "aprobado",
+    requestStatus: autoApproved ? "aprobado" : "pendiente",
     rejectionReason: null,
     teamIds,
     fixture: [],
@@ -1204,7 +1241,68 @@ export function createTournament(input: {
 
   store.tournaments.push(tournament);
 
-  return { ok: true, tournament: clone(tournament), notifications: [] };
+  const notifications: NotificationRecord[] = [];
+  if (!autoApproved) {
+    const requester = findUserById(input.createdByUserId);
+    const ownerNotification = notifyCourtOwner(
+      court,
+      "tournament",
+      `${requester?.fullName ?? "Un jugador"} solicitó el torneo "${tournament.name}" en ${court.name}. Revisalo para aprobarlo o rechazarlo.`,
+    );
+    if (ownerNotification) {
+      notifications.push(ownerNotification);
+    }
+  }
+
+  return { ok: true, tournament: clone(tournament), notifications: clone(notifications) };
+}
+
+// El dueño de la cancha (o un admin de plataforma) aprueba o rechaza una
+// solicitud de torneo pendiente, y se notifica a quien la pidió.
+export function respondToTournamentRequest(input: {
+  tournamentId: number;
+  responderId: number;
+  responderRole?: string;
+  action: "approve" | "reject";
+  reason?: string | null;
+}) : TournamentResult {
+  const tournament = store.tournaments.find((item) => item.id === input.tournamentId) ?? null;
+  if (!tournament) {
+    return { ok: false, error: "No encontramos el torneo" };
+  }
+
+  if (tournament.requestStatus !== "pendiente") {
+    return { ok: false, error: "Esta solicitud ya fue procesada" };
+  }
+
+  const court = store.courts.find((item) => item.id === tournament.courtId) ?? null;
+  const isPlatformAdmin = input.responderRole === "administrador" || input.responderRole === "admin_plataforma";
+  if (!isPlatformAdmin && (!court || court.tenantId !== input.responderId)) {
+    return { ok: false, error: "Este torneo no pertenece a una de tus canchas" };
+  }
+
+  if (input.action === "reject" && !input.reason) {
+    return { ok: false, error: "Indica el motivo del rechazo" };
+  }
+
+  tournament.requestStatus = input.action === "approve" ? "aprobado" : "rechazado";
+  tournament.rejectionReason = input.action === "reject" ? input.reason ?? null : null;
+
+  const notifications: NotificationRecord[] = [];
+  const requester = findUserById(tournament.createdByUserId);
+  if (requester?.notificationsEnabled) {
+    notifications.push(
+      createNotification(
+        requester.id,
+        "tournament",
+        input.action === "approve"
+          ? `¡Tu solicitud de torneo "${tournament.name}" fue aprobada! Ya podés inscribir equipos y comenzarlo.`
+          : `Tu solicitud de torneo "${tournament.name}" fue rechazada: ${input.reason}.`,
+      ),
+    );
+  }
+
+  return { ok: true, tournament: clone(tournament), notifications: clone(notifications) };
 }
 
 export function enrollTeamToTournament(input: {
@@ -1223,6 +1321,12 @@ export function enrollTeamToTournament(input: {
   }
 
   if (!tournament.teamIds.includes(team.id)) {
+    const conflict = findSharedPlayerConflict([...tournament.teamIds, team.id]);
+    if (conflict) {
+      const otherTeam = conflict.teamA.id === team.id ? conflict.teamB : conflict.teamA;
+      return { ok: false, error: `${team.name} comparte jugadores con ${otherTeam.name}: no pueden estar en el mismo torneo` } as const;
+    }
+
     tournament.teamIds.push(team.id);
   }
 
@@ -1306,6 +1410,12 @@ export function setManualFixture(input: {
     }
     if (!tournament.teamIds.includes(pair.homeTeamId) || !tournament.teamIds.includes(pair.awayTeamId)) {
       return { ok: false, error: "Todos los partidos deben ser entre equipos inscritos en el torneo" };
+    }
+
+    const homeTeam = store.teams.find((team) => team.id === pair.homeTeamId);
+    const awayTeam = store.teams.find((team) => team.id === pair.awayTeamId);
+    if (homeTeam && awayTeam && teamsSharePlayers(homeTeam, awayTeam)) {
+      return { ok: false, error: `${homeTeam.name} y ${awayTeam.name} comparten jugadores: no pueden enfrentarse` };
     }
   }
 

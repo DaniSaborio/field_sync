@@ -4,6 +4,7 @@ import {
   enrollTeamToTournament,
   getTournamentSnapshot,
   recordMatchResult,
+  respondToTournamentRequest,
   setManualFixture,
   startTournament,
 } from "@/lib/fieldsync-store";
@@ -19,7 +20,6 @@ export async function POST(request: NextRequest) {
 
     if (action === "create") {
       const result = createTournament({
-        tenantId: Number(body?.tenantId ?? 1),
         createdByUserId: Number(body?.userId ?? 0),
         creatorRole: typeof body?.role === "string" ? body.role : undefined,
         courtId: Number(body?.courtId ?? 0),
@@ -36,6 +36,22 @@ export async function POST(request: NextRequest) {
       }
 
       return NextResponse.json(result, { status: 201 });
+    }
+
+    if (action === "respond") {
+      const result = respondToTournamentRequest({
+        tournamentId: Number(body?.tournamentId),
+        responderId: Number(body?.userId),
+        responderRole: typeof body?.role === "string" ? body.role : undefined,
+        action: body?.decision === "reject" ? "reject" : "approve",
+        reason: typeof body?.reason === "string" ? body.reason : null,
+      });
+
+      if (!result.ok) {
+        return NextResponse.json(result, { status: 400 });
+      }
+
+      return NextResponse.json(result);
     }
 
     if (action === "enroll") {
