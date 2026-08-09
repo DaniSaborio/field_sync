@@ -813,7 +813,7 @@ function BookingPanel({
 
   const isNegativeMessage = /no pudimos|no es posible/i.test(message);
 
-  const filtersSummary = `${date} · ${timeSlotFilterLabels[timeSlot]} · ${surfaceFilterLabels[surface]}`;
+  const filtersSummary = `${timeSlotFilterLabels[timeSlot]} · ${surfaceFilterLabels[surface]}`;
 
   return (
     <div className="space-y-6">
@@ -830,7 +830,23 @@ function BookingPanel({
           ) : null}
         </div>
 
-        <CollapsibleSection icon={Filter} label="Filtrar disponibilidad" summary={filtersSummary}>
+        <div className="border border-black bg-paper p-4 shadow-hard">
+          <label className="block space-y-1.5">
+            <span className={fieldLabelClassName}>
+              <CalendarDays size={13} strokeWidth={2} aria-hidden />
+              Fecha de tu reserva
+            </span>
+            <input
+              type="date"
+              value={date}
+              min={todayIso()}
+              onChange={(event) => setDate(event.target.value)}
+              className={`${fieldClassName} h-12 text-base font-bold`}
+            />
+          </label>
+        </div>
+
+        <CollapsibleSection icon={Filter} label="Más filtros" summary={filtersSummary}>
           <label className="block space-y-1.5">
             <span className={fieldLabelClassName}>
               <Search size={13} strokeWidth={2} aria-hidden />
@@ -845,19 +861,7 @@ function BookingPanel({
             />
           </label>
 
-          <div className="grid gap-4 md:grid-cols-3">
-            <label className="block space-y-1.5">
-              <span className={fieldLabelClassName}>
-                <CalendarDays size={13} strokeWidth={2} aria-hidden />
-                Fecha
-              </span>
-              <input
-                type="date"
-                value={date}
-                onChange={(event) => setDate(event.target.value)}
-                className={fieldClassName}
-              />
-            </label>
+          <div className="grid gap-4 md:grid-cols-2">
             <label className="block space-y-1.5">
               <span className={fieldLabelClassName}>
                 <Clock3 size={13} strokeWidth={2} aria-hidden />
