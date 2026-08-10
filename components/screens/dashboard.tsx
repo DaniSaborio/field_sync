@@ -202,6 +202,25 @@ type AdminCourtRow = {
   tenantEmail: string;
 };
 
+type TenantRequestAdminRow = {
+  id: number;
+  userId: number;
+  userEmail: string;
+  complexName: string;
+  phone: string;
+  address: string;
+  mapsUrl: string;
+  courtName: string;
+  surface: string;
+  capacity: string;
+  price: string;
+  status: "pendiente" | "aprobado" | "rechazado";
+  reviewerName: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type ProfileSnapshot = {
   kind?: "jugador";
   user: AppUser;
@@ -265,11 +284,7 @@ const tabButtons = [
   { id: "perfil", label: "Perfil", icon: Settings2 },
   { id: "plantilla", label: "Plantilla", icon: Users },
   { id: "notificaciones", label: "Notificaciones", icon: Bell },
-<<<<<<< HEAD
-  { id: "tenant-request", label: "Ser Tenant", icon: Building2,},
-=======
   { id: "administracion", label: "Administración", icon: ShieldCheck },
->>>>>>> main
 ] as const;
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -2807,6 +2822,7 @@ function TenantPaymentsPanel({ user }: { user: AppUser }) {
 function AdminPanel({ user }: { user: AppUser }) {
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [courts, setCourts] = useState<AdminCourtRow[]>([]);
+  const [tenantRequests, setTenantRequests] = useState<TenantRequestAdminRow[]>([]);
   const [roleFilter, setRoleFilter] = useState("all");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -2829,9 +2845,18 @@ function AdminPanel({ user }: { user: AppUser }) {
     setCourts(payload.courts);
   }
 
+  async function loadTenantRequests() {
+    const response = await fetch("/api/admin/tenant-requests");
+    const payload = await readJson<ApiResponse<{ requests: TenantRequestAdminRow[] }>>(response);
+    if (!response.ok) {
+      throw new Error(payload.error || "No pudimos cargar las solicitudes");
+    }
+    setTenantRequests(payload.requests);
+  }
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void Promise.all([loadUsers(), loadCourts()]).catch((error) =>
+    void Promise.all([loadUsers(), loadCourts(), loadTenantRequests()]).catch((error) =>
       setMessage(error instanceof Error ? error.message : "No pudimos cargar la información"),
     );
   }, []);
@@ -2903,6 +2928,33 @@ function AdminPanel({ user }: { user: AppUser }) {
     }
   }
 
+  async function respondToTenantRequest(requestId: number, status: "aprobado" | "rechazado") {
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/admin/tenant-requests", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          requestId,
+          status,
+          reviewerName: user.fullName,
+          notes: status === "aprobado" ? "Solicitud aprobada por el administrador de plataforma." : "Solicitud rechazada por el administrador de plataforma.",
+        }),
+      });
+      const payload = await readJson<ApiResponse<Record<string, never>>>(response);
+      if (!response.ok) {
+        throw new Error(payload.error || "No pudimos actualizar la solicitud");
+      }
+      setMessage(status === "aprobado" ? "Solicitud aprobada." : "Solicitud rechazada.");
+      await loadTenantRequests();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No pudimos actualizar la solicitud");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-8">
       {message ? <MessageBanner message={message} /> : null}
@@ -2957,6 +3009,58 @@ function AdminPanel({ user }: { user: AppUser }) {
       </PanelShell>
 
       <PanelShell
+        title="Solicitudes de tenant"
+        description="Revisión centralizada de quién quiere convertirse en dueño de cancha y necesita aprobación de plataforma."
+        action={<StatusPill>{tenantRequests.length} solicitudes</StatusPill>}
+      >
+        {tenantRequests.length > 0 ? (
+          <div className="space-y-4">
+            {tenantRequests.map((request) => (
+              <Card key={request.id} className="gap-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-display text-lg font-black leading-tight tracking-tight text-black">{request.complexName}</h3>
+                    <p className="font-mono text-[11px] uppercase tracking-wider text-muted">{request.userEmail}</p>
+                  </div>
+                  <RowTag tone={request.status === "aprobado" ? "positive" : request.status === "rechazado" ? "negative" : "default"}>
+                    {request.status}
+                  </RowTag>
+                </div>
+
+                <div className="grid gap-2 text-sm text-black md:grid-cols-2">
+                  <p><strong>Cancha:</strong> {request.courtName}</p>
+                  <p><strong>Teléfono:</strong> {request.phone}</p>
+                  <p><strong>Dirección:</strong> {request.address}</p>
+                  <p><strong>Superficie:</strong> {request.surface}</p>
+                  <p><strong>Capacidad:</strong> {request.capacity}</p>
+                  <p><strong>Precio:</strong> {request.price}</p>
+                </div>
+
+                {request.mapsUrl ? (
+                  <a href={request.mapsUrl} target="_blank" rel="noreferrer" className="inline-block text-sm font-medium text-black underline">
+                    Ver ubicación en Maps
+                  </a>
+                ) : null}
+
+                {request.status === "pendiente" ? (
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" disabled={busy} onClick={() => respondToTenantRequest(request.id, "aprobado")}>
+                      Aprobar
+                    </Button>
+                    <Button variant="destructive" size="sm" disabled={busy} onClick={() => respondToTenantRequest(request.id, "rechazado")}>
+                      Rechazar
+                    </Button>
+                  </div>
+                ) : null}
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <p className="font-mono text-[11px] uppercase tracking-wider text-muted">No hay solicitudes de tenant pendientes.</p>
+        )}
+      </PanelShell>
+
+      <PanelShell
         title="Canchas por dueño"
         description="Todas las canchas registradas, agrupadas por el tenant que las administra."
         action={<StatusPill>{courts.length} canchas</StatusPill>}
@@ -3003,7 +3107,9 @@ function AdminPanel({ user }: { user: AppUser }) {
 }
 
 export function DashboardScreen({ user, onLogout, onUserUpdate }: DashboardScreenProps) {
-  const [activeTab, setActiveTab] = useState<(typeof tabButtons)[number]["id"]>("reservas");
+  type DashboardTab = "reservas" | "torneos" | "perfil" | "plantilla" | "notificaciones" | "tenant-request" | "administracion";
+
+  const [activeTab, setActiveTab] = useState<DashboardTab>("reservas");
   const visibleTabs = tabButtons.filter((tab) => tab.id !== "administracion" || isAdmin(user));
 
   return (
@@ -3056,9 +3162,9 @@ export function DashboardScreen({ user, onLogout, onUserUpdate }: DashboardScree
           )
         ) : null}
         {activeTab === "torneos" ? (isAdmin(user) || isTenant(user) ? <TournamentsPanel user={user} /> : <MyTournamentsPanel user={user} />) : null}
-       {activeTab === "perfil" ? (<ProfilePanel user={user}onRequestTenant={() => setActiveTab("tenant-request")}/>) : null}
+        {activeTab === "perfil" ? (<ProfilePanel user={user} onRequestTenant={() => setActiveTab("tenant-request")} />) : null}
         {activeTab === "plantilla" ? <TeamsPanel user={user} /> : null}
-        {activeTab === "tenant-request" ? (<TenantRequestScreen />) : null}
+        {activeTab === "tenant-request" ? (<TenantRequestScreen user={user} />) : null}
         {activeTab === "notificaciones" ? <NotificationsPanel user={user} /> : null}
         {activeTab === "administracion" && isAdmin(user) ? <AdminPanel user={user} /> : null}
       </div>

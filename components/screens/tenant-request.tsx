@@ -11,7 +11,12 @@ import {
   Map,
 } from "lucide-react";
 
-export function TenantRequestScreen() {
+type TenantRequestUser = {
+  id: number;
+  email: string;
+};
+
+export function TenantRequestScreen({ user }: { user?: TenantRequestUser | null }) {
   const [complexName, setComplexName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
@@ -28,30 +33,43 @@ export function TenantRequestScreen() {
     setLoading(true);
     setMessage("");
 
+    const payload = {
+      userId: user?.id ?? 0,
+      userEmail: user?.email ?? "",
+      complexName,
+      phone,
+      address,
+      mapsUrl,
+      courtName,
+      surface,
+      capacity,
+      price,
+    };
+
     const response = await fetch("/api/tenant/request", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        complexName,
-        phone,
-        address,
-        mapsUrl,
-        courtName,
-        surface,
-        capacity,
-        price,
-      }),
+      body: JSON.stringify(payload),
     });
 
-    const data = await response.json();
+    const raw = await response.text();
+    let data: { error?: string; message?: string } | null = null;
 
-    if (!response.ok) {
-      throw new Error(data.error);
+    if (raw) {
+      try {
+        data = JSON.parse(raw) as { error?: string; message?: string };
+      } catch {
+        throw new Error("La solicitud no pudo procesarse. Revisa la ruta o intenta nuevamente.");
+      }
     }
 
-    setMessage("Solicitud enviada correctamente.");
+    if (!response.ok) {
+      throw new Error(data?.error || "No se pudo enviar la solicitud.");
+    }
+
+    setMessage(data?.message || "Solicitud enviada correctamente.");
   } catch (error) {
     setMessage(
       error instanceof Error
