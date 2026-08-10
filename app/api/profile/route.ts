@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getPlayerProfile, toggleNotifications, updateProfileVisibility } from "@/lib/fieldsync-store";
+import { getPlayerProfile, toggleNotifications, updateNickname, updateProfileVisibility } from "@/lib/fieldsync-store";
+import { hydrateStoreUser } from "@/lib/hydrate-user";
 
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
@@ -19,15 +20,21 @@ export async function GET(request: NextRequest) {
     if (dbUser?.role.name === "tenant") {
       const courts = await prisma.court.findMany({
         where: { id_tenant: userId },
-        include: { reservations: { include: { payments: true } } },
+        include: { reservations: { include: { payments: { include: { estado: true } } } } },
       });
 
       const ownedCourts = courts.map((court) => {
         const pendingCount = court.reservations.filter((r) => r.status === "pendiente").length;
         const confirmedCount = court.reservations.filter((r) => r.status === "confirmada").length;
         const verifiedRevenue = court.reservations
+
          .flatMap((r) => r.payments)
         .reduce((sum, p) => sum + Number(p.amount), 0);
+          .flatMap((r) => r.payments)
+          .filter((p) => p.estado.name === "verificado")
+          .reduce((sum, p) => sum + Number(p.amount), 0);
+
+
         return {
           id: court.id_court,
           name: court.name,
@@ -45,6 +52,7 @@ export async function GET(request: NextRequest) {
         user: {
           id: dbUser.id_user,
           fullName: dbUser.full_name,
+          nickname: dbUser.nickname,
           email: dbUser.email,
           role: dbUser.role.name,
           notificationsEnabled: dbUser.notifications_enabled,
@@ -55,6 +63,12 @@ export async function GET(request: NextRequest) {
   } catch (dbError) {
     console.warn("Prisma profile lookup failed, falling back to in-memory store:", dbError);
   }
+
+  // Torneos/plantillas/perfil de jugador viven en el store en memoria, separado
+  // de Postgres: cualquier jugador que no sea de la semilla de demo (registro
+  // nuevo o login con Google) necesita sincronizarse acá primero o si no
+  // getPlayerProfile nunca lo va a encontrar.
+  await hydrateStoreUser(userId);
 
   const profile = getPlayerProfile(userId);
   if (!profile) {
@@ -79,6 +93,27 @@ export async function PATCH(request: NextRequest) {
         visibility: body.visibility === "private" ? "private" : "public",
       });
 
+      if (!result.ok) {
+        return NextResponse.json(result, { status: 404 });
+      }
+
+      return NextResponse.json(result);
+    }
+
+    if (typeof body?.nickname === "string" || body?.nickname === null) {
+      const nickname = typeof body.nickname === "string" && body.nickname.trim() ? body.nickname.trim() : null;
+
+      try {
+        const updated = await prisma.user.update({
+          where: { id_user: userId },
+          data: { nickname },
+        });
+        return NextResponse.json({ ok: true, user: { id: updated.id_user, nickname: updated.nickname } });
+      } catch (dbError) {
+        console.warn("Prisma nickname update failed, falling back to in-memory store:", dbError);
+      }
+
+      const result = updateNickname(userId, nickname);
       if (!result.ok) {
         return NextResponse.json(result, { status: 404 });
       }

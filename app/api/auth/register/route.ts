@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
+import { upsertStoreUser } from "@/lib/fieldsync-store";
+import { DEMO_TENANT_ID, mapPrismaRole } from "@/lib/hydrate-user";
 
 export async function POST(req: NextRequest) {
   try {
@@ -8,6 +10,7 @@ export async function POST(req: NextRequest) {
     const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
     const password = typeof body?.password === "string" ? body.password : "";
     const fullName = typeof body?.fullName === "string" ? body.fullName.trim() : "";
+    const nickname = typeof body?.nickname === "string" && body.nickname.trim() ? body.nickname.trim() : null;
 
     if (!fullName || !email || !password) {
       return NextResponse.json(
@@ -38,14 +41,19 @@ export async function POST(req: NextRequest) {
 
     // El registro público siempre asigna el rol "jugador", sin importar lo que envíe el cliente.
     // Los jugadores no pertenecen a un tenant fijo: pueden reservar en cualquier cancha.
-    const jugadorRole = await prisma.role.findUniqueOrThrow({ where: { name: "jugador" } });
+    const [jugadorRole, pendienteEstado] = await Promise.all([
+      prisma.role.findUniqueOrThrow({ where: { name: "jugador" } }),
+      prisma.estado.findUniqueOrThrow({ where: { name: "pendiente" } }),
+    ]);
 
     const createdUser = await prisma.user.create({
       data: {
         full_name: fullName,
+        nickname,
         email,
         password: hashedPassword,
         id_role: jugadorRole.id_role,
+        id_estado: pendienteEstado.id_estado,
         notifications_enabled: true,
       },
       include: { role: true },
@@ -62,6 +70,19 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    // Equipos/torneos/perfil viven en el store en memoria, separado de
+    // Postgres: sincronizamos al usuario acá para que esas funciones lo
+    // reconozcan desde el registro, no solo a los 4 de la semilla.
+    upsertStoreUser({
+      id: createdUser.id_user,
+      fullName: createdUser.full_name,
+      nickname: createdUser.nickname,
+      email: createdUser.email,
+      role: mapPrismaRole(createdUser.role.name),
+      tenantId: DEMO_TENANT_ID,
+      notificationsEnabled: createdUser.notifications_enabled,
+    });
+
     return NextResponse.json(
       {
         message: "User created successfully",
@@ -69,6 +90,7 @@ export async function POST(req: NextRequest) {
           id: createdUser.id_user,
           email: createdUser.email,
           fullName: createdUser.full_name,
+          nickname: createdUser.nickname,
           role: createdUser.role.name,
           notificationsEnabled: createdUser.notifications_enabled,
         },

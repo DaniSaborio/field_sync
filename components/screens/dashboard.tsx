@@ -67,6 +67,7 @@ const surfaceFilterLabels: Record<string, string> = {
 export type AppUser = {
   id: number;
   fullName: string;
+  nickname?: string | null;
   email: string;
   role: string;
   // Los jugadores y administradores de plataforma no pertenecen a un tenant fijo;
@@ -165,14 +166,40 @@ type TeamCard = {
   name: string;
   captainUserId: number;
   playerIds: number[];
-  players: Array<{ id: number; fullName: string; email: string } | null>;
+  players: Array<{ id: number; fullName: string; nickname?: string | null; email: string } | null>;
 };
 
 type UserOption = {
   id: number;
   fullName: string;
+  nickname?: string | null;
   email: string;
   role: string;
+};
+
+type AdminUserRow = {
+  id: number;
+  fullName: string;
+  nickname: string | null;
+  email: string;
+  role: string;
+  roleLabel: string;
+  status: string;
+  verifiedBy: string | null;
+  verifiedAt: string | null;
+  createdAt: string;
+};
+
+type AdminCourtRow = {
+  id: number;
+  name: string;
+  address: string | null;
+  surface: string | null;
+  pricePerHour: number | null;
+  isActive: boolean;
+  tenantId: number;
+  tenantName: string;
+  tenantEmail: string;
 };
 
 type ProfileSnapshot = {
@@ -206,7 +233,7 @@ type OwnedCourtSummary = {
 
 type TenantProfileSnapshot = {
   kind: "tenant";
-  user: { id: number; fullName: string; email: string; role: string; notificationsEnabled: boolean };
+  user: { id: number; fullName: string; nickname?: string | null; email: string; role: string; notificationsEnabled: boolean };
   courts: OwnedCourtSummary[];
 };
 
@@ -215,6 +242,7 @@ type AnyProfileSnapshot = ProfileSnapshot | TenantProfileSnapshot;
 type DashboardScreenProps = {
   user: AppUser;
   onLogout: () => void;
+  onUserUpdate: (user: AppUser) => void;
 };
 
 type ApiResponse<T> = {
@@ -237,7 +265,11 @@ const tabButtons = [
   { id: "perfil", label: "Perfil", icon: Settings2 },
   { id: "plantilla", label: "Plantilla", icon: Users },
   { id: "notificaciones", label: "Notificaciones", icon: Bell },
+<<<<<<< HEAD
   { id: "tenant-request", label: "Ser Tenant", icon: Building2,},
+=======
+  { id: "administracion", label: "Administración", icon: ShieldCheck },
+>>>>>>> main
 ] as const;
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -246,14 +278,6 @@ async function readJson<T>(response: Response): Promise<T> {
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
-}
-
-function nextHourDateTimeLocal() {
-  const date = new Date();
-  date.setMinutes(0, 0, 0);
-  date.setHours(date.getHours() + 1);
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function formatDateTime(value: string) {
@@ -287,6 +311,11 @@ function humanRole(role: string) {
 
 function isAdmin(user: AppUser) {
   return user.role === "administrador" || user.role === "admin_plataforma";
+}
+
+// Muestra el apodo junto al nombre completo para diferenciar jugadores que comparten nombre.
+function displayName(person: { fullName: string; nickname?: string | null }) {
+  return person.nickname ? `${person.fullName} "${person.nickname}"` : person.fullName;
 }
 
 function StatusPill({ children }: { children: React.ReactNode }) {
@@ -673,6 +702,10 @@ function BookingPanel({
   const [surface, setSurface] = useState("all");
   const [courtSearch, setCourtSearch] = useState("");
   const [courts, setCourts] = useState<CourtCard[]>([]);
+  // Reservas propias, cargadas sin filtro de fecha: "Mis reservas" no debe
+  // depender de qué fecha esté seleccionada en el buscador de disponibilidad,
+  // o una reserva futura "desaparece" de la lista en cuanto ese filtro vuelve a hoy.
+  const [myCourtsData, setMyCourtsData] = useState<CourtCard[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>("");
   const [teams, setTeams] = useState<TeamCard[]>([]);
@@ -709,10 +742,32 @@ function BookingPanel({
     }
   }
 
+  async function loadMyReservations() {
+    if (!user) {
+      setMyCourtsData([]);
+      return;
+    }
+    try {
+      const response = await fetch(`/api/courts?userId=${user.id}`);
+      const payload = await readJson<ApiResponse<{ courts: CourtCard[] }>>(response);
+      if (!response.ok) {
+        throw new Error(payload.error || "No pudimos cargar tus reservas");
+      }
+      setMyCourtsData(payload.courts);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No pudimos cargar tus reservas");
+    }
+  }
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadCourts();
   }, [date, timeSlot, surface]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadMyReservations();
+  }, [user]);
 
   async function reserve(
     courtId: number,
@@ -760,7 +815,7 @@ function BookingPanel({
       if (options?.splitPayment) parts.push("pago dividido notificado a la plantilla");
       if (options?.rivalTeamId) parts.push("rival invitado");
       setMessage(`${parts.join(", ")}.`);
-      await loadCourts();
+      await Promise.all([loadCourts(), loadMyReservations()]);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No pudimos reservar");
     } finally {
@@ -793,7 +848,7 @@ function BookingPanel({
       }
 
       setMessage("Reserva cancelada correctamente.");
-      await loadCourts();
+      await Promise.all([loadCourts(), loadMyReservations()]);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No pudimos cancelar");
     } finally {
@@ -801,7 +856,7 @@ function BookingPanel({
     }
   }
 
-  const myReservations = useMemo(() => courts.flatMap((court) => court.reservations.map((reservation) => ({ ...reservation, courtName: court.name }))), [courts]);
+  const myReservations = useMemo(() => myCourtsData.flatMap((court) => court.reservations.map((reservation) => ({ ...reservation, courtName: court.name }))), [myCourtsData]);
 
   const filteredCourts = useMemo(() => {
     const scoped = restrictToTenantId ? courts.filter((court) => court.tenantId === restrictToTenantId) : courts;
@@ -816,7 +871,7 @@ function BookingPanel({
 
   const isNegativeMessage = /no pudimos|no es posible/i.test(message);
 
-  const filtersSummary = `${date} · ${timeSlotFilterLabels[timeSlot]} · ${surfaceFilterLabels[surface]}`;
+  const filtersSummary = `${timeSlotFilterLabels[timeSlot]} · ${surfaceFilterLabels[surface]}`;
 
   return (
     <div className="space-y-6">
@@ -833,7 +888,23 @@ function BookingPanel({
           ) : null}
         </div>
 
-        <CollapsibleSection icon={Filter} label="Filtrar disponibilidad" summary={filtersSummary}>
+        <div className="border border-black bg-paper p-4 shadow-hard">
+          <label className="block space-y-1.5">
+            <span className={fieldLabelClassName}>
+              <CalendarDays size={13} strokeWidth={2} aria-hidden />
+              Fecha de tu reserva
+            </span>
+            <input
+              type="date"
+              value={date}
+              min={todayIso()}
+              onChange={(event) => setDate(event.target.value)}
+              className={`${fieldClassName} h-12 text-base font-bold`}
+            />
+          </label>
+        </div>
+
+        <CollapsibleSection icon={Filter} label="Más filtros" summary={filtersSummary}>
           <label className="block space-y-1.5">
             <span className={fieldLabelClassName}>
               <Search size={13} strokeWidth={2} aria-hidden />
@@ -848,19 +919,7 @@ function BookingPanel({
             />
           </label>
 
-          <div className="grid gap-4 md:grid-cols-3">
-            <label className="block space-y-1.5">
-              <span className={fieldLabelClassName}>
-                <CalendarDays size={13} strokeWidth={2} aria-hidden />
-                Fecha
-              </span>
-              <input
-                type="date"
-                value={date}
-                onChange={(event) => setDate(event.target.value)}
-                className={fieldClassName}
-              />
-            </label>
+          <div className="grid gap-4 md:grid-cols-2">
             <label className="block space-y-1.5">
               <span className={fieldLabelClassName}>
                 <Clock3 size={13} strokeWidth={2} aria-hidden />
@@ -1149,14 +1208,21 @@ function TournamentsPanel({ user }: { user: AppUser }) {
     }));
   }
   const [resultModalMatch, setResultModalMatch] = useState<TournamentMatch | null>(null);
-  const [statsDraft, setStatsDraft] = useState<Record<number, { goals: number; yellowCards: number; redCards: number }>>({});
+  // Clave compuesta "teamId:playerId": un jugador podría figurar en la
+  // plantilla de ambos equipos (nada lo impide hoy), así que indexar solo por
+  // playerId mezclaría sus goles/tarjetas entre los dos lados del partido.
+  const [statsDraft, setStatsDraft] = useState<Record<string, { goals: number; yellowCards: number; redCards: number }>>({});
   const [confirmSecondAuth, setConfirmSecondAuth] = useState(false);
   const [savingResult, setSavingResult] = useState(false);
 
+  function statKey(teamId: number, playerId: number) {
+    return `${teamId}:${playerId}`;
+  }
+
   function openResultModal(match: TournamentMatch) {
-    const draft: Record<number, { goals: number; yellowCards: number; redCards: number }> = {};
+    const draft: Record<string, { goals: number; yellowCards: number; redCards: number }> = {};
     for (const stat of match.stats) {
-      draft[stat.playerId] = { goals: stat.goals, yellowCards: stat.yellowCards, redCards: stat.redCards };
+      draft[statKey(stat.teamId, stat.playerId)] = { goals: stat.goals, yellowCards: stat.yellowCards, redCards: stat.redCards };
     }
     setStatsDraft(draft);
     setConfirmSecondAuth(false);
@@ -1169,15 +1235,15 @@ function TournamentsPanel({ user }: { user: AppUser }) {
     setConfirmSecondAuth(false);
   }
 
-  function statFor(playerId: number) {
-    return statsDraft[playerId] ?? { goals: 0, yellowCards: 0, redCards: 0 };
+  function statFor(teamId: number, playerId: number) {
+    return statsDraft[statKey(teamId, playerId)] ?? { goals: 0, yellowCards: 0, redCards: 0 };
   }
 
-  function updateStat(playerId: number, patch: Partial<{ goals: number; yellowCards: number; redCards: number }>) {
+  function updateStat(teamId: number, playerId: number, patch: Partial<{ goals: number; yellowCards: number; redCards: number }>) {
     setStatsDraft((current) => {
-      const next = { ...statFor(playerId), ...patch };
+      const next = { ...statFor(teamId, playerId), ...patch };
       next.goals = Math.max(0, next.goals);
-      return { ...current, [playerId]: next };
+      return { ...current, [statKey(teamId, playerId)]: next };
     });
   }
 
@@ -1241,7 +1307,6 @@ function TournamentsPanel({ user }: { user: AppUser }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "create",
-        tenantId: user.tenantId,
         userId: user.id,
         role: user.role,
         ...createForm,
@@ -1256,6 +1321,27 @@ function TournamentsPanel({ user }: { user: AppUser }) {
     setCreateForm((current) => ({ ...current, name: "", courtId: null, teamIds: [] }));
     setManualPairs([]);
     setManualPairDraft({ homeTeamId: null, awayTeamId: null });
+    await loadTournaments();
+  }
+
+  async function respondToRequest(tournamentId: number, decision: "approve" | "reject") {
+    let reason: string | null = null;
+    if (decision === "reject") {
+      reason = window.prompt("Motivo del rechazo de la solicitud:");
+      if (!reason || !reason.trim()) return;
+    }
+
+    const response = await fetch("/api/tournaments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "respond", tournamentId, userId: user.id, role: user.role, decision, reason }),
+    });
+    const payload = await readJson<ApiResponse<Record<string, never>>>(response);
+    if (!response.ok) {
+      setMessage(payload.error || "No pudimos procesar la solicitud");
+      return;
+    }
+    setMessage(decision === "approve" ? "Solicitud aprobada." : "Solicitud rechazada.");
     await loadTournaments();
   }
 
@@ -1330,21 +1416,17 @@ function TournamentsPanel({ user }: { user: AppUser }) {
 
   async function saveMatchResult() {
     if (!resultModalMatch) return;
-    const homeTeam = teams.find((team) => team.id === resultModalMatch.homeTeamId);
-    const awayTeam = teams.find((team) => team.id === resultModalMatch.awayTeamId);
 
-    const stats = Object.entries(statsDraft)
-      .map(([playerIdText, stat]) => {
-        const playerId = Number(playerIdText);
-        const teamId = homeTeam?.playerIds.includes(playerId)
-          ? resultModalMatch.homeTeamId
-          : awayTeam?.playerIds.includes(playerId)
-            ? resultModalMatch.awayTeamId
-            : null;
-        if (teamId === null) return null;
-        return { playerId, teamId, goals: stat.goals, yellowCards: stat.yellowCards, redCards: stat.redCards };
-      })
-      .filter((stat) => stat !== null);
+    const stats = Object.entries(statsDraft).map(([key, stat]) => {
+      const [teamIdText, playerIdText] = key.split(":");
+      return {
+        teamId: Number(teamIdText),
+        playerId: Number(playerIdText),
+        goals: stat.goals,
+        yellowCards: stat.yellowCards,
+        redCards: stat.redCards,
+      };
+    });
 
     setSavingResult(true);
     const response = await fetch("/api/tournaments", {
@@ -1380,13 +1462,17 @@ function TournamentsPanel({ user }: { user: AppUser }) {
   const resultModalHomeTeam = resultModalMatch ? teams.find((team) => team.id === resultModalMatch.homeTeamId) ?? null : null;
   const resultModalAwayTeam = resultModalMatch ? teams.find((team) => team.id === resultModalMatch.awayTeamId) ?? null : null;
   const resultModalHomePlayers = (resultModalHomeTeam?.players ?? []).filter(
-    (player): player is { id: number; fullName: string; email: string } => player !== null,
+    (player): player is { id: number; fullName: string; nickname?: string | null; email: string } => player !== null,
   );
   const resultModalAwayPlayers = (resultModalAwayTeam?.players ?? []).filter(
-    (player): player is { id: number; fullName: string; email: string } => player !== null,
+    (player): player is { id: number; fullName: string; nickname?: string | null; email: string } => player !== null,
   );
-  const resultModalHomeGoals = resultModalHomePlayers.reduce((sum, player) => sum + statFor(player.id).goals, 0);
-  const resultModalAwayGoals = resultModalAwayPlayers.reduce((sum, player) => sum + statFor(player.id).goals, 0);
+  const resultModalHomeGoals = resultModalMatch
+    ? resultModalHomePlayers.reduce((sum, player) => sum + statFor(resultModalMatch.homeTeamId, player.id).goals, 0)
+    : 0;
+  const resultModalAwayGoals = resultModalMatch
+    ? resultModalAwayPlayers.reduce((sum, player) => sum + statFor(resultModalMatch.awayTeamId, player.id).goals, 0)
+    : 0;
 
   return (
     <div className="space-y-8">
@@ -1459,7 +1545,8 @@ function TournamentsPanel({ user }: { user: AppUser }) {
             <Button
               type="button"
               variant="secondary"
-              disabled={!currentTournament}
+              disabled={!currentTournament || currentTournament.requestStatus !== "aprobado"}
+              title={currentTournament && currentTournament.requestStatus !== "aprobado" ? "Este torneo todavía no fue aprobado" : undefined}
               onClick={() => selectedTournamentId ? startTournament(selectedTournamentId) : null}
             >
               Iniciar torneo
@@ -1535,40 +1622,69 @@ function TournamentsPanel({ user }: { user: AppUser }) {
         <section>
           <SectionLabel icon={Trophy} className="mb-3">Torneos existentes</SectionLabel>
           <div className="space-y-4">
-            {data.tournaments.map((tournament) => (
-              <Card key={tournament.id} className="gap-3">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-display text-lg font-black leading-tight tracking-tight text-black">{tournament.name}</h3>
-                    <p className="mt-1 font-mono text-[11px] uppercase tracking-wider text-muted">{tournament.format} · {tournament.startDate} a {tournament.endDate}</p>
-                    <p className="mt-1 flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-muted">
-                      <MapPin size={12} strokeWidth={2} aria-hidden />
-                      {courtName(tournament.courtId)}
-                    </p>
+            {data.tournaments.map((tournament) => {
+              const canRespond =
+                tournament.requestStatus === "pendiente" &&
+                (isAdmin(user) || courts.find((court) => court.id === tournament.courtId)?.tenantId === user.id);
+
+              return (
+                <Card key={tournament.id} className="gap-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-display text-lg font-black leading-tight tracking-tight text-black">{tournament.name}</h3>
+                      <p className="mt-1 font-mono text-[11px] uppercase tracking-wider text-muted">{tournament.format} · {tournament.startDate} a {tournament.endDate}</p>
+                      <p className="mt-1 flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-muted">
+                        <MapPin size={12} strokeWidth={2} aria-hidden />
+                        {courtName(tournament.courtId)}
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1.5">
+                      <Badge>{tournament.status}</Badge>
+                      <RowTag tone={tournament.requestStatus === "aprobado" ? "positive" : tournament.requestStatus === "rechazado" ? "negative" : "default"}>
+                        {tournament.requestStatus === "pendiente" ? "Solicitud pendiente" : tournament.requestStatus === "aprobado" ? "Aprobado" : "Rechazado"}
+                      </RowTag>
+                    </div>
                   </div>
-                  <Badge>{tournament.status}</Badge>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {teams.map((team) => (
-                    <Button
-                      key={team.id}
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        setSelectedTournamentId(tournament.id);
-                        void enrollTeam(team.id);
-                      }}
-                    >
-                      + {team.name}
-                    </Button>
-                  ))}
-                </div>
-                <p className="font-mono text-[10px] uppercase tracking-wider text-muted">
-                  Equipos inscritos: {tournament.teamIds.length} / {tournament.teamsRequired}
-                </p>
-              </Card>
-            ))}
+
+                  {tournament.requestStatus === "rechazado" && tournament.rejectionReason ? (
+                    <p className="font-mono text-[11px] uppercase tracking-wider text-muted">Motivo: {tournament.rejectionReason}</p>
+                  ) : null}
+
+                  {canRespond ? (
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" size="sm" onClick={() => respondToRequest(tournament.id, "approve")}>
+                        Aprobar solicitud
+                      </Button>
+                      <Button type="button" variant="destructive" size="sm" onClick={() => respondToRequest(tournament.id, "reject")}>
+                        Rechazar solicitud
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {teams.map((team) => (
+                        <Button
+                          key={team.id}
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          disabled={tournament.requestStatus !== "aprobado"}
+                          title={tournament.requestStatus !== "aprobado" ? "Este torneo todavía no fue aprobado" : undefined}
+                          onClick={() => {
+                            setSelectedTournamentId(tournament.id);
+                            void enrollTeam(team.id);
+                          }}
+                        >
+                          + {team.name}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                  <p className="font-mono text-[10px] uppercase tracking-wider text-muted">
+                    Equipos inscritos: {tournament.teamIds.length} / {tournament.teamsRequired}
+                  </p>
+                </Card>
+              );
+            })}
           </div>
         </section>
 
@@ -1662,9 +1778,9 @@ function TournamentsPanel({ user }: { user: AppUser }) {
                     {resultModalHomePlayers.map((player) => (
                       <PlayerStatRow
                         key={player.id}
-                        name={player.fullName}
-                        stat={statFor(player.id)}
-                        onChange={(patch) => updateStat(player.id, patch)}
+                        name={displayName(player)}
+                        stat={statFor(resultModalMatch.homeTeamId, player.id)}
+                        onChange={(patch) => updateStat(resultModalMatch.homeTeamId, player.id, patch)}
                       />
                     ))}
                   </div>
@@ -1679,9 +1795,9 @@ function TournamentsPanel({ user }: { user: AppUser }) {
                     {resultModalAwayPlayers.map((player) => (
                       <PlayerStatRow
                         key={player.id}
-                        name={player.fullName}
-                        stat={statFor(player.id)}
-                        onChange={(patch) => updateStat(player.id, patch)}
+                        name={displayName(player)}
+                        stat={statFor(resultModalMatch.awayTeamId, player.id)}
+                        onChange={(patch) => updateStat(resultModalMatch.awayTeamId, player.id, patch)}
                       />
                     ))}
                   </div>
@@ -1719,30 +1835,49 @@ function MyTournamentsPanel({ user }: { user: AppUser }) {
   const [teams, setTeams] = useState<TeamCard[]>([]);
   const [courts, setCourts] = useState<CourtCard[]>([]);
   const [message, setMessage] = useState("");
+  const [requestForm, setRequestForm] = useState<{
+    name: string;
+    format: string;
+    fixtureMode: "aleatorio" | "manual";
+    courtId: number | null;
+    teamIds: number[];
+    startDate: string;
+    endDate: string;
+  }>({
+    name: "",
+    format: "todos-contra-todos",
+    fixtureMode: "aleatorio",
+    courtId: null,
+    teamIds: [],
+    startDate: todayIso(),
+    endDate: todayIso(),
+  });
+
+  async function load() {
+    const [tournamentsResponse, teamsResponse, courtsResponse] = await Promise.all([
+      fetch("/api/tournaments"),
+      fetch("/api/teams"),
+      fetch("/api/courts"),
+    ]);
+    const tournamentsPayload = await readJson<ApiResponse<{ tournaments: TournamentCard[] }>>(tournamentsResponse);
+    const teamsPayload = await readJson<ApiResponse<{ teams: TeamCard[] }>>(teamsResponse);
+    const courtsPayload = await readJson<ApiResponse<{ courts: CourtCard[] }>>(courtsResponse);
+    if (!tournamentsResponse.ok) {
+      throw new Error(tournamentsPayload.error || "No pudimos cargar los torneos");
+    }
+    if (!teamsResponse.ok) {
+      throw new Error(teamsPayload.error || "No pudimos cargar los equipos");
+    }
+    if (!courtsResponse.ok) {
+      throw new Error(courtsPayload.error || "No pudimos cargar las canchas");
+    }
+    setTournaments(tournamentsPayload.tournaments);
+    setTeams(teamsPayload.teams);
+    setCourts(courtsPayload.courts);
+  }
 
   useEffect(() => {
-    async function load() {
-      const [tournamentsResponse, teamsResponse, courtsResponse] = await Promise.all([
-        fetch("/api/tournaments"),
-        fetch("/api/teams"),
-        fetch("/api/courts"),
-      ]);
-      const tournamentsPayload = await readJson<ApiResponse<{ tournaments: TournamentCard[] }>>(tournamentsResponse);
-      const teamsPayload = await readJson<ApiResponse<{ teams: TeamCard[] }>>(teamsResponse);
-      const courtsPayload = await readJson<ApiResponse<{ courts: CourtCard[] }>>(courtsResponse);
-      if (!tournamentsResponse.ok) {
-        throw new Error(tournamentsPayload.error || "No pudimos cargar los torneos");
-      }
-      if (!teamsResponse.ok) {
-        throw new Error(teamsPayload.error || "No pudimos cargar los equipos");
-      }
-      if (!courtsResponse.ok) {
-        throw new Error(courtsPayload.error || "No pudimos cargar las canchas");
-      }
-      setTournaments(tournamentsPayload.tournaments);
-      setTeams(teamsPayload.teams);
-      setCourts(courtsPayload.courts);
-    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load().catch((error) => setMessage(error instanceof Error ? error.message : "No pudimos cargar los torneos"));
   }, []);
 
@@ -1756,6 +1891,45 @@ function MyTournamentsPanel({ user }: { user: AppUser }) {
     [tournaments, myTeamIds]
   );
 
+  function toggleRequestFormTeam(teamId: number) {
+    setRequestForm((current) => ({
+      ...current,
+      teamIds: current.teamIds.includes(teamId)
+        ? current.teamIds.filter((id) => id !== teamId)
+        : [...current.teamIds, teamId],
+    }));
+  }
+
+  async function requestTournament() {
+    setMessage("");
+    if (!requestForm.name.trim()) {
+      setMessage("Ponele un nombre al torneo");
+      return;
+    }
+    if (!requestForm.courtId) {
+      setMessage("Selecciona la cancha donde te gustaría jugar el torneo");
+      return;
+    }
+    if (requestForm.teamIds.length < 2) {
+      setMessage("Selecciona al menos dos equipos participantes");
+      return;
+    }
+
+    const response = await fetch("/api/tournaments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "create", userId: user.id, role: user.role, ...requestForm }),
+    });
+    const payload = await readJson<ApiResponse<{ tournament?: TournamentCard }>>(response);
+    if (!response.ok) {
+      setMessage(payload.error || "No pudimos enviar la solicitud");
+      return;
+    }
+    setMessage("Solicitud enviada al dueño de la cancha. Te avisaremos cuando la revise.");
+    setRequestForm((current) => ({ ...current, name: "", courtId: null, teamIds: [] }));
+    await load();
+  }
+
   function teamName(teamId: number) {
     return teams.find((team) => team.id === teamId)?.name ?? `Equipo #${teamId}`;
   }
@@ -1765,12 +1939,69 @@ function MyTournamentsPanel({ user }: { user: AppUser }) {
   }
 
   return (
-    <PanelShell
-      title="Mis torneos"
-      description="Torneos en los que participás junto con el calendario de partidos y la tabla de posiciones."
-      action={<StatusPill>{myTournaments.length} torneos</StatusPill>}
-    >
-      {message ? <MessageBanner message={message} /> : null}
+    <div className="space-y-8">
+      <PanelShell
+        title="Solicitar un torneo"
+        description="Completá los datos y el dueño de la cancha revisará tu solicitud antes de aprobarla."
+      >
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <input className={fieldClassName} placeholder="Nombre del torneo" value={requestForm.name} onChange={(event) => setRequestForm((current) => ({ ...current, name: event.target.value }))} />
+          <div className="relative">
+            <select className={fieldClassName} value={requestForm.format} onChange={(event) => setRequestForm((current) => ({ ...current, format: event.target.value }))}>
+              <option value="todos-contra-todos">Todos contra todos</option>
+              <option value="eliminatorio">Eliminatorio</option>
+            </select>
+            <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
+          </div>
+          <div className="relative">
+            <select className={fieldClassName} value={requestForm.fixtureMode} onChange={(event) => setRequestForm((current) => ({ ...current, fixtureMode: event.target.value === "manual" ? "manual" : "aleatorio" }))}>
+              <option value="aleatorio">Fixture aleatorio</option>
+              <option value="manual">Fixture manual</option>
+            </select>
+            <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
+          </div>
+          <div className="relative">
+            <select className={fieldClassName} value={requestForm.courtId ?? ""} onChange={(event) => setRequestForm((current) => ({ ...current, courtId: event.target.value ? Number(event.target.value) : null }))}>
+              <option value="">Selecciona la cancha</option>
+              {courts.map((court) => <option key={court.id} value={court.id}>{court.name}</option>)}
+            </select>
+            <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
+          </div>
+          <Button type="button" onClick={requestTournament}>Solicitar torneo</Button>
+        </div>
+        <div className="mt-4">
+          <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-muted">
+            Equipos participantes ({requestForm.teamIds.length} seleccionados)
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {teams.length > 0 ? teams.map((team) => {
+              const isSelected = requestForm.teamIds.includes(team.id);
+              return (
+                <Button
+                  key={team.id}
+                  type="button"
+                  variant={isSelected ? "default" : "secondary"}
+                  size="sm"
+                  onClick={() => toggleRequestFormTeam(team.id)}
+                >
+                  {isSelected ? "✓ " : "+ "}{team.name}
+                </Button>
+              );
+            }) : <p className="font-mono text-[11px] uppercase tracking-wider text-muted">No hay equipos creados todavía. Creá equipos en la pestaña Plantilla.</p>}
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <input type="date" className={fieldClassName} value={requestForm.startDate} onChange={(event) => setRequestForm((current) => ({ ...current, startDate: event.target.value }))} />
+          <input type="date" className={fieldClassName} value={requestForm.endDate} onChange={(event) => setRequestForm((current) => ({ ...current, endDate: event.target.value }))} />
+        </div>
+        {message ? <div className="mt-4"><MessageBanner message={message} /></div> : null}
+      </PanelShell>
+
+      <PanelShell
+        title="Mis torneos"
+        description="Torneos en los que participás junto con el calendario de partidos y la tabla de posiciones."
+        action={<StatusPill>{myTournaments.length} torneos</StatusPill>}
+      >
       {myTournaments.length > 0 ? (
         <div className="space-y-4">
           {myTournaments.map((tournament) => (
@@ -1784,8 +2015,16 @@ function MyTournamentsPanel({ user }: { user: AppUser }) {
                     {courtName(tournament.courtId)}
                   </p>
                 </div>
-                <Badge>{tournament.status}</Badge>
+                <div className="flex flex-col items-end gap-1.5">
+                  <Badge>{tournament.status}</Badge>
+                  <RowTag tone={tournament.requestStatus === "aprobado" ? "positive" : tournament.requestStatus === "rechazado" ? "negative" : "default"}>
+                    {tournament.requestStatus === "pendiente" ? "Solicitud pendiente" : tournament.requestStatus === "aprobado" ? "Aprobado" : "Rechazado"}
+                  </RowTag>
+                </div>
               </div>
+              {tournament.requestStatus === "rechazado" && tournament.rejectionReason ? (
+                <p className="font-mono text-[11px] uppercase tracking-wider text-muted">Motivo: {tournament.rejectionReason}</p>
+              ) : null}
 
               <div className="space-y-2">
                 {tournament.fixture.length > 0 ? (
@@ -1836,7 +2075,79 @@ function MyTournamentsPanel({ user }: { user: AppUser }) {
       ) : (
         <p className="font-mono text-[11px] uppercase tracking-wider text-muted">Todavía no participás en ningún torneo.</p>
       )}
-    </PanelShell>
+      </PanelShell>
+    </div>
+  );
+}
+
+// Aviso opcional y descartable tras iniciar sesión para quien todavía no tiene
+// apodo: no bloquea el uso de la app, solo invita a diferenciarse de otros
+// jugadores con el mismo nombre. Se recuerda el "ahora no" por pestaña/sesión
+// (sessionStorage), así que vuelve a aparecer en el próximo login si sigue sin apodo.
+function NicknamePrompt({ user, onSaved }: { user: AppUser; onSaved: (nickname: string) => void }) {
+  const dismissKey = `nickname-prompt-dismissed-${user.id}`;
+  const [dismissed, setDismissed] = useState(
+    () => typeof window !== "undefined" && sessionStorage.getItem(dismissKey) === "1",
+  );
+  const [nickname, setNickname] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  function dismiss() {
+    sessionStorage.setItem(dismissKey, "1");
+    setDismissed(true);
+  }
+
+  async function save() {
+    if (!nickname.trim()) {
+      dismiss();
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, nickname: nickname.trim() }),
+      });
+      const payload = await readJson<ApiResponse<Record<string, never>>>(response);
+      if (!response.ok) {
+        setError(payload.error || "No pudimos guardar el apodo");
+        return;
+      }
+      onSaved(nickname.trim());
+      dismiss();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal open={!user.nickname && !dismissed} onClose={dismiss} title="Agregá un apodo">
+      <div className="space-y-3">
+        <p className="font-sans text-sm text-black">
+          Un apodo te ayuda a diferenciarte de otros jugadores con el mismo nombre en plantillas y torneos. Es opcional y lo podés cambiar cuando quieras desde tu perfil.
+        </p>
+        <input
+          value={nickname}
+          onChange={(event) => setNickname(event.target.value)}
+          placeholder="Cómo te dicen en la cancha"
+          maxLength={50}
+          autoFocus
+          className={fieldClassName}
+        />
+        {error ? <p className="font-mono text-[11px] uppercase tracking-wider text-red-700">{error}</p> : null}
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" size="sm" onClick={save} disabled={saving}>
+            {saving ? "Guardando…" : "Guardar apodo"}
+          </Button>
+          <Button type="button" size="sm" variant="secondary" onClick={dismiss}>
+            Ahora no
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -1848,6 +2159,7 @@ type ProfilePanelProps = {
 function ProfilePanel({user, onRequestTenant}: ProfilePanelProps) {
   const [profile, setProfile] = useState<AnyProfileSnapshot | null>(null);
   const [message, setMessage] = useState("");
+  const [nicknameDraft, setNicknameDraft] = useState("");
 
   async function loadProfile() {
     const response = await fetch(`/api/profile?userId=${user.id}`);
@@ -1856,12 +2168,28 @@ function ProfilePanel({user, onRequestTenant}: ProfilePanelProps) {
       throw new Error(payload.error || "No pudimos cargar el perfil");
     }
     setProfile(payload);
+    setNicknameDraft(payload.user.nickname ?? "");
   }
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadProfile().catch((error) => setMessage(error instanceof Error ? error.message : "No pudimos cargar el perfil"));
   }, []);
+
+  async function saveNickname() {
+    const response = await fetch("/api/profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: user.id, nickname: nicknameDraft.trim() || null }),
+    });
+    const payload = await readJson<ApiResponse<Record<string, never>>>(response);
+    if (!response.ok) {
+      setMessage(payload.error || "No pudimos actualizar el apodo");
+      return;
+    }
+    setMessage("Apodo actualizado.");
+    await loadProfile();
+  }
 
   async function updateVisibility(nextVisibility: "public" | "private") {
     const response = await fetch("/api/profile", {
@@ -1906,8 +2234,18 @@ function ProfilePanel({user, onRequestTenant}: ProfilePanelProps) {
         <div className="grid gap-4 xl:grid-cols-3">
           <Card nested>
             <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Dueño de cancha</p>
-            <h3 className="mt-2 font-display text-xl font-black leading-tight tracking-tight text-black">{profile.user.fullName}</h3>
+            <h3 className="mt-2 font-display text-xl font-black leading-tight tracking-tight text-black">{displayName(profile.user)}</h3>
             <p className="font-sans text-sm text-muted">{profile.user.email}</p>
+            <div className="mt-3 flex items-center gap-2">
+              <input
+                value={nicknameDraft}
+                onChange={(event) => setNicknameDraft(event.target.value)}
+                placeholder="Apodo (opcional)"
+                maxLength={50}
+                className={`${fieldClassName} h-9 flex-1`}
+              />
+              <Button type="button" size="sm" variant="secondary" onClick={saveNickname}>Guardar</Button>
+            </div>
             <Button type="button" size="sm" variant="secondary" className="mt-3" onClick={() => updateNotifications(!profile.user.notificationsEnabled)}>
               {profile.user.notificationsEnabled ? "Desactivar notificaciones" : "Activar notificaciones"}
             </Button>
@@ -1958,8 +2296,18 @@ function ProfilePanel({user, onRequestTenant}: ProfilePanelProps) {
         <div className="grid gap-4 xl:grid-cols-3">
           <Card nested>
             <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Jugador</p>
-            <h3 className="mt-2 font-display text-xl font-black leading-tight tracking-tight text-black">{profile.user.fullName}</h3>
+            <h3 className="mt-2 font-display text-xl font-black leading-tight tracking-tight text-black">{displayName(profile.user)}</h3>
             <p className="font-sans text-sm text-muted">{profile.user.email}</p>
+            <div className="mt-3 flex items-center gap-2">
+              <input
+                value={nicknameDraft}
+                onChange={(event) => setNicknameDraft(event.target.value)}
+                placeholder="Apodo (opcional)"
+                maxLength={50}
+                className={`${fieldClassName} h-9 flex-1`}
+              />
+              <Button type="button" size="sm" variant="secondary" onClick={saveNickname}>Guardar</Button>
+            </div>
             <p className="mt-3 font-sans text-sm text-black">Rol: {humanRole(profile.user.role)}</p>
             <p className="font-sans text-sm text-black">Notificaciones: {profile.user.notificationsEnabled ? "activas" : "desactivadas"}</p>
           </Card>
@@ -2024,12 +2372,12 @@ function ProfilePanel({user, onRequestTenant}: ProfilePanelProps) {
 function TeamsPanel({ user }: { user: AppUser }) {
   const [teams, setTeams] = useState<TeamCard[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
+  const [courts, setCourts] = useState<CourtCard[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState<number | null>(null);
   const [playerSearch, setPlayerSearch] = useState("");
   const [newTeamName, setNewTeamName] = useState("");
-  const [scheduledAt, setScheduledAt] = useState(nextHourDateTimeLocal());
-  const [courtName, setCourtName] = useState("Complejo Norte - Cancha A");
+  const [selectedReservationId, setSelectedReservationId] = useState<number | null>(null);
   const [message, setMessage] = useState("");
 
   const myTeams = useMemo(
@@ -2049,16 +2397,16 @@ function TeamsPanel({ user }: { user: AppUser }) {
     return users.filter(
       (candidate) =>
         candidate.fullName.toLowerCase().includes(query) ||
+        (candidate.nickname?.toLowerCase().includes(query) ?? false) ||
         candidate.email.toLowerCase().includes(query)
     );
   }, [users, playerSearch]);
 
   function captainName(team: TeamCard) {
-    return (
-      team.players.find((player) => player?.id === team.captainUserId)?.fullName ??
-      users.find((candidate) => candidate.id === team.captainUserId)?.fullName ??
-      `Jugador #${team.captainUserId}`
-    );
+    const captain =
+      team.players.find((player) => player?.id === team.captainUserId) ??
+      users.find((candidate) => candidate.id === team.captainUserId);
+    return captain ? displayName(captain) : `Jugador #${team.captainUserId}`;
   }
 
   async function loadTeams() {
@@ -2077,10 +2425,34 @@ function TeamsPanel({ user }: { user: AppUser }) {
     }
   }
 
+  async function loadCourts() {
+    const response = await fetch(`/api/courts?userId=${user.id}`);
+    const payload = await readJson<ApiResponse<{ courts: CourtCard[] }>>(response);
+    if (!response.ok) {
+      throw new Error(payload.error || "No pudimos cargar tus reservas");
+    }
+    setCourts(payload.courts);
+  }
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadTeams().catch((error) => setMessage(error instanceof Error ? error.message : "No pudimos cargar la plantilla"));
+    void Promise.all([loadTeams(), loadCourts()]).catch((error) =>
+      setMessage(error instanceof Error ? error.message : "No pudimos cargar la plantilla"),
+    );
   }, []);
+
+  // Reservas propias del capitán (cualquier cancha), para convocar sin tener
+  // que tipear fecha/hora/cancha a mano — se eligen entre lo que ya reservó.
+  const myReservations = useMemo(
+    () =>
+      courts
+        .flatMap((court) => court.reservations.map((reservation) => ({ ...reservation, courtName: court.name })))
+        .filter((reservation) => reservation.userId === user.id && reservation.status !== "cancelada" && reservation.status !== "rechazada" && reservation.date >= todayIso())
+        .sort((left, right) => (left.date === right.date ? left.timeSlot.localeCompare(right.timeSlot) : left.date.localeCompare(right.date))),
+    [courts, user.id],
+  );
+
+  const selectedReservation = myReservations.find((reservation) => reservation.id === selectedReservationId) ?? null;
 
   async function createNewTeam() {
     if (!newTeamName.trim()) return;
@@ -2120,11 +2492,17 @@ function TeamsPanel({ user }: { user: AppUser }) {
   }
 
   async function sendConvocation() {
-    if (!selectedTeamId) return;
+    if (!selectedTeamId || !selectedReservation) return;
     const response = await fetch("/api/teams", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "convocation", teamId: selectedTeamId, userId: user.id, scheduledAt, courtName }),
+      body: JSON.stringify({
+        action: "convocation",
+        teamId: selectedTeamId,
+        userId: user.id,
+        scheduledAt: `${selectedReservation.date} ${selectedReservation.timeSlot}`,
+        courtName: selectedReservation.courtName,
+      }),
     });
     const payload = await readJson<ApiResponse<Record<string, never>>>(response);
     if (!response.ok) {
@@ -2158,7 +2536,7 @@ function TeamsPanel({ user }: { user: AppUser }) {
             </div>
             <input
               type="search"
-              placeholder="Buscar jugador por nombre o correo…"
+              placeholder="Buscar jugador por nombre, apodo o correo…"
               value={playerSearch}
               onChange={(event) => setPlayerSearch(event.target.value)}
               className={fieldClassName}
@@ -2167,7 +2545,7 @@ function TeamsPanel({ user }: { user: AppUser }) {
           <div className="relative">
             <select className={fieldClassName} value={selectedPlayerId ?? ""} onChange={(event) => setSelectedPlayerId(event.target.value ? Number(event.target.value) : null)}>
               <option value="">Selecciona un jugador ({filteredUsers.length} resultados)</option>
-              {filteredUsers.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.fullName} · {humanRole(candidate.role)}</option>)}
+              {filteredUsers.map((candidate) => <option key={candidate.id} value={candidate.id}>{displayName(candidate)} · {humanRole(candidate.role)}</option>)}
             </select>
             <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
           </div>
@@ -2178,14 +2556,30 @@ function TeamsPanel({ user }: { user: AppUser }) {
         </Card>
 
         <Card className="gap-3">
-          <div className="grid gap-3 md:grid-cols-2">
-            <input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} className={fieldClassName} />
-            <input value={courtName} onChange={(event) => setCourtName(event.target.value)} className={fieldClassName} placeholder="Cancha" />
+          <div className="relative">
+            <select
+              className={fieldClassName}
+              value={selectedReservationId ?? ""}
+              onChange={(event) => setSelectedReservationId(event.target.value ? Number(event.target.value) : null)}
+            >
+              <option value="">Selecciona una de tus reservas</option>
+              {myReservations.map((reservation) => (
+                <option key={reservation.id} value={reservation.id}>
+                  {reservation.courtName} · {reservation.date} · {reservation.timeSlot}
+                </option>
+              ))}
+            </select>
+            <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
           </div>
+          {myReservations.length === 0 ? (
+            <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
+              No tenés reservas próximas. Reservá una cancha para poder convocar a la plantilla.
+            </p>
+          ) : null}
           <Button
             type="button"
             onClick={sendConvocation}
-            disabled={!selectedTeam || !isCaptainOfSelected}
+            disabled={!selectedTeam || !isCaptainOfSelected || !selectedReservation}
             title={selectedTeam && !isCaptainOfSelected ? "Solo el capitán del equipo puede enviar convocatorias" : undefined}
           >
             Enviar convocatoria
@@ -2212,7 +2606,7 @@ function TeamsPanel({ user }: { user: AppUser }) {
               {team.players.map((player) => (
                 <Row
                   key={player?.id ?? `${team.id}-empty`}
-                  title={player ? player.fullName : "Vacante"}
+                  title={player ? displayName(player) : "Vacante"}
                   disabled={!player}
                 />
               ))}
@@ -2240,6 +2634,8 @@ function notificationTypeLabel(type: string) {
       return "Pago dividido";
     case "match-invite":
       return "Invitación";
+    case "account-status":
+      return "Estado de cuenta";
     default:
       return type;
   }
@@ -2408,17 +2804,217 @@ function TenantPaymentsPanel({ user }: { user: AppUser }) {
   );
 }
 
-export function DashboardScreen({ user, onLogout }: DashboardScreenProps) {
+function AdminPanel({ user }: { user: AppUser }) {
+  const [users, setUsers] = useState<AdminUserRow[]>([]);
+  const [courts, setCourts] = useState<AdminCourtRow[]>([]);
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function loadUsers() {
+    const response = await fetch("/api/admin/users");
+    const payload = await readJson<ApiResponse<{ users: AdminUserRow[] }>>(response);
+    if (!response.ok) {
+      throw new Error(payload.error || "No pudimos cargar los usuarios");
+    }
+    setUsers(payload.users);
+  }
+
+  async function loadCourts() {
+    const response = await fetch("/api/admin/courts");
+    const payload = await readJson<ApiResponse<{ courts: AdminCourtRow[] }>>(response);
+    if (!response.ok) {
+      throw new Error(payload.error || "No pudimos cargar las canchas");
+    }
+    setCourts(payload.courts);
+  }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void Promise.all([loadUsers(), loadCourts()]).catch((error) =>
+      setMessage(error instanceof Error ? error.message : "No pudimos cargar la información"),
+    );
+  }, []);
+
+  const roleOptions = useMemo(() => {
+    const roles = new Set(users.map((candidate) => candidate.role));
+    return Array.from(roles);
+  }, [users]);
+
+  const filteredUsers = useMemo(
+    () => (roleFilter === "all" ? users : users.filter((candidate) => candidate.role === roleFilter)),
+    [users, roleFilter],
+  );
+
+  const courtsByTenant = useMemo(() => {
+    const groups = new Map<number, { tenantName: string; tenantEmail: string; courts: AdminCourtRow[] }>();
+    for (const court of courts) {
+      const group = groups.get(court.tenantId);
+      if (group) {
+        group.courts.push(court);
+      } else {
+        groups.set(court.tenantId, { tenantName: court.tenantName, tenantEmail: court.tenantEmail, courts: [court] });
+      }
+    }
+    return Array.from(groups.values());
+  }, [courts]);
+
+  async function respondToTenant(userId: number, action: "verify" | "suspend") {
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, adminId: user.id, adminRole: user.role, action }),
+      });
+      const payload = await readJson<ApiResponse<Record<string, never>>>(response);
+      if (!response.ok) {
+        throw new Error(payload.error || "No pudimos procesar la acción");
+      }
+      setMessage(action === "verify" ? "Cuenta verificada." : "Cuenta suspendida.");
+      await loadUsers();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No pudimos procesar la acción");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleCourtActive(courtId: number, isActive: boolean) {
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/admin/courts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ courtId, isActive }),
+      });
+      const payload = await readJson<ApiResponse<Record<string, never>>>(response);
+      if (!response.ok) {
+        throw new Error(payload.error || "No pudimos actualizar la cancha");
+      }
+      setMessage(isActive ? "Cancha activada." : "Cancha desactivada.");
+      await loadCourts();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No pudimos actualizar la cancha");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-8">
+      {message ? <MessageBanner message={message} /> : null}
+
+      <PanelShell
+        title="Usuarios"
+        description="Todos los usuarios registrados, de cualquier rol. Las cuentas tenant necesitan verificación antes de operar."
+        action={<StatusPill>{filteredUsers.length} usuarios</StatusPill>}
+      >
+        <div className="relative mb-4 max-w-xs">
+          <select className={fieldClassName} value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>
+            <option value="all">Todos los roles</option>
+            {roleOptions.map((role) => <option key={role} value={role}>{role}</option>)}
+          </select>
+          <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
+        </div>
+        <ul>
+          {filteredUsers.map((candidate) => (
+            <Row
+              key={candidate.id}
+              title={displayName(candidate)}
+              meta={`${candidate.email} · ${candidate.roleLabel}`}
+              right={
+                <div className="flex items-center gap-2">
+                  <RowTag tone={candidate.status === "verificado" ? "positive" : candidate.status === "suspendido" ? "negative" : "default"}>
+                    {candidate.status}
+                  </RowTag>
+                  {candidate.role === "tenant" ? (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        disabled={busy || candidate.status === "verificado"}
+                        onClick={() => respondToTenant(candidate.id, "verify")}
+                      >
+                        Verificar
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        disabled={busy || candidate.status === "suspendido"}
+                        onClick={() => respondToTenant(candidate.id, "suspend")}
+                      >
+                        Suspender
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              }
+            />
+          ))}
+        </ul>
+      </PanelShell>
+
+      <PanelShell
+        title="Canchas por dueño"
+        description="Todas las canchas registradas, agrupadas por el tenant que las administra."
+        action={<StatusPill>{courts.length} canchas</StatusPill>}
+      >
+        {courtsByTenant.length > 0 ? (
+          <div className="space-y-4">
+            {courtsByTenant.map((group) => (
+              <Card key={group.tenantEmail} className="gap-3">
+                <div>
+                  <h3 className="font-display text-lg font-black leading-tight tracking-tight text-black">{group.tenantName}</h3>
+                  <p className="font-mono text-[11px] uppercase tracking-wider text-muted">{group.tenantEmail}</p>
+                </div>
+                <ul>
+                  {group.courts.map((court) => (
+                    <Row
+                      key={court.id}
+                      title={court.name}
+                      meta={`${court.address ?? "Sin dirección"}${court.pricePerHour ? ` · $${court.pricePerHour}/h` : ""}`}
+                      right={
+                        <div className="flex items-center gap-2">
+                          <RowTag tone={court.isActive ? "positive" : "negative"}>{court.isActive ? "Activa" : "Inactiva"}</RowTag>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={busy}
+                            onClick={() => toggleCourtActive(court.id, !court.isActive)}
+                          >
+                            {court.isActive ? "Desactivar" : "Activar"}
+                          </Button>
+                        </div>
+                      }
+                    />
+                  ))}
+                </ul>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <p className="font-mono text-[11px] uppercase tracking-wider text-muted">No hay canchas registradas todavía.</p>
+        )}
+      </PanelShell>
+    </div>
+  );
+}
+
+export function DashboardScreen({ user, onLogout, onUserUpdate }: DashboardScreenProps) {
   const [activeTab, setActiveTab] = useState<(typeof tabButtons)[number]["id"]>("reservas");
+  const visibleTabs = tabButtons.filter((tab) => tab.id !== "administracion" || isAdmin(user));
 
   return (
     <div className="min-h-screen bg-paper px-4 py-6 font-sans sm:px-6 lg:px-8">
+      <NicknamePrompt user={user} onSaved={(nickname) => onUserUpdate({ ...user, nickname })} />
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
         <header className="flex flex-col gap-4 border border-black bg-paper p-5 shadow-hard lg:flex-row lg:items-center lg:justify-between">
           <div>
             <StatusPill>Sesión activa</StatusPill>
             <h1 className="mt-3 font-display text-3xl font-black leading-none tracking-tight text-black">
-              Hola, {user.fullName}
+              Hola, {user.nickname || user.fullName}
             </h1>
             <p className="mt-2 font-mono text-[11px] uppercase tracking-wider text-muted">
               {humanRole(user.role)} · {user.email}
@@ -2426,7 +3022,7 @@ export function DashboardScreen({ user, onLogout }: DashboardScreenProps) {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {tabButtons.map((tab) => {
+            {visibleTabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
               return (
@@ -2464,6 +3060,7 @@ export function DashboardScreen({ user, onLogout }: DashboardScreenProps) {
         {activeTab === "plantilla" ? <TeamsPanel user={user} /> : null}
         {activeTab === "tenant-request" ? (<TenantRequestScreen />) : null}
         {activeTab === "notificaciones" ? <NotificationsPanel user={user} /> : null}
+        {activeTab === "administracion" && isAdmin(user) ? <AdminPanel user={user} /> : null}
       </div>
     </div>
   );

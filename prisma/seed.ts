@@ -3,7 +3,8 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import bcrypt from "bcryptjs";
 import { config } from "dotenv";
 
-config({ path: ".env.local" });
+// quiet: true evita que dotenv imprima sus "tips" promocionales en cada carga
+config({ path: ".env.local", quiet: true });
 
 const connectionString = process.env.DATABASE_URL;
 const adapter = connectionString ? new PrismaPg({ connectionString }) : undefined;
@@ -27,6 +28,25 @@ async function main() {
   }
   console.log(`Roles creados: ${Object.keys(roles).length}`);
 
+  // Catálogo compartido de estados (antes 3 enums separados: TenantStatus,
+  // TournamentStatus, PaymentStatus). Solo "pendiente" es común a los tres.
+  const estadosData = [
+    { name: "pendiente", label: "Pendiente" },
+    { name: "verificado", label: "Verificado" },
+    { name: "suspendido", label: "Suspendido" },
+    { name: "aprobado", label: "Aprobado" },
+    { name: "rechazado", label: "Rechazado" },
+  ];
+  const estados: Record<string, Awaited<ReturnType<typeof prisma.estado.upsert>>> = {};
+  for (const e of estadosData) {
+    estados[e.name] = await prisma.estado.upsert({
+      where: { name: e.name },
+      update: { label: e.label },
+      create: { name: e.name, label: e.label },
+    });
+  }
+  console.log(`Estados creados: ${Object.keys(estados).length}`);
+
   const hashedPlataforma = await bcrypt.hash("Plataforma1234!", 10);
   const hashedTenant = await bcrypt.hash("Tenant1234!", 10);
   const hashedCapitan = await bcrypt.hash("Capitan1234!", 10);
@@ -41,6 +61,7 @@ async function main() {
       email: "plataforma@fieldsync.test",
       password: hashedPlataforma,
       id_role: roles.admin_plataforma.id_role,
+      id_estado: estados.pendiente.id_estado,
       notifications_enabled: true,
     },
   });
@@ -55,7 +76,7 @@ async function main() {
       email: "tenant@fieldsync.test",
       password: hashedTenant,
       id_role: roles.tenant.id_role,
-      status: "verificado",
+      id_estado: estados.verificado.id_estado,
       id_verifier: plataforma.id_user,
       verified_at: new Date("2026-05-01T12:00:00.000Z"),
       notifications_enabled: true,
@@ -65,12 +86,14 @@ async function main() {
 
   const capitan = await prisma.user.upsert({
     where: { email: "capitan@fieldsync.test" },
-    update: {},
+    update: { nickname: "Capi" },
     create: {
       full_name: "Capitan Deportivo",
+      nickname: "Capi",
       email: "capitan@fieldsync.test",
       password: hashedCapitan,
       id_role: roles.jugador.id_role,
+      id_estado: estados.pendiente.id_estado,
       notifications_enabled: true,
     },
   });
@@ -78,12 +101,14 @@ async function main() {
 
   const jugador = await prisma.user.upsert({
     where: { email: "jugador@fieldsync.test" },
-    update: {},
+    update: { nickname: "Duki" },
     create: {
       full_name: "Jugador Demo",
+      nickname: "Duki",
       email: "jugador@fieldsync.test",
       password: hashedJugador,
       id_role: roles.jugador.id_role,
+      id_estado: estados.pendiente.id_estado,
       notifications_enabled: true,
     },
   });
@@ -216,12 +241,12 @@ async function main() {
       start_time: new Date("2026-07-25T19:00:00.000Z"),
       end_time: new Date("2026-08-15T22:00:00.000Z"),
       // Solicitud ya revisada y aprobada por el tenant en el ambiente demo
-      status: "aprobado",
+      id_estado: estados.aprobado.id_estado,
       id_approved_by: tenantOwner.id_user,
       approved_at: new Date("2026-07-20T12:00:00.000Z"),
     },
   });
-  console.log(`Torneo creado: ${tournament.name} (${tournament.status})`);
+  console.log(`Torneo creado: ${tournament.name} (${estados.aprobado.name})`);
 
   for (let i = 0; i < teams.length; i += 1) {
     await prisma.teamTournament.upsert({

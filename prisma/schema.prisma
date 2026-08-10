@@ -12,22 +12,49 @@ datasource db {
 //               Role normalized into its own table; Tournament requests need approval)
 // ============================================================
 
-enum TenantStatus {
-  pendiente
-  verificado
-  suspendido
+// Discriminador de a qué tipo de entidad pertenece una fila de EstadoHistorial.
+// id_entidad guarda el id_user / id_tournament / id_payment correspondiente,
+// pero sin FK real: una misma columna no puede apuntar a tres tablas distintas.
+enum EstadoEntidad {
+  tenant
+  tournament
+  payment
 }
 
-enum TournamentStatus {
-  pendiente
-  aprobado
-  rechazado
+// Catálogo compartido de estados (antes 3 enums separados: TenantStatus,
+// TournamentStatus y PaymentStatus). Solo se comparte el valor "pendiente";
+// cada entidad usa el subconjunto que le corresponde, validado en la app.
+model Estado {
+  id_estado Int    @id @default(autoincrement())
+  name      String @unique @db.VarChar(30) // pendiente | verificado | suspendido | aprobado | rechazado
+  label     String @db.VarChar(60)
+
+  tenants     User[]       @relation("UserEstado")
+  tournaments Tournament[] @relation("TournamentEstado")
+  payments    Payment[]    @relation("PaymentEstado")
+
+  historial_previo EstadoHistorial[] @relation("HistorialEstadoPrevio")
+  historial_nuevo  EstadoHistorial[] @relation("HistorialEstadoNuevo")
+
+  @@map("estado")
 }
 
-enum PaymentStatus {
-  pendiente
-  verificado
-  rechazado
+// Auditoría de cambios de estado para tenants (User), torneos y pagos.
+model EstadoHistorial {
+  id_historial     Int           @id @default(autoincrement())
+  entidad          EstadoEntidad
+  id_entidad       Int
+  id_estado_previo Int?
+  estado_previo    Estado?       @relation("HistorialEstadoPrevio", fields: [id_estado_previo], references: [id_estado], onDelete: SetNull, onUpdate: Cascade)
+  id_estado_nuevo  Int
+  estado_nuevo     Estado        @relation("HistorialEstadoNuevo", fields: [id_estado_nuevo], references: [id_estado], onDelete: Restrict, onUpdate: Cascade)
+  id_changed_by    Int?
+  changed_by       User?         @relation("EstadoHistorialAutor", fields: [id_changed_by], references: [id_user], onDelete: SetNull, onUpdate: Cascade)
+  reason           String?       @db.VarChar(255)
+  changed_at       DateTime      @default(now()) @db.Timestamp()
+
+  @@index([entidad, id_entidad])
+  @@map("estado_historial")
 }
 
 model Role {
@@ -43,6 +70,7 @@ model Role {
 model User {
   id_user               Int      @id @default(autoincrement())
   full_name             String   @db.VarChar(150)
+  nickname              String?  @db.VarChar(50) // apodo opcional para diferenciar usuarios con el mismo nombre
   email                 String   @unique @db.VarChar(150)
   password              String   @db.VarChar(255)
   provider              String   @default("credentials") @db.VarChar(30)
@@ -53,11 +81,15 @@ model User {
   created_at            DateTime @default(now()) @db.Timestamp()
 
   // --- Onboarding / anti-fraude: solo aplica a usuarios con rol "tenant" (HU-11) ---
-  status           TenantStatus @default(pendiente)
+  id_estado        Int
+  estado           Estado    @relation("UserEstado", fields: [id_estado], references: [id_estado], onDelete: Restrict, onUpdate: Cascade)
   id_verifier      Int?
-  verifier         User?        @relation("TenantVerifier", fields: [id_verifier], references: [id_user], onDelete: SetNull, onUpdate: Cascade)
-  verified_at      DateTime?    @db.Timestamp()
-  verified_tenants User[]       @relation("TenantVerifier")
+  verifier         User?     @relation("TenantVerifier", fields: [id_verifier], references: [id_user], onDelete: SetNull, onUpdate: Cascade)
+  verified_at      DateTime? @db.Timestamp()
+  verified_tenants User[]    @relation("TenantVerifier")
+
+  // --- Cambios de estado (propios o realizados por este usuario sobre otros) ---
+  estado_historial_changes EstadoHistorial[] @relation("EstadoHistorialAutor")
 
   reservations   Reservation[]
   notifications  Notification[]
@@ -133,11 +165,12 @@ model Tournament {
   end_time      DateTime
 
   // --- Solicitud de torneo sujeta a aprobación de horarios por el tenant ---
-  status           TournamentStatus @default(pendiente)
+  id_estado        Int
+  estado           Estado    @relation("TournamentEstado", fields: [id_estado], references: [id_estado], onDelete: Restrict, onUpdate: Cascade)
   id_approved_by   Int?
-  approved_by      User?            @relation("TournamentApprover", fields: [id_approved_by], references: [id_user], onDelete: SetNull, onUpdate: Cascade)
-  approved_at      DateTime?        @db.Timestamp()
-  rejection_reason String?          @db.VarChar(255)
+  approved_by      User?     @relation("TournamentApprover", fields: [id_approved_by], references: [id_user], onDelete: SetNull, onUpdate: Cascade)
+  approved_at      DateTime? @db.Timestamp()
+  rejection_reason String?   @db.VarChar(255)
 
   team_tournaments TeamTournament[]
   matches          Match[]
@@ -231,11 +264,12 @@ model Payment {
   payment_date   DateTime    @default(now()) @db.Timestamp()
 
   // --- Verificación del pago por el tenant (dueño de la cancha) ---
-  status           PaymentStatus @default(pendiente)
+  id_estado        Int
+  estado           Estado    @relation("PaymentEstado", fields: [id_estado], references: [id_estado], onDelete: Restrict, onUpdate: Cascade)
   id_verified_by   Int?
-  verified_by      User?         @relation("PaymentVerifier", fields: [id_verified_by], references: [id_user], onDelete: SetNull, onUpdate: Cascade)
-  verified_at      DateTime?     @db.Timestamp()
-  rejection_reason String?       @db.VarChar(255)
+  verified_by      User?     @relation("PaymentVerifier", fields: [id_verified_by], references: [id_user], onDelete: SetNull, onUpdate: Cascade)
+  verified_at      DateTime? @db.Timestamp()
+  rejection_reason String?   @db.VarChar(255)
 
   @@map("payment")
 }

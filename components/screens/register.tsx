@@ -14,6 +14,7 @@ type RegisterScreenProps = {
 
 export function RegisterScreen({ onBackToLogin, onRegistered }: RegisterScreenProps) {
   const [fullName, setFullName] = useState("");
+  const [nickname, setNickname] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -35,7 +36,7 @@ export function RegisterScreen({ onBackToLogin, onRegistered }: RegisterScreenPr
       const response = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fullName, email, password }),
+        body: JSON.stringify({ fullName, nickname, email, password }),
       });
 
       const data = await response.json();
@@ -65,6 +66,7 @@ export function RegisterScreen({ onBackToLogin, onRegistered }: RegisterScreenPr
 
       <RegisterForm
         fullName={fullName}
+        nickname={nickname}
         email={email}
         password={password}
         confirmPassword={confirmPassword}
@@ -73,6 +75,7 @@ export function RegisterScreen({ onBackToLogin, onRegistered }: RegisterScreenPr
         acceptTerms={acceptTerms}
         isLoading={isLoading}
         onFullNameChange={setFullName}
+        onNicknameChange={setNickname}
         onEmailChange={setEmail}
         onPasswordChange={setPassword}
         onConfirmPasswordChange={setConfirmPassword}

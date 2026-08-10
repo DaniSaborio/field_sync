@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(__dirname),
   },
+
+  allowedDevOrigins: ["192.168.0.23", "127.0.0.1", "localhost"]
 };
 
 export default nextConfig;
