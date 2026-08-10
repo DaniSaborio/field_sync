@@ -27,9 +27,13 @@ export async function GET(request: NextRequest) {
         const pendingCount = court.reservations.filter((r) => r.status === "pendiente").length;
         const confirmedCount = court.reservations.filter((r) => r.status === "confirmada").length;
         const verifiedRevenue = court.reservations
+
+         .flatMap((r) => r.payments)
+        .reduce((sum, p) => sum + Number(p.amount), 0);
           .flatMap((r) => r.payments)
           .filter((p) => p.estado.name === "verificado")
           .reduce((sum, p) => sum + Number(p.amount), 0);
+
 
         return {
           id: court.id_court,
