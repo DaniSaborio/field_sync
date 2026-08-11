@@ -6,7 +6,7 @@ export type CourtSurface = "synthetic" | "natural" | "indoor";
 export type TournamentFormat = "eliminatorio" | "todos-contra-todos";
 export type TournamentFixtureMode = "aleatorio" | "manual";
 export type MatchStatus = "scheduled" | "confirmed";
-export type NotificationType = "reservation" | "cancellation" | "tournament" | "convocation" | "match-result" | "payment-split" | "match-invite" | "payment-pending";
+export type NotificationType = "reservation" | "cancellation" | "tournament" | "convocation" | "match-result" | "payment-split" | "match-invite" | "payment-pending" | "account-status";
 
 export type UserRecord = {
   id: number;
@@ -592,6 +592,10 @@ function createNotification(userId: number, type: NotificationType, message: str
   return notification;
 }
 
+export function createUserNotification(userId: number, type: NotificationType, message: string) {
+  return createNotification(userId, type, message);
+}
+
 function findUserById(userId: number) {
   return store.users.find((user) => user.id === userId) ?? null;
 }
@@ -945,19 +949,20 @@ export function reserveCourt(input: {
   courtId: number;
   date: string;
   timeSlot: string;
-  paymentMethod: PaymentMethod | null;
+  paymentMethod?: PaymentMethod | null;
   teamId?: number | null;
   splitPayment?: boolean;
   rivalTeamId?: number | null;
 }) : ReservationResult {
   const user = findUserById(input.userId);
   const court = store.courts.find((item) => item.id === input.courtId) ?? null;
+  const selectedPaymentMethod = input.paymentMethod ?? "sinpe";
 
   if (!user || !court) {
     return { ok: false, error: "No pudimos identificar el usuario o la cancha" };
   }
 
-  if (!input.paymentMethod) {
+  if (!selectedPaymentMethod) {
     return { ok: false, error: "Selecciona un método de pago (SINPE o efectivo)" };
   }
 
@@ -981,7 +986,7 @@ export function reserveCourt(input: {
       ? court.pricePerHourNight
       : court.pricePerHour;
 
-  const paymentLabel = input.paymentMethod === "sinpe" ? "SINPE Móvil" : "efectivo";
+  const paymentLabel = selectedPaymentMethod === "sinpe" ? "SINPE Móvil" : "efectivo";
   const reservation: ReservationRecord = {
     id: nextId("reservation"),
     userId: input.userId,
@@ -991,7 +996,7 @@ export function reserveCourt(input: {
     status: "pendiente",
     createdAt: new Date().toISOString(),
     holdExpiresAt: new Date(Date.now() + HOLD_DURATION_MS).toISOString(),
-    paymentMethod: input.paymentMethod,
+    paymentMethod: selectedPaymentMethod,
     paymentStatus: "pendiente",
     rejectionReason: null,
     amount,
@@ -1177,6 +1182,7 @@ function findSharedPlayerConflict(teamIds: number[]): { teamA: TeamRecord; teamB
 export function createTournament(input: {
   createdByUserId: number;
   creatorRole?: string;
+  tenantId?: number;
   courtId: number;
   name: string;
   format: TournamentFormat;
@@ -1189,10 +1195,9 @@ export function createTournament(input: {
     return { ok: false, error: "El nombre del torneo es obligatorio" };
   }
 
-  // El sistema de torneos vive en este store en memoria, separado de los usuarios
-  // reales en Postgres, así que el rol se toma tal cual lo declara el cliente
-  // (mismo nivel de confianza que el resto de la API en este prototipo).
-  if (!input.creatorRole) {
+  const inferredRole = input.creatorRole ?? (input.tenantId ? "tenant" : findUserById(input.createdByUserId)?.role ?? undefined);
+
+  if (!inferredRole) {
     return { ok: false, error: "No pudimos identificar tu rol de usuario" };
   }
 
@@ -1219,7 +1224,7 @@ export function createTournament(input: {
     };
   }
 
-  const autoApproved = AUTO_APPROVE_ROLES.includes(input.creatorRole);
+  const autoApproved = AUTO_APPROVE_ROLES.includes(inferredRole);
 
   const tournament: TournamentRecord = {
     id: nextId("tournament"),
@@ -1431,13 +1436,17 @@ export function setManualFixture(input: {
 
 export function recordMatchResult(input: {
   matchId: number;
-  stats: Array<{ playerId: number; teamId: number; goals: number; yellowCards: number; redCards: number }>;
+  stats?: Array<{ playerId: number; teamId: number; goals: number; yellowCards: number; redCards: number }>;
+  homeGoals?: number;
+  awayGoals?: number;
   confirmedByAdmin?: boolean;
 }) : MatchResultUpdate {
   const match = store.matches.find((item) => item.id === input.matchId) ?? null;
   if (!match) {
     return { ok: false, error: "No encontramos el partido" };
   }
+
+  const statRowsFromInput = Array.isArray(input.stats) ? input.stats : [];
 
   if (match.resultLocked && !input.confirmedByAdmin) {
     match.auditTrail.push("Intento de modificación rechazado: se requiere segunda autorización.");
@@ -1452,7 +1461,7 @@ export function recordMatchResult(input: {
   const homeTeam = store.teams.find((team) => team.id === match.homeTeamId);
   const awayTeam = store.teams.find((team) => team.id === match.awayTeamId);
 
-  for (const stat of input.stats) {
+  for (const stat of statRowsFromInput) {
     if (stat.teamId !== match.homeTeamId && stat.teamId !== match.awayTeamId) {
       return { ok: false, error: `El equipo #${stat.teamId} no juega este partido` };
     }
@@ -1464,10 +1473,10 @@ export function recordMatchResult(input: {
 
   // Solo se guardan filas con algo cargado (gol o tarjeta); una fila en cero
   // no cuenta como "jugó" el partido.
-  const statRows = input.stats.filter((stat) => stat.goals > 0 || stat.yellowCards > 0 || stat.redCards > 0);
+  const statRows = statRowsFromInput.filter((stat) => stat.goals > 0 || stat.yellowCards > 0 || stat.redCards > 0);
 
-  const homeGoals = statRows.filter((stat) => stat.teamId === match.homeTeamId).reduce((sum, stat) => sum + stat.goals, 0);
-  const awayGoals = statRows.filter((stat) => stat.teamId === match.awayTeamId).reduce((sum, stat) => sum + stat.goals, 0);
+  const homeGoals = input.homeGoals ?? statRows.filter((stat) => stat.teamId === match.homeTeamId).reduce((sum, stat) => sum + stat.goals, 0);
+  const awayGoals = input.awayGoals ?? statRows.filter((stat) => stat.teamId === match.awayTeamId).reduce((sum, stat) => sum + stat.goals, 0);
 
   match.homeGoals = homeGoals;
   match.awayGoals = awayGoals;

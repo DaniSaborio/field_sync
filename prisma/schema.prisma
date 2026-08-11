@@ -12,326 +12,276 @@ datasource db {
 //               Role normalized into its own table; Tournament requests need approval)
 // ============================================================
 
-// Discriminador de a qué tipo de entidad pertenece una fila de EstadoHistorial.
-// id_entidad guarda el id_user / id_tournament / id_payment correspondiente,
-// pero sin FK real: una misma columna no puede apuntar a tres tablas distintas.
-enum EstadoEntidad {
-  tenant
-  tournament
-  payment
+enum TenantStatus {
+  pendiente
+  verificado
+  suspendido
 }
 
-// Catálogo compartido de estados (antes 3 enums separados: TenantStatus,
-// TournamentStatus y PaymentStatus). Solo se comparte el valor "pendiente";
-// cada entidad usa el subconjunto que le corresponde, validado en la app.
-model Estado {
-  id_estado Int    @id @default(autoincrement())
-  name      String @unique @db.VarChar(30) // pendiente | verificado | suspendido | aprobado | rechazado
-  label     String @db.VarChar(60)
-
-  tenants     User[]       @relation("UserEstado")
-  tournaments Tournament[] @relation("TournamentEstado")
-  payments    Payment[]    @relation("PaymentEstado")
-
-  historial_previo EstadoHistorial[] @relation("HistorialEstadoPrevio")
-  historial_nuevo  EstadoHistorial[] @relation("HistorialEstadoNuevo")
-
-  @@map("estado")
-}
-
-// Auditoría de cambios de estado para tenants (User), torneos y pagos.
-model EstadoHistorial {
-  id_historial     Int           @id @default(autoincrement())
-  entidad          EstadoEntidad
-  id_entidad       Int
-  id_estado_previo Int?
-  estado_previo    Estado?       @relation("HistorialEstadoPrevio", fields: [id_estado_previo], references: [id_estado], onDelete: SetNull, onUpdate: Cascade)
-  id_estado_nuevo  Int
-  estado_nuevo     Estado        @relation("HistorialEstadoNuevo", fields: [id_estado_nuevo], references: [id_estado], onDelete: Restrict, onUpdate: Cascade)
-  id_changed_by    Int?
-  changed_by       User?         @relation("EstadoHistorialAutor", fields: [id_changed_by], references: [id_user], onDelete: SetNull, onUpdate: Cascade)
-  reason           String?       @db.VarChar(255)
-  changed_at       DateTime      @default(now()) @db.Timestamp()
-
-  @@index([entidad, id_entidad])
-  @@map("estado_historial")
+enum TournamentStatus {
+  pendiente
+  aprobado
+  rechazado
 }
 
 model Role {
-  id_role Int    @id @default(autoincrement())
-  name    String @unique @db.VarChar(50) // admin_plataforma | tenant | jugador
-  label   String @db.VarChar(80) // "Administrador de plataforma", "Tenant (Dueño de cancha)", "Jugador"
+  id_role   Int     @id @default(autoincrement())
+  name      String  @unique @db.VarChar(50) // admin_plataforma | tenant | jugador
+  label     String  @db.VarChar(80)         // "Administrador de plataforma", "Tenant (Dueño de cancha)", "Jugador"
 
-  users User[]
+  users     User[]
 
   @@map("role")
 }
 
 model User {
-  id_user               Int      @id @default(autoincrement())
-  full_name             String   @db.VarChar(150)
-  nickname              String?  @db.VarChar(50) // apodo opcional para diferenciar usuarios con el mismo nombre
-  email                 String   @unique @db.VarChar(150)
-  password              String   @db.VarChar(255)
-  provider              String   @default("credentials") @db.VarChar(30)
-  provider_id           String?  @db.VarChar(255)
-  id_role               Int
-  role                  Role     @relation(fields: [id_role], references: [id_role], onDelete: Restrict, onUpdate: Cascade)
+  id_user             Int        @id @default(autoincrement())
+  full_name           String     @db.VarChar(150)
+  email               String     @unique @db.VarChar(150)
+  password            String     @db.VarChar(255)
+  
+  provider            String     @default("credentials") @db.VarChar(30)
+  provider_id         String?    @db.VarChar(255)
+  
+  id_role             Int
+  role                Role       @relation(fields: [id_role], references: [id_role], onDelete: Restrict, onUpdate: Cascade)
   notifications_enabled Boolean  @default(true)
-  created_at            DateTime @default(now()) @db.Timestamp()
+  created_at          DateTime   @default(now()) @db.Timestamp()
 
   // --- Onboarding / anti-fraude: solo aplica a usuarios con rol "tenant" (HU-11) ---
-  id_estado        Int
-  estado           Estado    @relation("UserEstado", fields: [id_estado], references: [id_estado], onDelete: Restrict, onUpdate: Cascade)
-  id_verifier      Int?
-  verifier         User?     @relation("TenantVerifier", fields: [id_verifier], references: [id_user], onDelete: SetNull, onUpdate: Cascade)
-  verified_at      DateTime? @db.Timestamp()
-  verified_tenants User[]    @relation("TenantVerifier")
+  status              TenantStatus @default(pendiente)
+  id_verifier         Int?
+  verifier            User?      @relation("TenantVerifier", fields: [id_verifier], references: [id_user], onDelete: SetNull, onUpdate: Cascade)
+  verified_at         DateTime?  @db.Timestamp()
+  verified_tenants    User[]     @relation("TenantVerifier")
 
-  // --- Cambios de estado (propios o realizados por este usuario sobre otros) ---
-  estado_historial_changes EstadoHistorial[] @relation("EstadoHistorialAutor")
-
-  reservations   Reservation[]
-  notifications  Notification[]
-  player_profile PlayerProfile?
+  reservations        Reservation[]
+  notifications       Notification[]
+  player_profile      PlayerProfile?
 
   // --- Equipos que este usuario capitanea ---
-  captained_teams Team[] @relation("TeamCaptain")
+  captained_teams     Team[]       @relation("TeamCaptain")
 
   // --- Recursos que pertenecen a este usuario cuando su rol es "tenant" (dueño de cancha) ---
-  owned_courts      Court[]
-  owned_rates       Rate[]
-  owned_tournaments Tournament[] @relation("TournamentTenant")
-  owned_teams       Team[]       @relation("TeamTenant")
+  owned_courts        Court[]
+  owned_rates         Rate[]
+  owned_tournaments   Tournament[] @relation("TournamentTenant")
+  owned_teams         Team[]       @relation("TeamTenant")
 
   // --- Torneos que este usuario (tenant) ha aprobado/rechazado ---
   approved_tournaments Tournament[] @relation("TournamentApprover")
-
-  // --- Pagos de reserva que este usuario (tenant) ha verificado/rechazado ---
-  verified_payments Payment[] @relation("PaymentVerifier")
 
   @@map("user")
 }
 
 model Court {
-  id_court  Int     @id @default(autoincrement())
-  id_tenant Int
-  tenant    User    @relation(fields: [id_tenant], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
-  name      String  @db.VarChar(100)
-  is_active Boolean @default(true)
+  id_court        Int        @id @default(autoincrement())
+  id_tenant       Int
+  tenant          User       @relation(fields: [id_tenant], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
+  name            String     @db.VarChar(100)
+  is_active       Boolean    @default(true)
 
   // --- Ubicación (verificación anti-troll y navegación del cliente) ---
-  address  String? @db.VarChar(255)
-  maps_url String? @db.VarChar(500)
+  address         String?    @db.VarChar(255)
+  maps_url        String?    @db.VarChar(500)
 
   // --- Datos de presentación para el listado de reservas (HU-01) ---
-  surface        String?  @db.VarChar(20)
-  capacity       String?  @db.VarChar(20)
-  price_per_hour Decimal? @db.Decimal(10, 2)
-  rating         Decimal? @db.Decimal(3, 2)
+  surface         String?    @db.VarChar(20)
+  capacity        String?    @db.VarChar(20)
+  price_per_hour  Decimal?   @db.Decimal(10,2)
+  rating          Decimal?   @db.Decimal(3,2)
 
-  reservations Reservation[]
-  matches      Match[]
-  rates        Rate[]
+  reservations    Reservation[]
+  matches         Match[]
+  rates           Rate[]
 
   @@map("court")
 }
 
 model Rate {
-  id_rate       Int     @id @default(autoincrement())
-  id_tenant     Int
-  id_court      Int? // NULL = applies to all courts of the tenant
-  tenant        User    @relation(fields: [id_tenant], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
-  court         Court?  @relation(fields: [id_court], references: [id_court], onDelete: SetNull, onUpdate: Cascade)
-  name          String  @db.VarChar(100)
-  schedule_type String  @db.VarChar(100)
-  amount        Decimal @db.Decimal(10, 2)
-  priority      Int     @default(1)
+  id_rate         Int        @id @default(autoincrement())
+  id_tenant       Int
+  id_court        Int?       // NULL = applies to all courts of the tenant
+  tenant          User       @relation(fields: [id_tenant], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
+  court           Court?     @relation(fields: [id_court], references: [id_court], onDelete: SetNull, onUpdate: Cascade)
+  name            String     @db.VarChar(100)
+  schedule_type   String     @db.VarChar(100)
+  amount          Decimal    @db.Decimal(10,2)
+  priority        Int        @default(1)
 
-  reservations Reservation[]
+  reservations    Reservation[]
 
   @@map("rate")
 }
 
 model Tournament {
-  id_tournament Int      @id @default(autoincrement())
-  id_tenant     Int
-  tenant        User     @relation("TournamentTenant", fields: [id_tenant], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
-  name          String   @db.VarChar(100)
-  min_teams     Int
-  start_date    DateTime @db.Date()
-  end_date      DateTime @db.Date()
-  start_time    DateTime
-  end_time      DateTime
+  id_tournament   Int        @id @default(autoincrement())
+  id_tenant       Int
+  tenant          User       @relation("TournamentTenant", fields: [id_tenant], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
+  name            String     @db.VarChar(100)
+  min_teams       Int
+  start_date      DateTime   @db.Date()
+  end_date        DateTime   @db.Date()
+  start_time      DateTime
+  end_time        DateTime
 
   // --- Solicitud de torneo sujeta a aprobación de horarios por el tenant ---
-  id_estado        Int
-  estado           Estado    @relation("TournamentEstado", fields: [id_estado], references: [id_estado], onDelete: Restrict, onUpdate: Cascade)
-  id_approved_by   Int?
-  approved_by      User?     @relation("TournamentApprover", fields: [id_approved_by], references: [id_user], onDelete: SetNull, onUpdate: Cascade)
-  approved_at      DateTime? @db.Timestamp()
-  rejection_reason String?   @db.VarChar(255)
+  status          TournamentStatus @default(pendiente)
+  id_approved_by  Int?
+  approved_by     User?      @relation("TournamentApprover", fields: [id_approved_by], references: [id_user], onDelete: SetNull, onUpdate: Cascade)
+  approved_at     DateTime?  @db.Timestamp()
+  rejection_reason String?  @db.VarChar(255)
 
   team_tournaments TeamTournament[]
-  matches          Match[]
-  standings        Standing[]
+  matches         Match[]
+  standings       Standing[]
 
   @@map("tournament")
 }
 
 model Team {
-  id_team   Int    @id @default(autoincrement())
-  id_tenant Int
-  tenant    User   @relation("TeamTenant", fields: [id_tenant], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
-  id_user   Int
-  user      User   @relation("TeamCaptain", fields: [id_user], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
-  name      String @db.VarChar(100)
+  id_team         Int        @id @default(autoincrement())
+  id_tenant       Int
+  tenant          User       @relation("TeamTenant", fields: [id_tenant], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
+  id_user         Int
+  user            User       @relation("TeamCaptain", fields: [id_user], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
+  name            String     @db.VarChar(100)
 
   // --- Logo del equipo (emoji, no imagen) ---
-  logo_emoji String? @db.VarChar(10)
+  logo_emoji      String?    @db.VarChar(10)
 
   team_tournaments TeamTournament[]
-  team_players     TeamPlayer[]
-  home_matches     Match[]          @relation("home_team")
-  away_matches     Match[]          @relation("away_team")
-  standings        Standing[]
+  team_players    TeamPlayer[]
+  home_matches    Match[]    @relation("home_team")
+  away_matches    Match[]    @relation("away_team")
+  standings       Standing[]
 
   @@map("team")
 }
 
 model PlayerProfile {
-  id_player    Int     @id @default(autoincrement())
-  id_user      Int     @unique
-  user         User    @relation(fields: [id_user], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
-  visibility   String  @default("public") @db.VarChar(20)
-  is_available Boolean @default(true)
+  id_player       Int        @id @default(autoincrement())
+  id_user         Int        @unique
+  user            User       @relation(fields: [id_user], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
+  visibility      String     @default("public") @db.VarChar(20)
+  is_available    Boolean    @default(true)
 
   // --- Foto de perfil del jugador ---
-  avatar_url String? @db.VarChar(500)
+  avatar_url      String?    @db.VarChar(500)
 
   // --- Estadísticas acumuladas del Perfil Global (HU-06) ---
-  goals          Int @default(0)
-  assists        Int @default(0)
-  matches_played Int @default(0)
+  goals           Int        @default(0)
+  assists         Int        @default(0)
+  matches_played  Int        @default(0)
 
-  team_players TeamPlayer[]
-  matches      Match[]
-  match_stats  MatchStat[]
+  team_players    TeamPlayer[]
+  matches         Match[]
+  match_stats     MatchStat[]
 
   @@map("player_profile")
 }
 
 model Notification {
-  id_notification Int      @id @default(autoincrement())
+  id_notification Int        @id @default(autoincrement())
   id_user         Int
-  user            User     @relation(fields: [id_user], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
-  type            String   @db.VarChar(80)
-  message         String   @db.Text()
-  sent_at         DateTime @default(now()) @db.Timestamp()
-  is_read         Boolean  @default(false)
+  user            User       @relation(fields: [id_user], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
+  type            String     @db.VarChar(80)
+  message         String     @db.Text()
+  sent_at         DateTime   @default(now()) @db.Timestamp()
+  is_read         Boolean    @default(false)
   position        Int?
 
   @@map("notification")
 }
 
 model Reservation {
-  id_reservation  Int       @id @default(autoincrement())
+  id_reservation  Int        @id @default(autoincrement())
   id_court        Int
-  court           Court     @relation(fields: [id_court], references: [id_court], onDelete: Restrict, onUpdate: Cascade)
+  court           Court      @relation(fields: [id_court], references: [id_court], onDelete: Restrict, onUpdate: Cascade)
   id_user         Int
-  user            User      @relation(fields: [id_user], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
+  user            User       @relation(fields: [id_user], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
   id_rate         Int?
-  rate            Rate?     @relation(fields: [id_rate], references: [id_rate], onDelete: SetNull, onUpdate: Cascade)
-  date            DateTime  @db.Date()
+  rate            Rate?      @relation(fields: [id_rate], references: [id_rate], onDelete: SetNull, onUpdate: Cascade)
+  date            DateTime   @db.Date()
   start_time      DateTime
   end_time        DateTime
-  // pendiente | confirmada | rechazada | cancelada — depende de que el tenant verifique el pago
-  status          String    @default("pendiente") @db.VarChar(30)
-  hold_expires_at DateTime? @db.Timestamp() // vence el hold si el tenant no responde a tiempo
-  created_at      DateTime  @default(now()) @db.Timestamp()
+  status          String     @default("confirmed") @db.VarChar(30)
+  created_at      DateTime   @default(now()) @db.Timestamp()
 
-  payments Payment[]
+  payments        Payment[]
 
   @@map("reservation")
 }
 
 model Payment {
-  id_payment     Int         @id @default(autoincrement())
-  id_reservation Int         @unique
-  reservation    Reservation @relation(fields: [id_reservation], references: [id_reservation], onDelete: Restrict, onUpdate: Cascade)
-  amount         Decimal     @db.Decimal(10, 2)
-  payment_method String      @db.VarChar(60)
-  payment_date   DateTime    @default(now()) @db.Timestamp()
-
-  // --- Verificación del pago por el tenant (dueño de la cancha) ---
-  id_estado        Int
-  estado           Estado    @relation("PaymentEstado", fields: [id_estado], references: [id_estado], onDelete: Restrict, onUpdate: Cascade)
-  id_verified_by   Int?
-  verified_by      User?     @relation("PaymentVerifier", fields: [id_verified_by], references: [id_user], onDelete: SetNull, onUpdate: Cascade)
-  verified_at      DateTime? @db.Timestamp()
-  rejection_reason String?   @db.VarChar(255)
+  id_payment      Int        @id @default(autoincrement())
+  id_reservation  Int        @unique
+  reservation     Reservation @relation(fields: [id_reservation], references: [id_reservation], onDelete: Restrict, onUpdate: Cascade)
+  amount          Decimal    @db.Decimal(10,2)
+  payment_method  String     @db.VarChar(60)
+  payment_date    DateTime   @default(now()) @db.Timestamp()
 
   @@map("payment")
 }
 
 model TeamTournament {
-  id_team_tournament Int        @id @default(autoincrement())
-  id_team            Int
-  team               Team       @relation(fields: [id_team], references: [id_team], onDelete: Restrict, onUpdate: Cascade)
-  id_tournament      Int
-  tournament         Tournament @relation(fields: [id_tournament], references: [id_tournament], onDelete: Restrict, onUpdate: Cascade)
-  registration_date  DateTime   @default(now()) @db.Timestamp()
+  id_team_tournament Int    @id @default(autoincrement())
+  id_team         Int
+  team            Team       @relation(fields: [id_team], references: [id_team], onDelete: Restrict, onUpdate: Cascade)
+  id_tournament   Int
+  tournament      Tournament @relation(fields: [id_tournament], references: [id_tournament], onDelete: Restrict, onUpdate: Cascade)
+  registration_date DateTime @default(now()) @db.Timestamp()
 
   @@map("team_tournament")
 }
 
 model TeamPlayer {
-  id_team_player Int           @id @default(autoincrement())
-  id_team        Int
-  team           Team          @relation(fields: [id_team], references: [id_team], onDelete: Restrict, onUpdate: Cascade)
-  id_player      Int
-  player_profile PlayerProfile @relation(fields: [id_player], references: [id_player], onDelete: Restrict, onUpdate: Cascade)
-  join_date      DateTime      @default(now()) @db.Timestamp()
-  is_active      Boolean       @default(true)
+  id_team_player  Int        @id @default(autoincrement())
+  id_team         Int
+  team            Team       @relation(fields: [id_team], references: [id_team], onDelete: Restrict, onUpdate: Cascade)
+  id_player       Int
+  player_profile  PlayerProfile @relation(fields: [id_player], references: [id_player], onDelete: Restrict, onUpdate: Cascade)
+  join_date       DateTime   @default(now()) @db.Timestamp()
+  is_active       Boolean    @default(true)
 
   @@map("team_player")
 }
 
 model Match {
-  id_match      Int           @id @default(autoincrement())
-  id_tournament Int?
-  tournament    Tournament?   @relation(fields: [id_tournament], references: [id_tournament], onDelete: SetNull, onUpdate: Cascade)
-  id_court      Int
-  court         Court         @relation(fields: [id_court], references: [id_court], onDelete: Restrict, onUpdate: Cascade)
-  id_home_team  Int
-  home_team     Team          @relation("home_team", fields: [id_home_team], references: [id_team], onDelete: Restrict, onUpdate: Cascade)
-  id_away_team  Int
-  away_team     Team          @relation("away_team", fields: [id_away_team], references: [id_team], onDelete: Restrict, onUpdate: Cascade)
-  id_player     Int
-  player        PlayerProfile @relation(fields: [id_player], references: [id_player], onDelete: Restrict, onUpdate: Cascade)
-  scheduled_at  DateTime      @db.Timestamp()
-  home_goals    Int           @default(0)
-  away_goals    Int           @default(0)
-  status        String        @default("scheduled") @db.VarChar(30)
-  yellow_card   String?       @db.VarChar(30)
-  red_card      String?       @db.VarChar(30)
-  assists       Int           @default(0)
+  id_match        Int        @id @default(autoincrement())
+  id_tournament   Int?
+  tournament      Tournament? @relation(fields: [id_tournament], references: [id_tournament], onDelete: SetNull, onUpdate: Cascade)
+  id_court        Int
+  court           Court      @relation(fields: [id_court], references: [id_court], onDelete: Restrict, onUpdate: Cascade)
+  id_home_team    Int
+  home_team       Team       @relation("home_team", fields: [id_home_team], references: [id_team], onDelete: Restrict, onUpdate: Cascade)
+  id_away_team    Int
+  away_team       Team       @relation("away_team", fields: [id_away_team], references: [id_team], onDelete: Restrict, onUpdate: Cascade)
+  id_player       Int
+  player          PlayerProfile @relation(fields: [id_player], references: [id_player], onDelete: Restrict, onUpdate: Cascade)
+  scheduled_at    DateTime   @db.Timestamp()
+  home_goals      Int        @default(0)
+  away_goals      Int        @default(0)
+  status          String     @default("scheduled") @db.VarChar(30)
+  yellow_card     String?    @db.VarChar(30)
+  red_card        String?    @db.VarChar(30)
+  assists         Int        @default(0)
 
-  match_stats MatchStat[]
+  match_stats     MatchStat[]
 
   @@map("match")
 }
 
 model MatchStat {
-  id_match_stat  Int           @id @default(autoincrement())
-  id_match       Int
-  match          Match         @relation(fields: [id_match], references: [id_match], onDelete: Restrict, onUpdate: Cascade)
-  id_player      Int
-  player_profile PlayerProfile @relation(fields: [id_player], references: [id_player], onDelete: Restrict, onUpdate: Cascade)
-  goals          Int           @default(0)
-  assists        Int           @default(0)
-  yellow_cards   Int           @default(0)
-  red_cards      Int           @default(0)
+  id_match_stat   Int        @id @default(autoincrement())
+  id_match        Int
+  match           Match      @relation(fields: [id_match], references: [id_match], onDelete: Restrict, onUpdate: Cascade)
+  id_player       Int
+  player_profile  PlayerProfile @relation(fields: [id_player], references: [id_player], onDelete: Restrict, onUpdate: Cascade)
+  goals           Int        @default(0)
+  assists         Int        @default(0)
+  yellow_cards    Int        @default(0)
+  red_cards       Int        @default(0)
 
   @@map("match_stat")
 }
