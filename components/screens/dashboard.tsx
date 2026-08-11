@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronLeft,
   Clock3,
+  Download,
   ExternalLink,
   Filter,
   LogIn,
@@ -20,6 +21,7 @@ import {
   Search,
   ShieldCheck,
   Smartphone,
+  Trash2,
   TriangleAlert,
   Users,
   Trophy,
@@ -90,6 +92,7 @@ type CourtReservation = {
   paymentMethod?: PaymentMethod | null;
   paymentStatus?: PaymentStatus | null;
   amount?: number | null;
+  playerName?: string | null;
 };
 
 type CourtCard = {
@@ -2506,6 +2509,22 @@ function TeamsPanel({ user }: { user: AppUser }) {
     await loadTeams();
   }
 
+  async function removePlayer(teamId: number, playerId: number) {
+    setMessage("");
+    const response = await fetch("/api/teams", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "roster", teamId, playerId, rosterAction: "remove" }),
+    });
+    const payload = await readJson<ApiResponse<Record<string, never>>>(response);
+    if (!response.ok) {
+      setMessage(payload.error || "No pudimos eliminar al jugador");
+      return;
+    }
+    setMessage("Jugador eliminado de la plantilla.");
+    await loadTeams();
+  }
+
   async function sendConvocation() {
     if (!selectedTeamId || !selectedReservation) return;
     const response = await fetch("/api/teams", {
@@ -2566,7 +2585,6 @@ function TeamsPanel({ user }: { user: AppUser }) {
           </div>
           <div className="flex flex-wrap gap-2">
             <Button type="button" size="sm" onClick={() => changeRoster("add")}>Agregar jugador</Button>
-            <Button type="button" size="sm" variant="secondary" onClick={() => changeRoster("remove")}>Eliminar jugador</Button>
           </div>
         </Card>
 
@@ -2618,13 +2636,34 @@ function TeamsPanel({ user }: { user: AppUser }) {
               <Badge>{team.playerIds.length} jugadores</Badge>
             </div>
             <ul>
-              {team.players.map((player) => (
-                <Row
-                  key={player?.id ?? `${team.id}-empty`}
-                  title={player ? displayName(player) : "Vacante"}
-                  disabled={!player}
-                />
-              ))}
+              {team.players.map((player) => {
+                const isCaptain = player?.id === team.captainUserId;
+                return (
+                  <Row
+                    key={player?.id ?? `${team.id}-empty`}
+                    title={player ? displayName(player) : "Vacante"}
+                    disabled={!player}
+                    right={
+                      player ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="destructive"
+                          disabled={isCaptain}
+                          title={isCaptain ? "El capitán no puede ser eliminado de su propia plantilla" : "Eliminar jugador"}
+                          onClick={() => {
+                            if (window.confirm(`¿Eliminar a ${displayName(player)} de ${team.name}?`)) {
+                              void removePlayer(team.id, player.id);
+                            }
+                          }}
+                        >
+                          <Trash2 size={14} strokeWidth={2} aria-hidden />
+                        </Button>
+                      ) : null
+                    }
+                  />
+                );
+              })}
             </ul>
           </Card>
         )) : <p className="font-mono text-[11px] uppercase tracking-wider text-muted">No pertenecés a ninguna plantilla todavía.</p>}
@@ -2814,6 +2853,273 @@ function TenantPaymentsPanel({ user }: { user: AppUser }) {
         <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
           No hay pagos pendientes de verificación.
         </p>
+      )}
+    </PanelShell>
+  );
+}
+
+const reservationStatusTone: Record<CourtReservation["status"], "positive" | "default" | "negative"> = {
+  confirmada: "positive",
+  pendiente: "default",
+  rechazada: "negative",
+  cancelada: "negative",
+};
+
+function reservationStatusLabel(status: CourtReservation["status"]) {
+  switch (status) {
+    case "confirmada":
+      return "Confirmada";
+    case "pendiente":
+      return "Pendiente";
+    case "rechazada":
+      return "Rechazada";
+    case "cancelada":
+      return "Cancelada";
+  }
+}
+
+function downloadCsv(filename: string, rows: string[][]) {
+  const csv = rows
+    .map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+  const blob = new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function reservationCsvRow(reservation: CourtReservation) {
+  return [
+    reservation.date,
+    reservation.timeSlot,
+    reservation.playerName ?? `Usuario #${reservation.userId}`,
+    reservationStatusLabel(reservation.status),
+    reservation.paymentMethod ? paymentMethodLabels[reservation.paymentMethod] : "-",
+    reservation.paymentStatus ?? "-",
+    reservation.amount != null ? String(reservation.amount) : "-",
+  ];
+}
+
+function TenantCourtsPanel({ user }: { user: AppUser }) {
+  const [courts, setCourts] = useState<CourtCard[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+
+  async function loadCourts() {
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/courts?manage=true&tenantId=${user.id}`);
+      const payload = await readJson<ApiResponse<{ courts: CourtCard[] }>>(response);
+      if (!response.ok) {
+        throw new Error(payload.error || "No pudimos cargar el reporte de canchas");
+      }
+      setCourts(payload.courts ?? []);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No pudimos cargar el reporte de canchas");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadCourts();
+  }, [user.id]);
+
+  const myCourts = useMemo(() => courts.filter((court) => court.tenantId === user.id), [courts, user.id]);
+
+  const courtReports = useMemo(
+    () =>
+      myCourts.map((court) => {
+        const reservations = court.reservations
+          .filter((reservation) => (!fromDate || reservation.date >= fromDate) && (!toDate || reservation.date <= toDate))
+          .sort((a, b) => `${b.date}${b.timeSlot}`.localeCompare(`${a.date}${a.timeSlot}`));
+        const confirmedCount = reservations.filter((r) => r.status === "confirmada").length;
+        const pendingCount = reservations.filter((r) => r.status === "pendiente").length;
+        const rejectedCount = reservations.filter((r) => r.status === "rechazada").length;
+        const cancelledCount = reservations.filter((r) => r.status === "cancelada").length;
+        const revenueVerified = reservations
+          .filter((r) => r.status === "confirmada")
+          .reduce((sum, r) => sum + (r.amount ?? 0), 0);
+        const revenuePending = reservations
+          .filter((r) => r.status === "pendiente")
+          .reduce((sum, r) => sum + (r.amount ?? 0), 0);
+
+        return { court, reservations, confirmedCount, pendingCount, rejectedCount, cancelledCount, revenueVerified, revenuePending };
+      }),
+    [myCourts, fromDate, toDate],
+  );
+
+  const totals = useMemo(
+    () =>
+      courtReports.reduce(
+        (acc, report) => ({
+          reservations: acc.reservations + report.reservations.length,
+          confirmed: acc.confirmed + report.confirmedCount,
+          pending: acc.pending + report.pendingCount,
+          cancelled: acc.cancelled + report.cancelledCount + report.rejectedCount,
+          revenueVerified: acc.revenueVerified + report.revenueVerified,
+          revenuePending: acc.revenuePending + report.revenuePending,
+        }),
+        { reservations: 0, confirmed: 0, pending: 0, cancelled: 0, revenueVerified: 0, revenuePending: 0 },
+      ),
+    [courtReports],
+  );
+
+  function exportCourtCsv(report: (typeof courtReports)[number]) {
+    downloadCsv(`reporte-${report.court.name.toLowerCase().replace(/\s+/g, "-")}.csv`, [
+      ["Fecha", "Hora", "Jugador", "Estado", "Método de pago", "Estado del pago", "Monto"],
+      ...report.reservations.map(reservationCsvRow),
+    ]);
+  }
+
+  function exportAllCsv() {
+    downloadCsv("reporte-canchas.csv", [
+      ["Cancha", "Fecha", "Hora", "Jugador", "Estado", "Método de pago", "Estado del pago", "Monto"],
+      ...courtReports.flatMap((report) => report.reservations.map((r) => [report.court.name, ...reservationCsvRow(r)])),
+    ]);
+  }
+
+  return (
+    <PanelShell
+      title="Mis canchas"
+      description="Reporte de reservas e ingresos por cancha."
+      action={<StatusPill>{myCourts.length} canchas</StatusPill>}
+    >
+      {message ? <MessageBanner message={message} /> : null}
+
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <label className="block space-y-1.5">
+          <span className={fieldLabelClassName}>Desde</span>
+          <input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} className={`${fieldClassName} h-9`} />
+        </label>
+        <label className="block space-y-1.5">
+          <span className={fieldLabelClassName}>Hasta</span>
+          <input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} className={`${fieldClassName} h-9`} />
+        </label>
+        <Button type="button" size="sm" variant="secondary" disabled={busy || totals.reservations === 0} onClick={exportAllCsv}>
+          <Download size={14} strokeWidth={2} aria-hidden />
+          Descargar todo (CSV)
+        </Button>
+      </div>
+
+      <Card className="mb-6">
+        <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Resumen general</p>
+        <div className="mt-3 grid grid-cols-2 gap-3 text-center sm:grid-cols-4">
+          <div>
+            <p className="font-mono text-2xl font-black tabular-nums text-black">{totals.reservations}</p>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Reservas</p>
+          </div>
+          <div>
+            <p className="font-mono text-2xl font-black tabular-nums text-black">{totals.confirmed}</p>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Confirmadas</p>
+          </div>
+          <div>
+            <p className="font-mono text-2xl font-black tabular-nums text-black">{totals.pending}</p>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Pendientes</p>
+          </div>
+          <div>
+            <p className="font-mono text-2xl font-black tabular-nums text-black">{totals.cancelled}</p>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Canceladas/rechazadas</p>
+          </div>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-3 text-center">
+          <div>
+            <p className="font-mono text-2xl font-black tabular-nums text-black">₡{totals.revenueVerified}</p>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Ingreso verificado</p>
+          </div>
+          <div>
+            <p className="font-mono text-2xl font-black tabular-nums text-black">₡{totals.revenuePending}</p>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Por confirmar</p>
+          </div>
+        </div>
+      </Card>
+
+      {courtReports.length > 0 ? (
+        <div className="space-y-4">
+          {courtReports.map((report) => (
+            <Card key={report.court.id} className="gap-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-display text-lg font-black leading-tight tracking-tight text-black">{report.court.name}</h3>
+                  <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
+                    {report.court.location}
+                    {report.court.pricePerHour ? ` · $${report.court.pricePerHour}/h` : ""}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={report.reservations.length === 0}
+                  onClick={() => exportCourtCsv(report)}
+                >
+                  <Download size={14} strokeWidth={2} aria-hidden />
+                  CSV
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-center sm:grid-cols-4">
+                <div>
+                  <p className="font-mono text-xl font-black tabular-nums text-black">{report.confirmedCount}</p>
+                  <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Confirmadas</p>
+                </div>
+                <div>
+                  <p className="font-mono text-xl font-black tabular-nums text-black">{report.pendingCount}</p>
+                  <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Pendientes</p>
+                </div>
+                <div>
+                  <p className="font-mono text-xl font-black tabular-nums text-black">{report.rejectedCount}</p>
+                  <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Rechazadas</p>
+                </div>
+                <div>
+                  <p className="font-mono text-xl font-black tabular-nums text-black">{report.cancelledCount}</p>
+                  <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Canceladas</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-center">
+                <div>
+                  <p className="font-mono text-xl font-black tabular-nums text-black">₡{report.revenueVerified}</p>
+                  <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Verificado</p>
+                </div>
+                <div>
+                  <p className="font-mono text-xl font-black tabular-nums text-black">₡{report.revenuePending}</p>
+                  <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Por confirmar</p>
+                </div>
+              </div>
+
+              <CollapsibleSection
+                label={`${report.reservations.length} reservas`}
+                summary={report.reservations.length === 0 ? "Sin reservas en el rango" : undefined}
+              >
+                {report.reservations.length > 0 ? (
+                  <ul>
+                    {report.reservations.map((reservation) => (
+                      <Row
+                        key={reservation.id}
+                        title={reservation.playerName ?? `Usuario #${reservation.userId}`}
+                        meta={`${reservation.date} · ${reservation.timeSlot}${
+                          reservation.paymentMethod ? ` · ${paymentMethodLabels[reservation.paymentMethod]}` : ""
+                        }${reservation.amount ? ` · ₡${reservation.amount}` : ""}`}
+                        right={<RowTag tone={reservationStatusTone[reservation.status]}>{reservationStatusLabel(reservation.status)}</RowTag>}
+                      />
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="font-mono text-[11px] uppercase tracking-wider text-muted">No hay reservas en el rango seleccionado.</p>
+                )}
+              </CollapsibleSection>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <p className="font-mono text-[11px] uppercase tracking-wider text-muted">Todavía no tenés canchas registradas.</p>
       )}
     </PanelShell>
   );
@@ -3186,6 +3492,7 @@ export function DashboardScreen({ user, onLogout, onUserUpdate }: DashboardScree
         {activeTab === "torneos" ? (isAdmin(user) || isTenant(user) ? <TournamentsPanel user={user} /> : <MyTournamentsPanel user={user} />) : null}
         {activeTab === "perfil" ? (<ProfilePanel user={user} onRequestTenant={() => setActiveTab("tenant-request")} />) : null}
         {activeTab === "plantilla" ? <TeamsPanel user={user} /> : null}
+        {activeTab === "mis-canchas" && isTenant(user) ? <TenantCourtsPanel user={user} /> : null}
         {activeTab === "tenant-request" ? (<TenantRequestScreen user={user} />) : null}
         {activeTab === "notificaciones" ? <NotificationsPanel user={user} /> : null}
         {activeTab === "administracion" && isAdmin(user) ? <AdminPanel user={user} /> : null}

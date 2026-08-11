@@ -853,7 +853,51 @@ export function registerUser(input: {
   };
 }
 
+// Espejo en memoria de lib/reservation-expiry.ts: una reserva "pendiente"
+// cuya hora ya pasó nunca se resuelve sola (el hold de 30 min solo libera el
+// horario para otros, no cierra la reserva). Se vence de forma perezosa cada
+// vez que se lee el store, y notifica tanto al cliente como al dueño.
+function expireStaleReservations(now: Date = new Date()) {
+  const notifications: NotificationRecord[] = [];
+
+  for (const reservation of store.reservations) {
+    if (reservation.status !== "pendiente") continue;
+    if (formatDateTime(reservation.date, reservation.timeSlot).getTime() > now.getTime()) continue;
+
+    reservation.status = "cancelada";
+    reservation.paymentStatus = "rechazado";
+    reservation.rejectionReason = "Vencida: la hora de la reserva pasó sin confirmación de pago.";
+    reservation.holdExpiresAt = null;
+
+    const court = store.courts.find((item) => item.id === reservation.courtId);
+    if (!court) continue;
+
+    const user = findUserById(reservation.userId);
+    if (user?.notificationsEnabled) {
+      notifications.push(
+        createNotification(
+          reservation.userId,
+          "cancellation",
+          `Tu reserva en ${court.name} para ${reservation.date} ${reservation.timeSlot} venció y se canceló automáticamente porque no se confirmó el pago a tiempo.`,
+        ),
+      );
+    }
+
+    const ownerNotification = notifyCourtOwner(
+      court,
+      "cancellation",
+      `La reserva pendiente en ${court.name} para ${reservation.date} ${reservation.timeSlot} venció sin confirmación de pago y se canceló automáticamente.`,
+    );
+    if (ownerNotification) {
+      notifications.push(ownerNotification);
+    }
+  }
+
+  return notifications;
+}
+
 export function listCourts(filters: ReservationFilter = {}) {
+  expireStaleReservations();
   const date = filters.date?.trim();
   const timeSlot = filters.timeSlot?.trim();
   const surface = filters.surface?.trim();
@@ -889,7 +933,12 @@ export function listCourts(filters: ReservationFilter = {}) {
       ...clone(court),
       pricePerHourNight: court.pricePerHourNight ?? null,
       availableSlots: slots,
-      reservations: store.reservations.filter((reservation) => reservation.courtId === court.id && reservation.status !== "cancelada" && (!date || reservation.date === date) && (!userId || reservation.userId === userId)).map(clone),
+      reservations: store.reservations
+        .filter((reservation) => reservation.courtId === court.id && reservation.status !== "cancelada" && (!date || reservation.date === date) && (!userId || reservation.userId === userId))
+        .map((reservation) => {
+          const player = findUserById(reservation.userId);
+          return { ...clone(reservation), playerName: player?.nickname || player?.fullName || null };
+        }),
     };
   }).filter((court) => court.availableSlots.length > 0 || court.reservations.length > 0);
 
@@ -897,6 +946,7 @@ export function listCourts(filters: ReservationFilter = {}) {
 }
 
 export function getReservations(userId?: number) {
+  expireStaleReservations();
   const reservations = store.reservations.filter((reservation) => (userId ? reservation.userId === userId : true));
   return clone(reservations);
 }
@@ -1675,6 +1725,7 @@ export function sendConvocation(input: {
 }
 
 export function listNotifications(userId: number) {
+  expireStaleReservations();
   return clone(store.notifications.filter((notification) => notification.userId === userId));
 }
 

@@ -8,6 +8,7 @@ import {
 } from "@/lib/fieldsync-store";
 import { isNightHour } from "@/lib/utils";
 import { resolveNightRate, type RateCandidate } from "@/lib/rates";
+import { expireStalePendingReservations } from "@/lib/reservation-expiry";
 
 const DEFAULT_SLOTS = [
   "08:00", "09:00", "09:30", "10:30", "11:00", "12:00",
@@ -60,6 +61,12 @@ export async function GET(request: NextRequest) {
   const manage = url.searchParams.get("manage") === "true";
 
   try {
+    await expireStalePendingReservations();
+  } catch (dbError) {
+    console.warn("No pudimos vencer reservas pendientes:", dbError);
+  }
+
+  try {
     const courtsFromDb = await prisma.court.findMany({
       where:
         manage && tenantIdParam
@@ -72,7 +79,10 @@ export async function GET(request: NextRequest) {
         include: {
         reservations: {
         where: date ? { date: new Date(date) } : undefined,
-        include: { payments: { include: { estado: true } } },
+        include: {
+          payments: { include: { estado: true } },
+          user: { select: { full_name: true, nickname: true } },
+        },
       },
       rates: true,
       },
@@ -121,6 +131,7 @@ export async function GET(request: NextRequest) {
                 paymentMethod: payment?.payment_method ?? null,
                 paymentStatus: payment?.estado.name ?? null,
                 amount: payment ? Number(payment.amount) : null,
+                playerName: r.user.nickname || r.user.full_name,
               };
             });
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getPlayerProfile, toggleNotifications, updateNickname, updateProfileVisibility } from "@/lib/fieldsync-store";
 import { hydrateStoreUser } from "@/lib/hydrate-user";
+import { expireStalePendingReservations } from "@/lib/reservation-expiry";
 
 export async function GET(request: NextRequest) {
 const url = new URL(request.url);
@@ -21,6 +22,12 @@ include: { role: true },
 });
 
 if (dbUser?.role.name === "tenant") {
+  try {
+    await expireStalePendingReservations();
+  } catch (dbError) {
+    console.warn("No pudimos vencer reservas pendientes:", dbError);
+  }
+
   const courts = await prisma.court.findMany({
     where: { id_tenant: userId },
     include: {
