@@ -119,15 +119,20 @@ export function TenantRequestScreen({ user }: { user?: TenantRequestUser | null 
         icon={<Phone size={16} />}
       />
 
-      <FloatingInput
-        id="address"
-        label="Dirección"
-        type="text"
-        value={address}
-        onChange={setAddress}
-        placeholder="Provincia, cantón, distrito..."
-        icon={<MapPin size={16} />}
-      />
+      <div>
+        <FloatingInput
+          id="address"
+          label="Dirección"
+          type="text"
+          value={address}
+          onChange={setAddress}
+          placeholder="Provincia, cantón, distrito..."
+          icon={<MapPin size={16} />}
+        />
+        <p className="mt-1.5 font-mono text-[10px] uppercase tracking-wider text-muted">
+          ¿No tenés un complejo deportivo formal? Poné solo el pueblo al que pertenece.
+        </p>
+      </div>
 
       <FloatingInput
         id="maps"

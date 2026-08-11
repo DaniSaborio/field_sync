@@ -132,6 +132,8 @@ export async function GET(request: NextRequest) {
                 paymentStatus: payment?.estado.name ?? null,
                 amount: payment ? Number(payment.amount) : null,
                 playerName: r.user.nickname || r.user.full_name,
+                teamId: r.id_team,
+                rivalTeamId: r.id_rival_team,
               };
             });
 
@@ -269,6 +271,8 @@ export async function POST(request: NextRequest) {
               end_time: endDateTime,
               status: "pendiente",
               hold_expires_at: new Date(Date.now() + HOLD_DURATION_MS),
+              id_team: teamId,
+              id_rival_team: rivalTeamId,
             },
           });
 
@@ -340,7 +344,7 @@ export async function POST(request: NextRequest) {
               excludeUserId: userId,
               type: "payment-split",
               message: () =>
-                `${userExists.full_name} reservó ${courtExists.name} el ${date} a las ${timeSlot}. Tu parte del pago: $${perPerson}.`,
+                `${userExists.full_name} reservó ${courtExists.name} el ${date} a las ${timeSlot}. Tu parte del pago: ₡${perPerson}.`,
             });
           }
         }

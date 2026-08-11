@@ -110,6 +110,14 @@ model User {
   // --- Pagos de reserva que este usuario (tenant) ha verificado/rechazado ---
   verified_payments Payment[] @relation("PaymentVerifier")
 
+  // --- Checklist de pago por partido: filas donde este usuario es el jugador,
+  // y filas que este usuario marcó como pagadas ---
+  match_payment_checks         MatchPaymentCheck[] @relation("MatchPaymentPlayer")
+  match_payment_checks_checked MatchPaymentCheck[] @relation("MatchPaymentCheckedBy")
+
+  // --- Partidos cuyo pago este usuario cerró formalmente ---
+  matches_closed Reservation[] @relation("MatchClosedBy")
+
   @@map("user")
 }
 
@@ -250,9 +258,42 @@ model Reservation {
   hold_expires_at DateTime? @db.Timestamp() // vence el hold si el tenant no responde a tiempo
   created_at      DateTime  @default(now()) @db.Timestamp()
 
-  payments Payment[]
+  // --- Partido contra plantilla rival (opcional): sin FK real a Team porque
+  // las plantillas viven en el store en memoria (lib/fieldsync-store.ts), no
+  // en la tabla `team` de Postgres — son solo el id numérico del store. ---
+  id_team       Int?
+  id_rival_team Int?
+
+  // --- Cierre formal del pago del partido: distinto de "todos marcados" en el
+  // checklist — requiere que alguien con permiso presione "Confirmar cierre". ---
+  match_closed_at    DateTime? @db.Timestamp()
+  id_match_closed_by Int?
+  match_closed_by    User?     @relation("MatchClosedBy", fields: [id_match_closed_by], references: [id_user], onDelete: SetNull, onUpdate: Cascade)
+
+  payments             Payment[]
+  match_payment_checks MatchPaymentCheck[]
 
   @@map("reservation")
+}
+
+// Checklist de pago por jugador para un partido (reserva con plantilla rival):
+// una fila por jugador de cualquiera de las dos plantillas, marcada cuando su
+// parte quedó cobrada. El partido se da por "cerrado" cuando todas están en true.
+model MatchPaymentCheck {
+  id_match_payment_check Int         @id @default(autoincrement())
+  id_reservation         Int
+  reservation            Reservation @relation(fields: [id_reservation], references: [id_reservation], onDelete: Cascade, onUpdate: Cascade)
+  id_player              Int
+  player                 User        @relation("MatchPaymentPlayer", fields: [id_player], references: [id_user], onDelete: Cascade, onUpdate: Cascade)
+  // Igual que Reservation.id_team: id numérico del store en memoria, sin FK real.
+  id_team                Int
+  paid                   Boolean     @default(false)
+  paid_at                DateTime?   @db.Timestamp()
+  id_checked_by          Int?
+  checked_by             User?       @relation("MatchPaymentCheckedBy", fields: [id_checked_by], references: [id_user], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([id_reservation, id_player])
+  @@map("match_payment_check")
 }
 
 model Payment {

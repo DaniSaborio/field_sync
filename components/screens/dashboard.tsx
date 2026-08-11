@@ -93,6 +93,8 @@ type CourtReservation = {
   paymentStatus?: PaymentStatus | null;
   amount?: number | null;
   playerName?: string | null;
+  teamId?: number | null;
+  rivalTeamId?: number | null;
 };
 
 type CourtCard = {
@@ -469,7 +471,7 @@ function CourtResultCard({
             <span className="mt-0.5 flex items-center gap-1 font-mono text-[11px] uppercase tracking-wider text-muted">
               <MapPin size={11} strokeWidth={2} className="shrink-0" aria-hidden />
               <span className="truncate">
-                {court.location} · ${court.pricePerHour}/h
+                {court.location} · ₡{court.pricePerHour}/h
               </span>
             </span>
           </span>
@@ -494,7 +496,7 @@ function CourtResultCard({
               <BadgeCheck size={13} strokeWidth={2} aria-hidden />
               {court.rating.toFixed(1)}
             </span>
-            <span className="font-black text-black">${court.pricePerHour}/h</span>
+            <span className="font-black text-black">₡{court.pricePerHour}/h</span>
           </div>
 
           <p className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-muted">
@@ -546,7 +548,7 @@ function CourtResultCard({
                 <p className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-muted">
                   <Moon size={12} strokeWidth={2} className="text-night" aria-hidden />
                   {court.pricePerHourNight != null
-                    ? `Horario nocturno (18:00+) a $${court.pricePerHourNight}/h`
+                    ? `Horario nocturno (18:00+) a ₡${court.pricePerHourNight}/h`
                     : "Horario nocturno (18:00+) con tarifa más alta"}
                 </p>
               ) : null}
@@ -574,7 +576,7 @@ function CourtResultCard({
                   ) : null}
                 </p>
                 <p className="mt-1 font-mono text-lg font-black tabular-nums text-black">
-                  ${selectedAmount}
+                  ₡{selectedAmount}
                 </p>
                 {isNightSlot(selectedSlot) ? (
                   <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-muted">
@@ -635,7 +637,7 @@ function CourtResultCard({
                       </div>
                       {splitPayment ? (
                         <p className="mt-2 font-mono text-[10px] uppercase tracking-wider text-muted">
-                          Se notifica a cada integrante de {selectedTeam.name} su parte: ${perPersonAmount}
+                          Se notifica a cada integrante de {selectedTeam.name} su parte: ₡{perPersonAmount}
                         </p>
                       ) : null}
                     </>
@@ -706,6 +708,205 @@ function CourtResultCard({
   );
 }
 
+type MatchPaymentPlayer = { id: number; name: string; teamId: number; paid: boolean; paidAt: string | null };
+type MatchPaymentChecklist = {
+  reservationId: number;
+  courtName: string;
+  date: string;
+  timeSlot: string;
+  amount: number | null;
+  perPersonAmount: number | null;
+  homeTeam: { id: number; name: string; players: MatchPaymentPlayer[] };
+  rivalTeam: { id: number; name: string; players: MatchPaymentPlayer[] };
+  allPaid: boolean;
+  closed: boolean;
+  closedAt: string | null;
+  closedByName: string | null;
+};
+
+function TeamChecklistSection({
+  team,
+  perPersonAmount,
+  busy,
+  onToggle,
+}: {
+  team: MatchPaymentChecklist["homeTeam"];
+  perPersonAmount: number | null;
+  busy: boolean;
+  onToggle: (playerId: number, paid: boolean) => void;
+}) {
+  return (
+    <div>
+      <p className="font-mono text-[10px] uppercase tracking-wider text-muted">{team.name}</p>
+      <ul className="mt-1">
+        {team.players.map((player) => (
+          <Row
+            key={player.id}
+            left={
+              <RowCheckbox
+                checked={player.paid}
+                onCheckedChange={(checked) => onToggle(player.id, checked)}
+                disabled={busy}
+                aria-label={`Pago de ${player.name}`}
+              />
+            }
+            title={player.name}
+            meta={player.paid ? "Pagado" : "Pendiente"}
+            right={perPersonAmount ? <span className="font-mono text-[11px] tabular-nums text-muted">₡{perPersonAmount}</span> : null}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function MatchPaymentChecklistModal({
+  open,
+  onClose,
+  reservationId,
+  actingUserId,
+}: {
+  open: boolean;
+  onClose: () => void;
+  reservationId: number | null;
+  actingUserId: number;
+}) {
+  const [checklist, setChecklist] = useState<MatchPaymentChecklist | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function loadChecklist() {
+    if (!reservationId) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/matches/payments?reservationId=${reservationId}`);
+      const payload = await readJson<ApiResponse<{ checklist?: MatchPaymentChecklist }>>(response);
+      if (!response.ok || !payload.checklist) {
+        throw new Error(payload.error || "No pudimos cargar el checklist de pagos");
+      }
+      setChecklist(payload.checklist);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No pudimos cargar el checklist de pagos");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (open && reservationId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      void loadChecklist();
+    }
+  }, [open, reservationId]);
+
+  async function togglePlayer(playerId: number, paid: boolean) {
+    if (!reservationId) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/matches/payments", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reservationId, playerId, paid, actingUserId }),
+      });
+      const payload = await readJson<ApiResponse<{ checklist?: MatchPaymentChecklist }>>(response);
+      if (!response.ok || !payload.checklist) {
+        throw new Error(payload.error || "No pudimos actualizar el checklist de pagos");
+      }
+      setChecklist(payload.checklist);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No pudimos actualizar el checklist de pagos");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function closeMatch() {
+    if (!reservationId) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/matches/payments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reservationId, actingUserId }),
+      });
+      const payload = await readJson<ApiResponse<{ checklist?: MatchPaymentChecklist }>>(response);
+      if (!response.ok || !payload.checklist) {
+        throw new Error(payload.error || "No pudimos cerrar el pago del partido");
+      }
+      setChecklist(payload.checklist);
+      setMessage("Pago del partido cerrado.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No pudimos cerrar el pago del partido");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Checklist de pago">
+      {message ? <MessageBanner message={message} /> : null}
+      {checklist ? (
+        <div className="space-y-4">
+          <div className="border border-black bg-paper p-3">
+            <p className="font-mono text-[10px] uppercase tracking-wider text-muted">
+              {checklist.courtName} · {checklist.date} · {checklist.timeSlot}
+            </p>
+            <p className="mt-1 flex items-center gap-2 font-sans text-sm font-semibold text-black">
+              {checklist.homeTeam.name} vs {checklist.rivalTeam.name}
+              {checklist.closed ? (
+                <RowTag tone="positive">Cerrado</RowTag>
+              ) : checklist.allPaid ? (
+                <RowTag>Listo para cerrar</RowTag>
+              ) : (
+                <RowTag>En curso</RowTag>
+              )}
+            </p>
+            {checklist.closed ? (
+              <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-muted">
+                Cerrado por {checklist.closedByName ?? "—"}
+                {checklist.closedAt ? ` · ${formatDateTime(checklist.closedAt)}` : ""}
+              </p>
+            ) : null}
+          </div>
+
+          <TeamChecklistSection
+            team={checklist.homeTeam}
+            perPersonAmount={checklist.perPersonAmount}
+            busy={busy || checklist.closed}
+            onToggle={togglePlayer}
+          />
+          <TeamChecklistSection
+            team={checklist.rivalTeam}
+            perPersonAmount={checklist.perPersonAmount}
+            busy={busy || checklist.closed}
+            onToggle={togglePlayer}
+          />
+
+          {!checklist.closed ? (
+            <>
+              <p className="font-mono text-[10px] uppercase tracking-wider text-muted">
+                {checklist.allPaid
+                  ? "Todos los jugadores están marcados como pagados. Confirmá el cierre para saldar el partido."
+                  : "Marcá a cada jugador cuando confirmes su parte. El cierre se habilita cuando todos estén pagados."}
+              </p>
+              <Button type="button" className="w-full" disabled={busy || !checklist.allPaid} onClick={closeMatch}>
+                {busy ? "Procesando…" : "Confirmar cierre"}
+              </Button>
+            </>
+          ) : null}
+        </div>
+      ) : (
+        <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
+          {busy ? "Cargando…" : "No pudimos cargar el checklist."}
+        </p>
+      )}
+    </Modal>
+  );
+}
+
 function BookingPanel({
   user,
   onRequireLogin,
@@ -727,6 +928,7 @@ function BookingPanel({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>("");
   const [teams, setTeams] = useState<TeamCard[]>([]);
+  const [checklistReservationId, setChecklistReservationId] = useState<number | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -1007,11 +1209,47 @@ function BookingPanel({
       </section>
 
       <section>
-        <SectionLabel icon={CalendarDays} className="mb-3">
-          Mis reservas
+        <SectionLabel icon={Trophy} className="mb-3">
+          Canchas encontradas ({filteredCourts.length})
         </SectionLabel>
 
-        <Card>
+        {filteredCourts.length > 0 ? (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {filteredCourts.map((court) => (
+              <CourtResultCard
+                key={court.id}
+                court={court}
+                date={date}
+                busy={busy}
+                canReserve={Boolean(user)}
+                myTeams={myTeams}
+                allTeams={teams}
+                onReserve={reserve}
+                onRequireLogin={onRequireLogin}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="border border-black bg-paper p-8 text-center">
+            <p className="font-mono text-xs uppercase tracking-wider text-muted">
+              No encontramos canchas que coincidan con la búsqueda.
+            </p>
+          </div>
+        )}
+      </section>
+
+      <section>
+        <CollapsibleSection
+          icon={CalendarDays}
+          label="Mis reservas"
+          summary={
+            !user
+              ? "Iniciá sesión para verlas"
+              : myReservations.length > 0
+                ? `${myReservations.length} reservas`
+                : "Sin reservas activas"
+          }
+        >
           {!user ? (
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="font-sans text-sm text-muted">
@@ -1041,6 +1279,16 @@ function BookingPanel({
                         {reservation.status === "pendiente" ? (
                           <RowTag tone="default">Pendiente de confirmación</RowTag>
                         ) : null}
+                        {reservation.status === "confirmada" && reservation.teamId && reservation.rivalTeamId ? (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={busy}
+                            onClick={() => setChecklistReservationId(reservation.id)}
+                          >
+                            Verificar pagos
+                          </Button>
+                        ) : null}
                         <Button
                           variant="destructive"
                           size="sm"
@@ -1060,38 +1308,15 @@ function BookingPanel({
               No tenés reservas activas todavía.
             </p>
           )}
-        </Card>
+        </CollapsibleSection>
       </section>
 
-      <section>
-        <SectionLabel icon={Trophy} className="mb-3">
-          Canchas encontradas ({filteredCourts.length})
-        </SectionLabel>
-
-        {filteredCourts.length > 0 ? (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {filteredCourts.map((court) => (
-              <CourtResultCard
-                key={court.id}
-                court={court}
-                date={date}
-                busy={busy}
-                canReserve={Boolean(user)}
-                myTeams={myTeams}
-                allTeams={teams}
-                onReserve={reserve}
-                onRequireLogin={onRequireLogin}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="border border-black bg-paper p-8 text-center">
-            <p className="font-mono text-xs uppercase tracking-wider text-muted">
-              No encontramos canchas que coincidan con la búsqueda.
-            </p>
-          </div>
-        )}
-      </section>
+      <MatchPaymentChecklistModal
+        open={checklistReservationId !== null}
+        onClose={() => setChecklistReservationId(null)}
+        reservationId={checklistReservationId}
+        actingUserId={user?.id ?? 0}
+      />
     </div>
   );
 }
@@ -2102,79 +2327,60 @@ function MyTournamentsPanel({ user }: { user: AppUser }) {
 // apodo: no bloquea el uso de la app, solo invita a diferenciarse de otros
 // jugadores con el mismo nombre. Se recuerda el "ahora no" por pestaña/sesión
 // (sessionStorage), así que vuelve a aparecer en el próximo login si sigue sin apodo.
-function NicknamePrompt({ user, onSaved }: { user: AppUser; onSaved: (nickname: string) => void }) {
+function NicknameBanner({ user, onOpenProfile }: { user: AppUser; onOpenProfile: () => void }) {
   const dismissKey = `nickname-prompt-dismissed-${user.id}`;
   const [dismissed, setDismissed] = useState(
     () => typeof window !== "undefined" && sessionStorage.getItem(dismissKey) === "1",
   );
-  const [nickname, setNickname] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
 
   function dismiss() {
     sessionStorage.setItem(dismissKey, "1");
     setDismissed(true);
   }
 
-  async function save() {
-    if (!nickname.trim()) {
-      dismiss();
-      return;
-    }
-    setSaving(true);
-    setError("");
-    try {
-      const response = await fetch("/api/profile", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user.id, nickname: nickname.trim() }),
-      });
-      const payload = await readJson<ApiResponse<Record<string, never>>>(response);
-      if (!response.ok) {
-        setError(payload.error || "No pudimos guardar el apodo");
-        return;
-      }
-      onSaved(nickname.trim());
-      dismiss();
-    } finally {
-      setSaving(false);
-    }
+  if (user.nickname || dismissed) {
+    return null;
   }
 
   return (
-    <Modal open={!user.nickname && !dismissed} onClose={dismiss} title="Agregá un apodo">
-      <div className="space-y-3">
-        <p className="font-sans text-sm text-black">
-          Un apodo te ayuda a diferenciarte de otros jugadores con el mismo nombre en plantillas y torneos. Es opcional y lo podés cambiar cuando quieras desde tu perfil.
+    <div className="flex flex-wrap items-center justify-between gap-3 border border-black bg-paper px-3 py-2 shadow-hard-sm">
+      <div className="flex min-w-0 items-center gap-2">
+        <BadgeCheck size={14} strokeWidth={2} className="shrink-0" aria-hidden />
+        <p className="truncate font-mono text-[11px] uppercase tracking-wider text-black">
+          Agregá un apodo para diferenciarte en plantillas y torneos.
         </p>
-        <input
-          value={nickname}
-          onChange={(event) => setNickname(event.target.value)}
-          placeholder="Cómo te dicen en la cancha"
-          maxLength={50}
-          autoFocus
-          className={fieldClassName}
-        />
-        {error ? <p className="font-mono text-[11px] uppercase tracking-wider text-red-700">{error}</p> : null}
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" size="sm" onClick={save} disabled={saving}>
-            {saving ? "Guardando…" : "Guardar apodo"}
-          </Button>
-          <Button type="button" size="sm" variant="secondary" onClick={dismiss}>
-            Ahora no
-          </Button>
-        </div>
       </div>
-    </Modal>
+      <div className="flex shrink-0 items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          onClick={() => {
+            dismiss();
+            onOpenProfile();
+          }}
+        >
+          Agregar apodo
+        </Button>
+        <button
+          type="button"
+          onClick={dismiss}
+          aria-label="Descartar aviso de apodo"
+          className="flex size-8 shrink-0 items-center justify-center border border-black bg-paper"
+        >
+          <X size={14} strokeWidth={2} aria-hidden />
+        </button>
+      </div>
+    </div>
   );
 }
 
 type ProfilePanelProps = {
   user: AppUser;
   onRequestTenant: () => void;
+  onUserUpdate: (user: AppUser) => void;
 };
 
-function ProfilePanel({user, onRequestTenant}: ProfilePanelProps) {
+function ProfilePanel({user, onRequestTenant, onUserUpdate}: ProfilePanelProps) {
   const [profile, setProfile] = useState<AnyProfileSnapshot | null>(null);
   const [message, setMessage] = useState("");
   const [nicknameDraft, setNicknameDraft] = useState("");
@@ -2206,6 +2412,7 @@ function ProfilePanel({user, onRequestTenant}: ProfilePanelProps) {
       return;
     }
     setMessage("Apodo actualizado.");
+    onUserUpdate({ ...user, nickname: nicknameDraft.trim() || undefined });
     await loadProfile();
   }
 
@@ -2284,7 +2491,7 @@ function ProfilePanel({user, onRequestTenant}: ProfilePanelProps) {
                   <Row
                     key={court.id}
                     title={court.name}
-                    meta={`${court.address ?? "Sin dirección"}${court.pricePerHour ? ` · $${court.pricePerHour}/h` : ""}`}
+                    meta={`${court.address ?? "Sin dirección"}${court.pricePerHour ? ` · ₡${court.pricePerHour}/h` : ""}`}
                     right={
                       <div className="flex items-center gap-2">
                         {court.pendingCount > 0 ? <RowTag tone="default">{court.pendingCount} por revisar</RowTag> : null}
@@ -2419,6 +2626,11 @@ function TeamsPanel({ user }: { user: AppUser }) {
         candidate.email.toLowerCase().includes(query)
     );
   }, [users, playerSearch]);
+
+  const selectedPlayer = useMemo(
+    () => users.find((candidate) => candidate.id === selectedPlayerId) ?? null,
+    [users, selectedPlayerId],
+  );
 
   function captainName(team: TeamCard) {
     const captain =
@@ -2560,31 +2772,24 @@ function TeamsPanel({ user }: { user: AppUser }) {
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
         <Card className="gap-3">
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="relative">
-              <select className={fieldClassName} value={selectedTeamId ?? ""} onChange={(event) => setSelectedTeamId(event.target.value ? Number(event.target.value) : null)}>
-                <option value="">Selecciona un equipo</option>
-                {myTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
-              </select>
-              <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
-            </div>
-            <input
-              type="search"
-              placeholder="Buscar jugador por nombre, apodo o correo…"
-              value={playerSearch}
-              onChange={(event) => setPlayerSearch(event.target.value)}
-              className={fieldClassName}
-            />
-          </div>
           <div className="relative">
-            <select className={fieldClassName} value={selectedPlayerId ?? ""} onChange={(event) => setSelectedPlayerId(event.target.value ? Number(event.target.value) : null)}>
-              <option value="">Selecciona un jugador ({filteredUsers.length} resultados)</option>
-              {filteredUsers.map((candidate) => <option key={candidate.id} value={candidate.id}>{displayName(candidate)} · {humanRole(candidate.role)}</option>)}
+            <select className={fieldClassName} value={selectedTeamId ?? ""} onChange={(event) => setSelectedTeamId(event.target.value ? Number(event.target.value) : null)}>
+              <option value="">Selecciona un equipo</option>
+              {myTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
             </select>
             <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
           </div>
+          <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
+            {selectedPlayer ? (
+              <>Jugador elegido: <span className="font-bold text-black">{displayName(selectedPlayer)}</span></>
+            ) : (
+              <>Elegí un jugador abajo, en “Buscar jugador”.</>
+            )}
+          </p>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" onClick={() => changeRoster("add")}>Agregar jugador</Button>
+            <Button type="button" size="sm" disabled={!selectedTeamId || !selectedPlayerId} onClick={() => changeRoster("add")}>
+              Agregar jugador
+            </Button>
           </div>
         </Card>
 
@@ -2624,6 +2829,47 @@ function TeamsPanel({ user }: { user: AppUser }) {
           ) : null}
         </Card>
       </div>
+
+      <Card className="mt-4 gap-3">
+        <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Buscar jugador</p>
+        <input
+          type="search"
+          placeholder="Buscar por nombre, apodo o correo…"
+          value={playerSearch}
+          onChange={(event) => setPlayerSearch(event.target.value)}
+          className={fieldClassName}
+        />
+        <div className="max-h-80 overflow-y-auto">
+          {filteredUsers.length > 0 ? (
+            <ul>
+              {filteredUsers.map((candidate) => {
+                const isSelected = candidate.id === selectedPlayerId;
+                return (
+                  <li key={candidate.id}>
+                    <button
+                      type="button"
+                      aria-pressed={isSelected}
+                      onClick={() => setSelectedPlayerId(candidate.id)}
+                      className={cn(
+                        "flex w-full items-center justify-between gap-3 border-b border-l-4 border-black py-3 pl-3 pr-1 text-left",
+                        isSelected ? "border-l-neon" : "border-l-transparent",
+                      )}
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold">{displayName(candidate)}</p>
+                        <p className="truncate font-mono text-[11px] uppercase tracking-wider text-muted">{candidate.email}</p>
+                      </div>
+                      <RowTag tone={isSelected ? "positive" : "default"}>{isSelected ? "Elegido" : humanRole(candidate.role)}</RowTag>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="font-mono text-[11px] uppercase tracking-wider text-muted">Sin resultados para esa búsqueda.</p>
+          )}
+        </div>
+      </Card>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
         {myTeams.length > 0 ? myTeams.map((team) => (
@@ -2781,12 +3027,23 @@ function TenantPaymentsPanel({ user }: { user: AppUser }) {
     void loadCourts();
   }, []);
 
+  const [checklistReservationId, setChecklistReservationId] = useState<number | null>(null);
+
   const myCourts = useMemo(() => courts.filter((court) => court.tenantId === user.id), [courts, user.id]);
   const pendingReservations = useMemo(
     () =>
       myCourts.flatMap((court) =>
         court.reservations
           .filter((reservation) => reservation.status === "pendiente")
+          .map((reservation) => ({ ...reservation, courtName: court.name })),
+      ),
+    [myCourts],
+  );
+  const matchesWithRival = useMemo(
+    () =>
+      myCourts.flatMap((court) =>
+        court.reservations
+          .filter((reservation) => reservation.status === "confirmada" && reservation.teamId && reservation.rivalTeamId)
           .map((reservation) => ({ ...reservation, courtName: court.name })),
       ),
     [myCourts],
@@ -2854,6 +3111,35 @@ function TenantPaymentsPanel({ user }: { user: AppUser }) {
           No hay pagos pendientes de verificación.
         </p>
       )}
+
+      {matchesWithRival.length > 0 ? (
+        <div className="mt-6 border-t border-black pt-4">
+          <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-muted">
+            Partidos con plantilla rival
+          </p>
+          <ul>
+            {matchesWithRival.map((reservation) => (
+              <Row
+                key={reservation.id}
+                title={reservation.courtName}
+                meta={`${reservation.date} · ${reservation.timeSlot}`}
+                right={
+                  <Button variant="secondary" size="sm" onClick={() => setChecklistReservationId(reservation.id)}>
+                    Verificar pagos
+                  </Button>
+                }
+              />
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <MatchPaymentChecklistModal
+        open={checklistReservationId !== null}
+        onClose={() => setChecklistReservationId(null)}
+        reservationId={checklistReservationId}
+        actingUserId={user.id}
+      />
     </PanelShell>
   );
 }
@@ -3050,7 +3336,7 @@ function TenantCourtsPanel({ user }: { user: AppUser }) {
                   <h3 className="font-display text-lg font-black leading-tight tracking-tight text-black">{report.court.name}</h3>
                   <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
                     {report.court.location}
-                    {report.court.pricePerHour ? ` · $${report.court.pricePerHour}/h` : ""}
+                    {report.court.pricePerHour ? ` · ₡${report.court.pricePerHour}/h` : ""}
                   </p>
                 </div>
                 <Button
@@ -3384,7 +3670,7 @@ function AdminPanel({ user }: { user: AppUser }) {
                     <Row
                       key={court.id}
                       title={court.name}
-                      meta={`${court.address ?? "Sin dirección"}${court.pricePerHour ? ` · $${court.pricePerHour}/h` : ""}`}
+                      meta={`${court.address ?? "Sin dirección"}${court.pricePerHour ? ` · ₡${court.pricePerHour}/h` : ""}`}
                       right={
                         <div className="flex items-center gap-2">
                           <RowTag tone={court.isActive ? "positive" : "negative"}>{court.isActive ? "Activa" : "Inactiva"}</RowTag>
@@ -3442,8 +3728,8 @@ export function DashboardScreen({ user, onLogout, onUserUpdate }: DashboardScree
 
   return (
     <div className="min-h-screen bg-paper px-4 py-6 font-sans sm:px-6 lg:px-8">
-      <NicknamePrompt user={user} onSaved={(nickname) => onUserUpdate({ ...user, nickname })} />
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
+        <NicknameBanner user={user} onOpenProfile={() => setActiveTab("perfil")} />
         <header className="flex flex-col gap-4 border border-black bg-paper p-5 shadow-hard lg:flex-row lg:items-center lg:justify-between">
           <div>
             <StatusPill>Sesión activa</StatusPill>
@@ -3490,7 +3776,7 @@ export function DashboardScreen({ user, onLogout, onUserUpdate }: DashboardScree
           )
         ) : null}
         {activeTab === "torneos" ? (isAdmin(user) || isTenant(user) ? <TournamentsPanel user={user} /> : <MyTournamentsPanel user={user} />) : null}
-        {activeTab === "perfil" ? (<ProfilePanel user={user} onRequestTenant={() => setActiveTab("tenant-request")} />) : null}
+        {activeTab === "perfil" ? (<ProfilePanel user={user} onRequestTenant={() => setActiveTab("tenant-request")} onUserUpdate={onUserUpdate} />) : null}
         {activeTab === "plantilla" ? <TeamsPanel user={user} /> : null}
         {activeTab === "mis-canchas" && isTenant(user) ? <TenantCourtsPanel user={user} /> : null}
         {activeTab === "tenant-request" ? (<TenantRequestScreen user={user} />) : null}

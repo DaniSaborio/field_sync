@@ -50,6 +50,9 @@ export type ReservationRecord = {
   paymentStatus: PaymentStatus | null;
   rejectionReason: string | null;
   amount: number | null;
+  teamId: number | null;
+  rivalTeamId: number | null;
+  paidPlayerIds: number[];
 };
 
 export type NotificationRecord = {
@@ -366,6 +369,9 @@ const seedState = (): StoreState => ({
       paymentStatus: "verificado",
       rejectionReason: null,
       amount: 55,
+      teamId: null,
+      rivalTeamId: null,
+      paidPlayerIds: [],
     },
     {
       id: 2,
@@ -380,6 +386,9 @@ const seedState = (): StoreState => ({
       paymentStatus: "verificado",
       rejectionReason: null,
       amount: 72,
+      teamId: null,
+      rivalTeamId: null,
+      paidPlayerIds: [],
     },
   ],
   notifications: [
@@ -1050,6 +1059,9 @@ export function reserveCourt(input: {
     paymentStatus: "pendiente",
     rejectionReason: null,
     amount,
+    teamId: input.teamId ?? null,
+    rivalTeamId: input.rivalTeamId ?? null,
+    paidPlayerIds: [],
   };
 
   store.reservations.push(reservation);
@@ -1076,7 +1088,7 @@ export function reserveCourt(input: {
           excludeUserId: input.userId,
           type: "payment-split",
           message: () =>
-            `${user.fullName} reservó ${court.name} el ${input.date} a las ${input.timeSlot}. Tu parte del pago: $${perPerson}.`,
+            `${user.fullName} reservó ${court.name} el ${input.date} a las ${input.timeSlot}. Tu parte del pago: ₡${perPerson}.`,
         }),
       );
     }
