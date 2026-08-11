@@ -3107,10 +3107,32 @@ function AdminPanel({ user }: { user: AppUser }) {
 }
 
 export function DashboardScreen({ user, onLogout, onUserUpdate }: DashboardScreenProps) {
-  type DashboardTab = "reservas" | "torneos" | "perfil" | "plantilla" | "notificaciones" | "tenant-request" | "administracion";
+  type DashboardTab = "reservas" | "torneos" | "perfil" | "plantilla" | "notificaciones" | "tenant-request" |"mis-canchas" |"administracion";
 
   const [activeTab, setActiveTab] = useState<DashboardTab>("reservas");
-  const visibleTabs = tabButtons.filter((tab) => tab.id !== "administracion" || isAdmin(user));
+  const visibleTabs = [
+  ...tabButtons.filter(
+    (tab) => tab.id !== "administracion"
+  ),
+  ...(isTenant(user)
+    ? [
+        {
+          id: "mis-canchas" as const,
+          label: "Mis canchas",
+          icon: Building2,
+        },
+      ]
+    : []),
+  ...(isAdmin(user)
+    ? [
+        {
+          id: "administracion" as const,
+          label: "Administración",
+          icon: ShieldCheck,
+        },
+      ]
+    : []),
+];
 
   return (
     <div className="min-h-screen bg-paper px-4 py-6 font-sans sm:px-6 lg:px-8">

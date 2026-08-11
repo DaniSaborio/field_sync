@@ -6,7 +6,7 @@ export type CourtSurface = "synthetic" | "natural" | "indoor";
 export type TournamentFormat = "eliminatorio" | "todos-contra-todos";
 export type TournamentFixtureMode = "aleatorio" | "manual";
 export type MatchStatus = "scheduled" | "confirmed";
-export type NotificationType = "reservation" | "cancellation" | "tournament" | "convocation" | "match-result" | "payment-split" | "match-invite" | "payment-pending";
+export type NotificationType = "reservation" | "cancellation" | "tournament" | "convocation" | "match-result" | "payment-split" | "match-invite" | "payment-pending" | "account-status";
 
 export type UserRecord = {
   id: number;
@@ -590,6 +590,10 @@ function createNotification(userId: number, type: NotificationType, message: str
 
   store.notifications.push(notification);
   return notification;
+}
+
+export function createUserNotification(userId: number, type: NotificationType, message: string) {
+  return createNotification(userId, type, message);
 }
 
 function findUserById(userId: number) {

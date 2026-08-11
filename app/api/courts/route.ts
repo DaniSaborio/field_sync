@@ -56,16 +56,25 @@ export async function GET(request: NextRequest) {
   const timeSlot = url.searchParams.get("timeSlot") ?? undefined;
   const surface = url.searchParams.get("surface") ?? undefined;
   const userId = url.searchParams.get("userId");
+  const tenantIdParam = url.searchParams.get("tenantId");
+  const manage = url.searchParams.get("manage") === "true";
 
   try {
     const courtsFromDb = await prisma.court.findMany({
-      where: { is_active: true },
-      include: {
+      where:
+        manage && tenantIdParam
+        ? {
+          id_tenant: Number(tenantIdParam),
+          }
+          : {
+          is_active: true,
+          },
+        include: {
         reservations: {
-          where: date ? { date: new Date(date) } : undefined,
-          include: { payments: { include: { estado: true } } },
-        },
-        rates: true,
+        where: date ? { date: new Date(date) } : undefined,
+        include: { payments: { include: { estado: true } } },
+      },
+      rates: true,
       },
     });
 

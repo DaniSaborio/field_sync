@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
         nickname: dbUser.nickname,
         email: dbUser.email,
         role: mapPrismaRole(dbUser.role.name),
-        tenantId: DEMO_TENANT_ID,
+        tenantId: dbUser.role.name === "tenant" ? dbUser.id_user : DEMO_TENANT_ID,
         notificationsEnabled: dbUser.notifications_enabled,
       });
 
