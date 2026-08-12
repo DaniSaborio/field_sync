@@ -9,6 +9,7 @@ import {
 import { isNightHour } from "@/lib/utils";
 import { resolveNightRate, type RateCandidate } from "@/lib/rates";
 import { expireStalePendingReservations } from "@/lib/reservation-expiry";
+import { notifyPush } from "@/lib/notify";
 
 const DEFAULT_SLOTS = [
   "08:00", "09:00", "09:30", "10:30", "11:00", "12:00",
@@ -311,25 +312,21 @@ export async function POST(request: NextRequest) {
 
         if (userExists.notifications_enabled) {
           const paymentLabel = paymentMethod === "sinpe" ? "SINPE Móvil" : "efectivo";
+          const message = `Reserva en ${courtExists.name} a las ${timeSlot} pendiente de confirmación de pago (${paymentLabel}) por el dueño de la cancha.`;
           await prisma.notification.create({
-            data: {
-              id_user: userId,
-              type: "reservation",
-              message: `Reserva en ${courtExists.name} a las ${timeSlot} pendiente de confirmación de pago (${paymentLabel}) por el dueño de la cancha.`,
-            },
+            data: { id_user: userId, type: "reservation", message },
           });
+          notifyPush(userId, message);
         }
 
         const tenant = await prisma.user.findUnique({ where: { id_user: courtExists.id_tenant } });
         if (tenant?.notifications_enabled) {
           const paymentLabel = paymentMethod === "sinpe" ? "SINPE Móvil" : "efectivo";
+          const message = `Nueva reserva en ${courtExists.name} el ${date} a las ${timeSlot}. Verifica el pago por ${paymentLabel} (₡${Number(amount)}) para confirmarla.`;
           await prisma.notification.create({
-            data: {
-              id_user: tenant.id_user,
-              type: "payment-pending",
-              message: `Nueva reserva en ${courtExists.name} el ${date} a las ${timeSlot}. Verifica el pago por ${paymentLabel} (₡${Number(amount)}) para confirmarla.`,
-            },
+            data: { id_user: tenant.id_user, type: "payment-pending", message },
           });
+          notifyPush(tenant.id_user, message);
         }
 
         // La plantilla y las notificaciones de pago dividido / invitación viven en el
@@ -448,14 +445,12 @@ export async function DELETE(request: NextRequest) {
 
       const notifications = [];
       if (reservation.user?.notifications_enabled) {
+        const message = `Cancelamos tu reserva en ${reservation.court?.name ?? "la cancha"} para ${updated.date.toISOString().slice(0, 10)}.`;
         const notif = await prisma.notification.create({
-          data: {
-            id_user: userId,
-            type: "cancellation",
-            message: `Cancelamos tu reserva en ${reservation.court?.name ?? "la cancha"} para ${updated.date.toISOString().slice(0, 10)}.`,
-          },
+          data: { id_user: userId, type: "cancellation", message },
         });
         notifications.push(notif);
+        notifyPush(userId, message);
       }
 
       return NextResponse.json({
@@ -590,6 +585,7 @@ export async function PATCH(request: NextRequest) {
             message,
           },
         });
+        notifyPush(reservation.id_user, message);
       }
 
       return NextResponse.json({

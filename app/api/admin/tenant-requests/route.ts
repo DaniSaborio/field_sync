@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createUserNotification, upsertStoreUser } from "@/lib/fieldsync-store";
+import { notifyPush } from "@/lib/notify";
 import {
   listTenantRequests,
   submitTenantRequest,
@@ -102,6 +103,10 @@ export async function PATCH(request: NextRequest) {
               message: "Tu solicitud como dueño de cancha fue aprobada. Ya podés administrar tu cancha desde tu panel.",
             },
           });
+          notifyPush(
+            updatedUser.id_user,
+            "Tu solicitud como dueño de cancha fue aprobada. Ya podés administrar tu cancha desde tu panel.",
+          );
         }
       }
     }

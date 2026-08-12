@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { notifyPush } from "@/lib/notify";
 
 const ADMIN_ROLES = ["administrador", "admin_plataforma"];
 
@@ -93,6 +94,13 @@ export async function PATCH(request: NextRequest) {
         },
       }),
     ]);
+
+    notifyPush(
+      targetUserId,
+      action === "verify"
+        ? "Tu cuenta de dueño de cancha fue verificada. Ya podés publicar canchas y torneos."
+        : "Tu cuenta de dueño de cancha fue suspendida por un administrador de plataforma.",
+    );
 
     return NextResponse.json({
       ok: true,

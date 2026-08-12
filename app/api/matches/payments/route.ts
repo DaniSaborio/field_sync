@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getTeamById } from "@/lib/fieldsync-store";
+import { notifyPush } from "@/lib/notify";
 
 function teamOrNull(teamId: number | null) {
   if (!teamId) return null;
@@ -250,17 +251,15 @@ export async function POST(request: NextRequest) {
     const notifyUserIds = Array.from(
       new Set([canManage.homeCaptainUserId, canManage.rivalCaptainUserId, canManage.bookerUserId]),
     );
+    const closeMessage = `Pago cerrado: ${result.checklist.homeTeam.name} vs ${result.checklist.rivalTeam.name} en ${result.checklist.courtName} el ${result.checklist.date} a las ${result.checklist.timeSlot}. Todos los jugadores quedaron al día.`;
     await Promise.all(
       notifyUserIds.map((userId) =>
         prisma.notification.create({
-          data: {
-            id_user: userId,
-            type: "reservation",
-            message: `Pago cerrado: ${result.checklist.homeTeam.name} vs ${result.checklist.rivalTeam.name} en ${result.checklist.courtName} el ${result.checklist.date} a las ${result.checklist.timeSlot}. Todos los jugadores quedaron al día.`,
-          },
+          data: { id_user: userId, type: "reservation", message: closeMessage },
         }),
       ),
     );
+    notifyUserIds.forEach((userId) => notifyPush(userId, closeMessage));
 
     const updated = await buildChecklist(reservationId);
     if (!updated.ok) {

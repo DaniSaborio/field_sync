@@ -38,6 +38,7 @@ import { Modal } from "@/components/ui/modal";
 import { Row, RowCheckbox, RowTag } from "@/components/ui/row";
 import { SectionLabel } from "@/components/ui/section-label";
 import { cn, isNightSlot } from "@/lib/utils";
+import { getPushSubscription, isPushSupported, subscribeToPush, unsubscribeFromPush } from "@/lib/push-client";
 import { Building2 } from "lucide-react";
 import { TenantRequestScreen } from "./tenant-request";
 
@@ -367,6 +368,59 @@ function Badge({ children }: { children: React.ReactNode }) {
     <span className="inline-flex items-center border border-black bg-paper px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-black">
       {children}
     </span>
+  );
+}
+
+function PushSubscribeButton({ userId }: { userId: number }) {
+  const [supported, setSupported] = useState(false);
+  const [subscribed, setSubscribed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!isPushSupported()) return;
+    let cancelled = false;
+    getPushSubscription()
+      .then((subscription) => {
+        if (cancelled) return;
+        setSupported(true);
+        setSubscribed(Boolean(subscription));
+      })
+      .catch(() => {
+        if (!cancelled) setSupported(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!supported) return null;
+
+  async function toggle() {
+    setBusy(true);
+    setError("");
+    try {
+      if (subscribed) {
+        await unsubscribeFromPush();
+        setSubscribed(false);
+      } else {
+        await subscribeToPush(userId);
+        setSubscribed(true);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No pudimos activar las notificaciones push");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-3">
+      <Button type="button" size="sm" variant="secondary" onClick={toggle} disabled={busy}>
+        {subscribed ? "Desactivar notis push" : "Activar notis push"}
+      </Button>
+      {error ? <p className="mt-1.5 font-mono text-[10px] uppercase tracking-wider text-black">{error}</p> : null}
+    </div>
   );
 }
 
@@ -2474,6 +2528,7 @@ function ProfilePanel({user, onRequestTenant, onUserUpdate}: ProfilePanelProps) 
             <Button type="button" size="sm" variant="secondary" className="mt-3" onClick={() => updateNotifications(!profile.user.notificationsEnabled)}>
               {profile.user.notificationsEnabled ? "Desactivar notificaciones" : "Activar notificaciones"}
             </Button>
+            <PushSubscribeButton userId={profile.user.id} />
           </Card>
           <Card nested className="xl:col-span-2">
             <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Resumen</p>
@@ -2576,6 +2631,7 @@ function ProfilePanel({user, onRequestTenant, onUserUpdate}: ProfilePanelProps) 
                 {profile.user.notificationsEnabled ? "Desactivar notificaciones" : "Activar notificaciones"}
               </Button>
             </div>
+            <PushSubscribeButton userId={profile.user.id} />
           </Card>
           <Card nested className="xl:col-span-3">
             <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Torneos y canchas vinculadas</p>
