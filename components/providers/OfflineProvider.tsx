@@ -15,9 +15,22 @@ export function OfflineProvider() {
 
   useEffect(() => {
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch((error) => {
-        console.warn("No se pudo registrar el service worker:", error);
-      });
+      if (process.env.NODE_ENV === "production") {
+        navigator.serviceWorker.register("/sw.js").catch((error) => {
+          console.warn("No se pudo registrar el service worker:", error);
+        });
+      } else {
+        // En dev (Turbopack) los nombres de los chunks cambian en cada rebuild;
+        // un SW cacheando /_next/static/* de una build vieja causa un loop de
+        // reload apenas el servidor reinicia. Se desregistra cualquier SW que
+        // haya quedado de una prueba anterior en modo producción.
+        navigator.serviceWorker.getRegistrations().then((registrations) => {
+          registrations.forEach((registration) => registration.unregister());
+        });
+        if ("caches" in window) {
+          caches.keys().then((keys) => keys.forEach((key) => caches.delete(key)));
+        }
+      }
     }
 
     // eslint-disable-next-line react-hooks/set-state-in-effect

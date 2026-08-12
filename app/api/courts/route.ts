@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
+  ensureTeamsHydrated,
   getTeamById,
   listCourts as listCourtsMemory,
   notifyTeamCaptain,
@@ -82,7 +83,7 @@ export async function GET(request: NextRequest) {
         where: date ? { date: new Date(date) } : undefined,
         include: {
           payments: { include: { estado: true } },
-          user: { select: { full_name: true, nickname: true } },
+          user: { select: { full_name: true, nickname: true, email: true } },
         },
       },
       rates: true,
@@ -133,6 +134,7 @@ export async function GET(request: NextRequest) {
                 paymentStatus: payment?.estado.name ?? null,
                 amount: payment ? Number(payment.amount) : null,
                 playerName: r.user.nickname || r.user.full_name,
+                playerEmail: r.user.email,
                 teamId: r.id_team,
                 rivalTeamId: r.id_rival_team,
               };
@@ -190,6 +192,7 @@ function isPaymentMethod(value: unknown): value is PaymentMethod {
 
 export async function POST(request: NextRequest) {
   try {
+    await ensureTeamsHydrated();
     const body = await request.json();
     const userId = Number(body?.userId);
     const courtId = Number(body?.courtId);
@@ -336,7 +339,7 @@ export async function POST(request: NextRequest) {
           const team = getTeamById(teamId);
           if (team) {
             const perPerson = (Number(amount) / Math.max(1, team.playerIds.length)).toFixed(2);
-            notifyTeamMembers({
+            await notifyTeamMembers({
               teamId,
               excludeUserId: userId,
               type: "payment-split",
@@ -347,7 +350,7 @@ export async function POST(request: NextRequest) {
         }
 
         if (rivalTeamId) {
-          notifyTeamCaptain({
+          await notifyTeamCaptain({
             teamId: rivalTeamId,
             type: "match-invite",
             message: `${userExists.full_name} te invita a jugar en ${courtExists.name} el ${date} a las ${timeSlot}.`,

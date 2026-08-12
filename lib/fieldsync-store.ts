@@ -1,4 +1,6 @@
 import { isNightHour } from "./utils";
+import { prisma } from "./prisma";
+import { notifyPush } from "./notify";
 
 export type UserRole = "administrador" | "recepcionista" | "organizador" | "jugador";
 
@@ -412,7 +414,7 @@ const seedState = (): StoreState => ({
       id: 3,
       userId: 3,
       type: "tournament",
-      message: "Fixture disponible para el Torneo Apertura 2026.",
+      message: "Calendario disponible para el Torneo Apertura 2026.",
       createdAt: "2026-07-21T09:00:00.000Z",
       read: false,
     },
@@ -946,7 +948,11 @@ export function listCourts(filters: ReservationFilter = {}) {
         .filter((reservation) => reservation.courtId === court.id && reservation.status !== "cancelada" && (!date || reservation.date === date) && (!userId || reservation.userId === userId))
         .map((reservation) => {
           const player = findUserById(reservation.userId);
-          return { ...clone(reservation), playerName: player?.nickname || player?.fullName || null };
+          return {
+            ...clone(reservation),
+            playerName: player?.nickname || player?.fullName || null,
+            playerEmail: player?.email ?? null,
+          };
         }),
     };
   }).filter((court) => court.availableSlots.length > 0 || court.reservations.length > 0);
@@ -960,34 +966,101 @@ export function getReservations(userId?: number) {
   return clone(reservations);
 }
 
-export function notifyTeamMembers(input: {
+// --- Persistencia real de plantillas (Postgres) ---
+// Las plantillas se crean/editan acá pero las funciones de torneos (fixture,
+// standings, chequeo de jugadores compartidos) siguen leyendo store.teams de
+// forma síncrona sin cambios: en vez de reescribir todo ese motor a async,
+// mantenemos store.teams como un espejo en memoria que se hidrata desde
+// Postgres una vez por proceso (y se actualiza en cada escritura), así un
+// reinicio del contenedor ya no borra las plantillas — solo hace falta un
+// primer request que dispare la hidratación.
+let teamsHydrated = false;
+
+async function ensurePlayerProfile(userId: number) {
+  await prisma.playerProfile.upsert({
+    where: { id_user: userId },
+    update: {},
+    create: { id_user: userId, visibility: "public", is_available: true },
+  });
+  return prisma.playerProfile.findUniqueOrThrow({ where: { id_user: userId } });
+}
+
+async function hydrateTeamsFromDb() {
+  const dbTeams = await prisma.team.findMany({
+    include: { team_players: { where: { is_active: true }, include: { player_profile: { include: { user: { include: { role: true } } } } } } },
+    orderBy: { id_team: "asc" },
+  });
+
+  const involvedUserIds = new Set<number>();
+  for (const team of dbTeams) {
+    involvedUserIds.add(team.id_user);
+    for (const tp of team.team_players) involvedUserIds.add(tp.player_profile.id_user);
+  }
+
+  const dbUsers = await prisma.user.findMany({
+    where: { id_user: { in: Array.from(involvedUserIds) } },
+    include: { role: true },
+  });
+  for (const dbUser of dbUsers) {
+    upsertStoreUser({
+      id: dbUser.id_user,
+      fullName: dbUser.full_name,
+      nickname: dbUser.nickname,
+      email: dbUser.email,
+      role: dbUser.role.name === "admin_plataforma" ? "administrador" : dbUser.role.name === "tenant" ? "organizador" : "jugador",
+      tenantId: dbUser.role.name === "tenant" ? dbUser.id_user : 1,
+      notificationsEnabled: dbUser.notifications_enabled,
+    });
+  }
+
+  store.teams = dbTeams.map((team) => ({
+    id: team.id_team,
+    tenantId: team.id_tenant,
+    name: team.name,
+    captainUserId: team.id_user,
+    playerIds: team.team_players.map((tp) => tp.player_profile.id_user),
+  }));
+}
+
+export async function ensureTeamsHydrated() {
+  if (teamsHydrated) return;
+  await hydrateTeamsFromDb();
+  teamsHydrated = true;
+}
+
+export async function notifyTeamMembers(input: {
   teamId: number;
   excludeUserId?: number;
   type: NotificationType;
   message: (member: UserRecord) => string;
 }) {
   const team = store.teams.find((item) => item.id === input.teamId);
-  if (!team) return [] as NotificationRecord[];
+  if (!team) return;
 
-  return team.playerIds
-    .filter((playerId) => playerId !== input.excludeUserId)
-    .flatMap((playerId) => {
-      const member = findUserById(playerId);
-      if (!member || !member.notificationsEnabled) return [] as NotificationRecord[];
-      return [createNotification(playerId, input.type, input.message(member))];
-    });
+  await Promise.all(
+    team.playerIds
+      .filter((playerId) => playerId !== input.excludeUserId)
+      .map(async (playerId) => {
+        const member = findUserById(playerId);
+        if (!member || !member.notificationsEnabled) return;
+        const message = input.message(member);
+        await prisma.notification.create({ data: { id_user: playerId, type: input.type, message } });
+        notifyPush(playerId, message);
+      }),
+  );
 }
 
-export function notifyTeamCaptain(input: {
+export async function notifyTeamCaptain(input: {
   teamId: number;
   type: NotificationType;
   message: string;
 }) {
   const team = store.teams.find((item) => item.id === input.teamId);
-  if (!team) return null;
+  if (!team) return;
   const captain = findUserById(team.captainUserId);
-  if (!captain || !captain.notificationsEnabled) return null;
-  return createNotification(team.captainUserId, input.type, input.message);
+  if (!captain || !captain.notificationsEnabled) return;
+  await prisma.notification.create({ data: { id_user: team.captainUserId, type: input.type, message: input.message } });
+  notifyPush(team.captainUserId, input.message);
 }
 
 export function getTeamById(teamId: number) {
@@ -1078,32 +1151,10 @@ export function reserveCourt(input: {
     notifications.push(ownerNotification);
   }
 
-  if (input.teamId && input.splitPayment) {
-    const team = store.teams.find((item) => item.id === input.teamId);
-    if (team) {
-      const perPerson = (amount / team.playerIds.length).toFixed(2);
-      notifications.push(
-        ...notifyTeamMembers({
-          teamId: input.teamId,
-          excludeUserId: input.userId,
-          type: "payment-split",
-          message: () =>
-            `${user.fullName} reservó ${court.name} el ${input.date} a las ${input.timeSlot}. Tu parte del pago: ₡${perPerson}.`,
-        }),
-      );
-    }
-  }
-
-  if (input.rivalTeamId) {
-    const notification = notifyTeamCaptain({
-      teamId: input.rivalTeamId,
-      type: "match-invite",
-      message: `${user.fullName} te invita a jugar en ${court.name} el ${input.date} a las ${input.timeSlot}.`,
-    });
-    if (notification) {
-      notifications.push(notification);
-    }
-  }
+  // Las notificaciones de pago dividido / invitación a plantilla rival para
+  // esta ruta en memoria viven en app/api/courts/route.ts (la ruta real que
+  // usa la app, respaldada por Prisma) — notifyTeamMembers/notifyTeamCaptain
+  // ahora escriben en Postgres y no pueden llamarse de forma síncrona acá.
 
   const profile = ensureProfile(input.userId);
   if (!profile.courts.includes(court.name)) {
@@ -1409,7 +1460,7 @@ function notifyTournamentStart(tournament: TournamentRecord) {
         return [] as NotificationRecord[];
       }
 
-      return [createNotification(captain.id, "tournament", `El torneo ${tournament.name} ya tiene fixture generado.`)];
+      return [createNotification(captain.id, "tournament", `El torneo ${tournament.name} ya tiene calendario generado.`)];
     });
 }
 
@@ -1434,7 +1485,7 @@ export function startTournament(input: {
   }
 
   if (tournament.fixtureMode === "manual") {
-    return { ok: false, error: "Este torneo usa fixture manual: armá los partidos y guardalos para iniciarlo" };
+    return { ok: false, error: "Este torneo usa calendario manual: armá los partidos y guardalos para iniciarlo" };
   }
 
   const validationError = validateTournamentReadyToStart(tournament);
@@ -1459,7 +1510,7 @@ export function setManualFixture(input: {
   }
 
   if (tournament.fixtureMode !== "manual") {
-    return { ok: false, error: "Este torneo no está configurado para fixture manual" };
+    return { ok: false, error: "Este torneo no está configurado para calendario manual" };
   }
 
   const validationError = validateTournamentReadyToStart(tournament);
@@ -1468,7 +1519,7 @@ export function setManualFixture(input: {
   }
 
   if (input.pairs.length === 0) {
-    return { ok: false, error: "Agrega al menos un partido al fixture" };
+    return { ok: false, error: "Agrega al menos un partido al calendario" };
   }
 
   for (const pair of input.pairs) {
@@ -1654,31 +1705,42 @@ export function updateProfileVisibility(input: { userId: number; visibility: "pu
   return { ok: true as const, profile: clone(profile) };
 }
 
-export function createTeam(input: {
+export async function createTeam(input: {
   tenantId: number;
   name: string;
   captainUserId: number;
-}) : TeamResult {
+}) : Promise<TeamResult> {
   const captain = findUserById(input.captainUserId);
   if (!captain) {
     return { ok: false, error: "No pudimos identificar al usuario" };
   }
 
-  if (!input.name.trim()) {
+  const name = input.name.trim();
+  if (!name) {
     return { ok: false, error: "El nombre del equipo es obligatorio" };
   }
 
-  const normalizedName = input.name.trim().toLowerCase();
+  const normalizedName = name.toLowerCase();
   if (store.teams.some((team) => team.tenantId === input.tenantId && team.name.toLowerCase() === normalizedName)) {
     return { ok: false, error: "Ya existe un equipo con ese nombre" };
   }
 
+  const captainProfile = await ensurePlayerProfile(input.captainUserId);
+  const dbTeam = await prisma.team.create({
+    data: {
+      id_tenant: input.tenantId,
+      id_user: input.captainUserId,
+      name,
+      // El creador queda automáticamente como capitán y primer jugador de la plantilla.
+      team_players: { create: [{ id_player: captainProfile.id_player }] },
+    },
+  });
+
   const team: TeamRecord = {
-    id: nextId("team"),
-    tenantId: input.tenantId,
-    name: input.name.trim(),
-    captainUserId: input.captainUserId,
-    // El creador queda automáticamente como capitán y primer jugador de la plantilla.
+    id: dbTeam.id_team,
+    tenantId: dbTeam.id_tenant,
+    name: dbTeam.name,
+    captainUserId: dbTeam.id_user,
     playerIds: [input.captainUserId],
   };
 
@@ -1686,11 +1748,11 @@ export function createTeam(input: {
   return { ok: true, team: clone(team) };
 }
 
-export function updateTeamRoster(input: {
+export async function updateTeamRoster(input: {
   teamId: number;
   action: "add" | "remove";
   playerId: number;
-}) : TeamRosterUpdate {
+}) : Promise<TeamRosterUpdate> {
   const team = store.teams.find((item) => item.id === input.teamId) ?? null;
   const player = findUserById(input.playerId);
 
@@ -1699,22 +1761,32 @@ export function updateTeamRoster(input: {
   }
 
   if (input.action === "add" && !team.playerIds.includes(player.id)) {
+    const profile = await ensurePlayerProfile(player.id);
+    await prisma.teamPlayer.upsert({
+      where: { id_team_id_player: { id_team: team.id, id_player: profile.id_player } },
+      update: { is_active: true },
+      create: { id_team: team.id, id_player: profile.id_player, is_active: true },
+    });
     team.playerIds.push(player.id);
   }
 
   if (input.action === "remove") {
+    const profile = await prisma.playerProfile.findUnique({ where: { id_user: player.id } });
+    if (profile) {
+      await prisma.teamPlayer.deleteMany({ where: { id_team: team.id, id_player: profile.id_player } });
+    }
     team.playerIds = team.playerIds.filter((playerId) => playerId !== player.id);
   }
 
   return { ok: true, team: clone(team), notifications: [] };
 }
 
-export function sendConvocation(input: {
+export async function sendConvocation(input: {
   teamId: number;
   senderUserId: number;
   scheduledAt: string;
   courtName: string;
-}) : ConvocationResult {
+}) : Promise<ConvocationResult> {
   const team = store.teams.find((item) => item.id === input.teamId) ?? null;
   if (!team) {
     return { ok: false, error: "No encontramos el equipo" };
@@ -1724,16 +1796,17 @@ export function sendConvocation(input: {
     return { ok: false, error: "Solo el capitán del equipo puede enviar convocatorias" };
   }
 
-  const notifications = team.playerIds.flatMap((playerId) => {
-    const player = findUserById(playerId);
-    if (!player || !player.notificationsEnabled) {
-      return [] as NotificationRecord[];
-    }
+  const message = `Convocatoria para ${team.name}: ${input.scheduledAt} en ${input.courtName}.`;
+  await Promise.all(
+    team.playerIds.map(async (playerId) => {
+      const player = findUserById(playerId);
+      if (!player || !player.notificationsEnabled) return;
+      await prisma.notification.create({ data: { id_user: playerId, type: "convocation", message } });
+      notifyPush(playerId, message);
+    }),
+  );
 
-    return [createNotification(player.id, "convocation", `Convocatoria para ${team.name}: ${input.scheduledAt} en ${input.courtName}.`)];
-  });
-
-  return { ok: true, notifications: clone(notifications) };
+  return { ok: true, notifications: [] };
 }
 
 export function listNotifications(userId: number) {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   createTournament,
+  ensureTeamsHydrated,
   enrollTeamToTournament,
   getTournamentSnapshot,
   recordMatchResult,
@@ -10,11 +11,13 @@ import {
 } from "@/lib/fieldsync-store";
 
 export async function GET() {
+  await ensureTeamsHydrated();
   return NextResponse.json(getTournamentSnapshot());
 }
 
 export async function POST(request: NextRequest) {
   try {
+    await ensureTeamsHydrated();
     const body = await request.json();
     const action = String(body?.action ?? "create");
 

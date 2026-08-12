@@ -94,6 +94,7 @@ type CourtReservation = {
   paymentStatus?: PaymentStatus | null;
   amount?: number | null;
   playerName?: string | null;
+  playerEmail?: string | null;
   teamId?: number | null;
   rivalTeamId?: number | null;
 };
@@ -1263,36 +1264,6 @@ function BookingPanel({
       </section>
 
       <section>
-        <SectionLabel icon={Trophy} className="mb-3">
-          Canchas encontradas ({filteredCourts.length})
-        </SectionLabel>
-
-        {filteredCourts.length > 0 ? (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {filteredCourts.map((court) => (
-              <CourtResultCard
-                key={court.id}
-                court={court}
-                date={date}
-                busy={busy}
-                canReserve={Boolean(user)}
-                myTeams={myTeams}
-                allTeams={teams}
-                onReserve={reserve}
-                onRequireLogin={onRequireLogin}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="border border-black bg-paper p-8 text-center">
-            <p className="font-mono text-xs uppercase tracking-wider text-muted">
-              No encontramos canchas que coincidan con la búsqueda.
-            </p>
-          </div>
-        )}
-      </section>
-
-      <section>
         <CollapsibleSection
           icon={CalendarDays}
           label="Mis reservas"
@@ -1363,6 +1334,36 @@ function BookingPanel({
             </p>
           )}
         </CollapsibleSection>
+      </section>
+
+      <section>
+        <SectionLabel icon={Trophy} className="mb-3">
+          Canchas encontradas ({filteredCourts.length})
+        </SectionLabel>
+
+        {filteredCourts.length > 0 ? (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {filteredCourts.map((court) => (
+              <CourtResultCard
+                key={court.id}
+                court={court}
+                date={date}
+                busy={busy}
+                canReserve={Boolean(user)}
+                myTeams={myTeams}
+                allTeams={teams}
+                onReserve={reserve}
+                onRequireLogin={onRequireLogin}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="border border-black bg-paper p-8 text-center">
+            <p className="font-mono text-xs uppercase tracking-wider text-muted">
+              No encontramos canchas que coincidan con la búsqueda.
+            </p>
+          </div>
+        )}
       </section>
 
       <MatchPaymentChecklistModal
@@ -1495,6 +1496,13 @@ function TournamentsPanel({ user }: { user: AppUser }) {
     homeTeamId: null,
     awayTeamId: null,
   });
+  const [teamSearch, setTeamSearch] = useState("");
+
+  const filteredTeamsForCreate = useMemo(() => {
+    const query = teamSearch.trim().toLowerCase();
+    if (!query) return teams;
+    return teams.filter((team) => team.name.toLowerCase().includes(query));
+  }, [teams, teamSearch]);
 
   function toggleCreateFormTeam(teamId: number) {
     setCreateForm((current) => ({
@@ -1692,7 +1700,7 @@ function TournamentsPanel({ user }: { user: AppUser }) {
 
   async function saveManualFixture(tournamentId: number) {
     if (manualPairs.length === 0) {
-      setMessage("Agrega al menos un partido al fixture");
+      setMessage("Agrega al menos un partido al calendario");
       return;
     }
     const response = await fetch("/api/tournaments", {
@@ -1702,10 +1710,10 @@ function TournamentsPanel({ user }: { user: AppUser }) {
     });
     const payload = await readJson<ApiResponse<Record<string, never>>>(response);
     if (!response.ok) {
-      setMessage(payload.error || "No pudimos guardar el fixture manual");
+      setMessage(payload.error || "No pudimos guardar el calendario manual");
       return;
     }
-    setMessage("Fixture manual guardado y torneo iniciado.");
+    setMessage("Calendario manual guardado y torneo iniciado.");
     setManualPairs([]);
     setManualPairDraft({ homeTeamId: null, awayTeamId: null });
     await loadTournaments();
@@ -1789,8 +1797,8 @@ function TournamentsPanel({ user }: { user: AppUser }) {
           </div>
           <div className="relative">
             <select className={fieldClassName} value={createForm.fixtureMode} onChange={(event) => setCreateForm((current) => ({ ...current, fixtureMode: event.target.value === "manual" ? "manual" : "aleatorio" }))}>
-              <option value="aleatorio">Fixture aleatorio</option>
-              <option value="manual">Fixture manual</option>
+              <option value="aleatorio">Calendario aleatorio</option>
+              <option value="manual">Calendario manual</option>
             </select>
             <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
           </div>
@@ -1807,21 +1815,36 @@ function TournamentsPanel({ user }: { user: AppUser }) {
           <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-muted">
             Equipos participantes ({createForm.teamIds.length} seleccionados)
           </p>
+          {teams.length > 0 ? (
+            <input
+              type="search"
+              placeholder="Buscar equipo por nombre…"
+              value={teamSearch}
+              onChange={(event) => setTeamSearch(event.target.value)}
+              className={`${fieldClassName} mb-2`}
+            />
+          ) : null}
           <div className="flex flex-wrap gap-2">
-            {teams.length > 0 ? teams.map((team) => {
-              const isSelected = createForm.teamIds.includes(team.id);
-              return (
-                <Button
-                  key={team.id}
-                  type="button"
-                  variant={isSelected ? "default" : "secondary"}
-                  size="sm"
-                  onClick={() => toggleCreateFormTeam(team.id)}
-                >
-                  {isSelected ? "✓ " : "+ "}{team.name}
-                </Button>
-              );
-            }) : <p className="font-mono text-[11px] uppercase tracking-wider text-muted">No hay equipos creados todavía. Creá equipos en la pestaña Plantilla.</p>}
+            {teams.length === 0 ? (
+              <p className="font-mono text-[11px] uppercase tracking-wider text-muted">No hay equipos creados todavía. Creá equipos en la pestaña Plantilla.</p>
+            ) : filteredTeamsForCreate.length > 0 ? (
+              filteredTeamsForCreate.map((team) => {
+                const isSelected = createForm.teamIds.includes(team.id);
+                return (
+                  <Button
+                    key={team.id}
+                    type="button"
+                    variant={isSelected ? "default" : "secondary"}
+                    size="sm"
+                    onClick={() => toggleCreateFormTeam(team.id)}
+                  >
+                    {isSelected ? "✓ " : "+ "}{team.name}
+                  </Button>
+                );
+              })
+            ) : (
+              <p className="font-mono text-[11px] uppercase tracking-wider text-muted">Sin resultados para esa búsqueda.</p>
+            )}
           </div>
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
@@ -1836,7 +1859,7 @@ function TournamentsPanel({ user }: { user: AppUser }) {
           </div>
           {currentTournament?.fixtureMode === "manual" ? (
             <p className={`${fieldClassName} flex items-center justify-center text-center`}>
-              Armá el fixture manual abajo ↓
+              Armá el calendario manual abajo ↓
             </p>
           ) : (
             <Button
@@ -1854,7 +1877,7 @@ function TournamentsPanel({ user }: { user: AppUser }) {
         {currentTournament && currentTournament.fixtureMode === "manual" && currentTournament.status === "draft" ? (
           <div className="mt-4 border-t border-black pt-4">
             <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-muted">
-              Fixture manual — {currentTournament.name}
+              Calendario manual — {currentTournament.name}
             </p>
             <div className="grid gap-3 md:grid-cols-3">
               <div className="relative">
@@ -1907,7 +1930,7 @@ function TournamentsPanel({ user }: { user: AppUser }) {
               disabled={manualPairs.length === 0}
               onClick={() => saveManualFixture(currentTournament.id)}
             >
-              Guardar fixture y comenzar
+              Guardar calendario y comenzar
             </Button>
           </div>
         ) : null}
@@ -2197,6 +2220,13 @@ function MyTournamentsPanel({ user }: { user: AppUser }) {
     }));
   }
 
+  const [teamSearch, setTeamSearch] = useState("");
+  const filteredTeamsForRequest = useMemo(() => {
+    const query = teamSearch.trim().toLowerCase();
+    if (!query) return teams;
+    return teams.filter((team) => team.name.toLowerCase().includes(query));
+  }, [teams, teamSearch]);
+
   async function requestTournament() {
     setMessage("");
     if (!requestForm.name.trim()) {
@@ -2252,8 +2282,8 @@ function MyTournamentsPanel({ user }: { user: AppUser }) {
           </div>
           <div className="relative">
             <select className={fieldClassName} value={requestForm.fixtureMode} onChange={(event) => setRequestForm((current) => ({ ...current, fixtureMode: event.target.value === "manual" ? "manual" : "aleatorio" }))}>
-              <option value="aleatorio">Fixture aleatorio</option>
-              <option value="manual">Fixture manual</option>
+              <option value="aleatorio">Calendario aleatorio</option>
+              <option value="manual">Calendario manual</option>
             </select>
             <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
           </div>
@@ -2270,21 +2300,36 @@ function MyTournamentsPanel({ user }: { user: AppUser }) {
           <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-muted">
             Equipos participantes ({requestForm.teamIds.length} seleccionados)
           </p>
+          {teams.length > 0 ? (
+            <input
+              type="search"
+              placeholder="Buscar equipo por nombre…"
+              value={teamSearch}
+              onChange={(event) => setTeamSearch(event.target.value)}
+              className={`${fieldClassName} mb-2`}
+            />
+          ) : null}
           <div className="flex flex-wrap gap-2">
-            {teams.length > 0 ? teams.map((team) => {
-              const isSelected = requestForm.teamIds.includes(team.id);
-              return (
-                <Button
-                  key={team.id}
-                  type="button"
-                  variant={isSelected ? "default" : "secondary"}
-                  size="sm"
-                  onClick={() => toggleRequestFormTeam(team.id)}
-                >
-                  {isSelected ? "✓ " : "+ "}{team.name}
-                </Button>
-              );
-            }) : <p className="font-mono text-[11px] uppercase tracking-wider text-muted">No hay equipos creados todavía. Creá equipos en la pestaña Plantilla.</p>}
+            {teams.length === 0 ? (
+              <p className="font-mono text-[11px] uppercase tracking-wider text-muted">No hay equipos creados todavía. Creá equipos en la pestaña Plantilla.</p>
+            ) : filteredTeamsForRequest.length > 0 ? (
+              filteredTeamsForRequest.map((team) => {
+                const isSelected = requestForm.teamIds.includes(team.id);
+                return (
+                  <Button
+                    key={team.id}
+                    type="button"
+                    variant={isSelected ? "default" : "secondary"}
+                    size="sm"
+                    onClick={() => toggleRequestFormTeam(team.id)}
+                  >
+                    {isSelected ? "✓ " : "+ "}{team.name}
+                  </Button>
+                );
+              })
+            ) : (
+              <p className="font-mono text-[11px] uppercase tracking-wider text-muted">Sin resultados para esa búsqueda.</p>
+            )}
           </div>
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -2655,11 +2700,11 @@ function TeamsPanel({ user }: { user: AppUser }) {
   const [users, setUsers] = useState<UserOption[]>([]);
   const [courts, setCourts] = useState<CourtCard[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
-  const [selectedPlayerId, setSelectedPlayerId] = useState<number | null>(null);
   const [playerSearch, setPlayerSearch] = useState("");
   const [newTeamName, setNewTeamName] = useState("");
   const [selectedReservationId, setSelectedReservationId] = useState<number | null>(null);
   const [message, setMessage] = useState("");
+  const [addPlayerOpen, setAddPlayerOpen] = useState(false);
 
   const myTeams = useMemo(
     () => teams.filter((team) => team.playerIds.includes(user.id)),
@@ -2683,11 +2728,6 @@ function TeamsPanel({ user }: { user: AppUser }) {
     );
   }, [users, playerSearch]);
 
-  const selectedPlayer = useMemo(
-    () => users.find((candidate) => candidate.id === selectedPlayerId) ?? null,
-    [users, selectedPlayerId],
-  );
-
   function captainName(team: TeamCard) {
     const captain =
       team.players.find((player) => player?.id === team.captainUserId) ??
@@ -2705,9 +2745,6 @@ function TeamsPanel({ user }: { user: AppUser }) {
     setUsers(payload.users);
     if (!selectedTeamId && payload.teams[0]) {
       setSelectedTeamId(payload.teams[0].id);
-    }
-    if (!selectedPlayerId && payload.users[0]) {
-      setSelectedPlayerId(payload.users[0].id);
     }
   }
 
@@ -2761,19 +2798,22 @@ function TeamsPanel({ user }: { user: AppUser }) {
     await loadTeams();
   }
 
-  async function changeRoster(action: "add" | "remove") {
-    if (!selectedTeamId || !selectedPlayerId) return;
+  async function addPlayerToTeam(playerId: number) {
+    if (!selectedTeamId) return;
+    setMessage("");
     const response = await fetch("/api/teams", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "roster", teamId: selectedTeamId, playerId: selectedPlayerId, rosterAction: action }),
+      body: JSON.stringify({ action: "roster", teamId: selectedTeamId, playerId, rosterAction: "add" }),
     });
     const payload = await readJson<ApiResponse<Record<string, never>>>(response);
     if (!response.ok) {
-      setMessage(payload.error || "No pudimos actualizar la plantilla");
+      setMessage(payload.error || "No pudimos agregar al jugador");
       return;
     }
-    setMessage("Plantilla actualizada al instante.");
+    setMessage("Jugador agregado a la plantilla.");
+    setAddPlayerOpen(false);
+    setPlayerSearch("");
     await loadTeams();
   }
 
@@ -2828,22 +2868,21 @@ function TeamsPanel({ user }: { user: AppUser }) {
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
         <Card className="gap-3">
-          <div className="relative">
-            <select className={fieldClassName} value={selectedTeamId ?? ""} onChange={(event) => setSelectedTeamId(event.target.value ? Number(event.target.value) : null)}>
-              <option value="">Selecciona un equipo</option>
-              {myTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
-            </select>
-            <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
-          </div>
-          <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
-            {selectedPlayer ? (
-              <>Jugador elegido: <span className="font-bold text-black">{displayName(selectedPlayer)}</span></>
-            ) : (
-              <>Elegí un jugador abajo, en “Buscar jugador”.</>
-            )}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" disabled={!selectedTeamId || !selectedPlayerId} onClick={() => changeRoster("add")}>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-0 flex-1">
+              <select className={fieldClassName} value={selectedTeamId ?? ""} onChange={(event) => setSelectedTeamId(event.target.value ? Number(event.target.value) : null)}>
+                <option value="">Selecciona un equipo</option>
+                {myTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+              </select>
+              <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black" aria-hidden />
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              disabled={!selectedTeamId}
+              onClick={() => setAddPlayerOpen(true)}
+              title={!selectedTeamId ? "Elegí un equipo primero" : undefined}
+            >
               Agregar jugador
             </Button>
           </div>
@@ -2886,46 +2925,48 @@ function TeamsPanel({ user }: { user: AppUser }) {
         </Card>
       </div>
 
-      <Card className="mt-4 gap-3">
-        <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Buscar jugador</p>
-        <input
-          type="search"
-          placeholder="Buscar por nombre, apodo o correo…"
-          value={playerSearch}
-          onChange={(event) => setPlayerSearch(event.target.value)}
-          className={fieldClassName}
-        />
-        <div className="max-h-80 overflow-y-auto">
-          {filteredUsers.length > 0 ? (
-            <ul>
-              {filteredUsers.map((candidate) => {
-                const isSelected = candidate.id === selectedPlayerId;
-                return (
+      <Modal
+        open={addPlayerOpen}
+        onClose={() => {
+          setAddPlayerOpen(false);
+          setPlayerSearch("");
+        }}
+        title="Agregar jugador"
+      >
+        <div className="gap-3 flex flex-col">
+          <input
+            type="search"
+            autoFocus
+            placeholder="Buscar por nombre, apodo o correo…"
+            value={playerSearch}
+            onChange={(event) => setPlayerSearch(event.target.value)}
+            className={fieldClassName}
+          />
+          <div className="max-h-80 overflow-y-auto">
+            {filteredUsers.length > 0 ? (
+              <ul>
+                {filteredUsers.map((candidate) => (
                   <li key={candidate.id}>
                     <button
                       type="button"
-                      aria-pressed={isSelected}
-                      onClick={() => setSelectedPlayerId(candidate.id)}
-                      className={cn(
-                        "flex w-full items-center justify-between gap-3 border-b border-l-4 border-black py-3 pl-3 pr-1 text-left",
-                        isSelected ? "border-l-neon" : "border-l-transparent",
-                      )}
+                      onClick={() => addPlayerToTeam(candidate.id)}
+                      className="flex w-full items-center justify-between gap-3 border-b border-black py-3 pl-3 pr-1 text-left"
                     >
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold">{displayName(candidate)}</p>
                         <p className="truncate font-mono text-[11px] uppercase tracking-wider text-muted">{candidate.email}</p>
                       </div>
-                      <RowTag tone={isSelected ? "positive" : "default"}>{isSelected ? "Elegido" : humanRole(candidate.role)}</RowTag>
+                      <RowTag>{humanRole(candidate.role)}</RowTag>
                     </button>
                   </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <p className="font-mono text-[11px] uppercase tracking-wider text-muted">Sin resultados para esa búsqueda.</p>
-          )}
+                ))}
+              </ul>
+            ) : (
+              <p className="font-mono text-[11px] uppercase tracking-wider text-muted">Sin resultados para esa búsqueda.</p>
+            )}
+          </div>
         </div>
-      </Card>
+      </Modal>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
         {myTeams.length > 0 ? myTeams.map((team) => (
@@ -3145,8 +3186,8 @@ function TenantPaymentsPanel({ user }: { user: AppUser }) {
           {pendingReservations.map((reservation) => (
             <Row
               key={reservation.id}
-              title={reservation.courtName}
-              meta={`${reservation.date} · ${reservation.timeSlot}${
+              title={reservation.playerName ? `${reservation.playerName} · ${reservation.courtName}` : reservation.courtName}
+              meta={`${reservation.playerEmail ? `${reservation.playerEmail} · ` : ""}${reservation.date} · ${reservation.timeSlot}${
                 reservation.paymentMethod ? ` · ${paymentMethodLabels[reservation.paymentMethod]}` : ""
               }${reservation.amount ? ` · ₡${reservation.amount}` : ""}`}
               right={
@@ -3177,7 +3218,7 @@ function TenantPaymentsPanel({ user }: { user: AppUser }) {
             {matchesWithRival.map((reservation) => (
               <Row
                 key={reservation.id}
-                title={reservation.courtName}
+                title={reservation.playerName ? `${reservation.playerName} · ${reservation.courtName}` : reservation.courtName}
                 meta={`${reservation.date} · ${reservation.timeSlot}`}
                 right={
                   <Button variant="secondary" size="sm" onClick={() => setChecklistReservationId(reservation.id)}>

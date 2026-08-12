@@ -215,7 +215,7 @@ async function main() {
       const profile = await prisma.playerProfile.findUnique({ where: { id_user: player.id_user } });
       if (profile) {
         await prisma.teamPlayer.upsert({
-          where: { id_team_player: (i + 1) * 100 + player.id_user },
+          where: { id_team_id_player: { id_team: team.id_team, id_player: profile.id_player } },
           update: {},
           create: {
             id_team: team.id_team,
@@ -312,7 +312,7 @@ async function main() {
   const notificationsData = [
     { user: jugador, type: "reservation", message: "Reserva confirmada para Complejo Norte - Cancha A a las 18:00." },
     { user: jugador, type: "reservation", message: "Reserva confirmada para Arena Indoor Center a las 15:00." },
-    { user: capitan, type: "tournament", message: "Fixture disponible para el Torneo Apertura 2026." },
+    { user: capitan, type: "tournament", message: "Calendario disponible para el Torneo Apertura 2026." },
     { user: tenantOwner, type: "tournament", message: "Nueva solicitud de torneo pendiente de aprobación." },
   ];
   for (let i = 0; i < notificationsData.length; i += 1) {

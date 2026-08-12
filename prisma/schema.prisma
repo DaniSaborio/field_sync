@@ -350,6 +350,7 @@ model TeamPlayer {
   join_date      DateTime      @default(now()) @db.Timestamp()
   is_active      Boolean       @default(true)
 
+  @@unique([id_team, id_player])
   @@map("team_player")
 }
 

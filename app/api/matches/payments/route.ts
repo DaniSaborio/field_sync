@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getTeamById } from "@/lib/fieldsync-store";
+import { ensureTeamsHydrated, getTeamById } from "@/lib/fieldsync-store";
 import { notifyPush } from "@/lib/notify";
 
 function teamOrNull(teamId: number | null) {
@@ -9,6 +9,7 @@ function teamOrNull(teamId: number | null) {
 }
 
 async function buildChecklist(reservationId: number) {
+  await ensureTeamsHydrated();
   const reservation = await prisma.reservation.findUnique({
     where: { id_reservation: reservationId },
     include: { court: true, payments: true, match_closed_by: true },

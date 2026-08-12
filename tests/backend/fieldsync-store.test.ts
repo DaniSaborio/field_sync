@@ -13,6 +13,7 @@ import {
   toggleNotifications,
   updateTeamRoster,
 } from "@/lib/fieldsync-store";
+import { prisma } from "@/lib/prisma";
 
 describe("FieldSync store", () => {
   beforeEach(() => {
@@ -163,39 +164,59 @@ describe("FieldSync store", () => {
     }
   });
 
-  it("manages player profiles, roster changes and convocations", () => {
-    const visibility = toggleNotifications(4, false);
-    expect(visibility.ok).toBe(true);
+  it("manages player profiles, roster changes and convocations", async () => {
+    // updateTeamRoster/sendConvocation ahora escriben en la Postgres real,
+    // así que esta prueba deja filas reales en
+    // team_player/player_profile/notification para el equipo/usuario de la
+    // semilla — se revierten en el finally para no ensuciar la base
+    // compartida en cada corrida de la suite.
+    const profileExistedBefore = Boolean(await prisma.playerProfile.findUnique({ where: { id_user: 2 } }));
 
-    const rosterUpdate = updateTeamRoster({
-      teamId: 1,
-      playerId: 2,
-      action: "add",
-    });
+    try {
+      const visibility = toggleNotifications(4, false);
+      expect(visibility.ok).toBe(true);
 
-    expect(rosterUpdate.ok).toBe(true);
+      const rosterUpdate = await updateTeamRoster({
+        teamId: 1,
+        playerId: 2,
+        action: "add",
+      });
 
-    const blockedConvocation = sendConvocation({
-      teamId: 1,
-      senderUserId: 4,
-      scheduledAt: "2026-08-01T19:00",
-      courtName: "Arena Indoor Center",
-    });
+      expect(rosterUpdate.ok).toBe(true);
 
-    expect(blockedConvocation.ok).toBe(false);
+      const blockedConvocation = await sendConvocation({
+        teamId: 1,
+        senderUserId: 4,
+        scheduledAt: "2026-08-01T19:00",
+        courtName: "Arena Indoor Center",
+      });
 
-    const convocation = sendConvocation({
-      teamId: 1,
-      senderUserId: 3,
-      scheduledAt: "2026-08-01T19:00",
-      courtName: "Arena Indoor Center",
-    });
+      expect(blockedConvocation.ok).toBe(false);
 
-    expect(convocation.ok).toBe(true);
+      const convocation = await sendConvocation({
+        teamId: 1,
+        senderUserId: 3,
+        scheduledAt: "2026-08-01T19:00",
+        courtName: "Arena Indoor Center",
+      });
 
-    const profile = getPlayerProfile(4);
-    expect(profile).not.toBeNull();
-    expect(profile?.profile.visibility).toBe("public");
-    expect(profile?.tournaments).toContain("Torneo Apertura 2026");
+      expect(convocation.ok).toBe(true);
+
+      const profile = getPlayerProfile(4);
+      expect(profile).not.toBeNull();
+      expect(profile?.profile.visibility).toBe("public");
+      expect(profile?.tournaments).toContain("Torneo Apertura 2026");
+    } finally {
+      const profile2 = await prisma.playerProfile.findUnique({ where: { id_user: 2 } });
+      if (profile2) {
+        await prisma.teamPlayer.deleteMany({ where: { id_team: 1, id_player: profile2.id_player } });
+        if (!profileExistedBefore) {
+          await prisma.playerProfile.delete({ where: { id_user: 2 } });
+        }
+      }
+      await prisma.notification.deleteMany({
+        where: { message: "Convocatoria para Tigres del Barrio: 2026-08-01T19:00 en Arena Indoor Center." },
+      });
+    }
   });
 });

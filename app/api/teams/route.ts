@@ -1,17 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createTeam, listTeams, sendConvocation, updateTeamRoster } from "@/lib/fieldsync-store";
+import { createTeam, ensureTeamsHydrated, listTeams, sendConvocation, updateTeamRoster } from "@/lib/fieldsync-store";
 import { hydrateStoreUser, listAllRealUsers } from "@/lib/hydrate-user";
 
 export async function GET() {
   // La lista de jugadores para "agregar a la plantilla" tiene que salir de
   // Postgres (todos los usuarios reales), no del store en memoria (que solo
   // conoce a los 4 usuarios de la semilla de demo).
-  const users = await listAllRealUsers();
+  const [users] = await Promise.all([listAllRealUsers(), ensureTeamsHydrated()]);
   return NextResponse.json({ teams: listTeams(), users });
 }
 
 export async function POST(request: NextRequest) {
   try {
+    await ensureTeamsHydrated();
     const body = await request.json();
     const action = String(body?.action ?? "roster");
 
@@ -19,7 +20,7 @@ export async function POST(request: NextRequest) {
       const captainUserId = Number(body?.captainUserId);
       await hydrateStoreUser(captainUserId);
 
-      const result = createTeam({
+      const result = await createTeam({
         tenantId: Number(body?.tenantId ?? 1),
         name: String(body?.name ?? ""),
         captainUserId,
@@ -38,7 +39,7 @@ export async function POST(request: NextRequest) {
         await hydrateStoreUser(playerId);
       }
 
-      const result = updateTeamRoster({
+      const result = await updateTeamRoster({
         teamId: Number(body?.teamId),
         playerId,
         action: body?.rosterAction === "remove" ? "remove" : "add",
@@ -52,7 +53,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "convocation") {
-      const result = sendConvocation({
+      const result = await sendConvocation({
         teamId: Number(body?.teamId),
         senderUserId: Number(body?.userId),
         scheduledAt: String(body?.scheduledAt ?? ""),
