@@ -7,7 +7,7 @@ import {
   notifyTeamCaptain,
   notifyTeamMembers,
 } from "@/lib/fieldsync-store";
-import { isNightHour } from "@/lib/utils";
+import { isNightHour, slotToUtcDate, utcDateToSlot } from "@/lib/utils";
 import { resolveNightRate, type RateCandidate } from "@/lib/rates";
 import { expireStalePendingReservations } from "@/lib/reservation-expiry";
 import { notifyPush } from "@/lib/notify";
@@ -28,10 +28,7 @@ function slotMatchesTimeRange(slot: string, timeSlot: string) {
 }
 
 function parseSlotTime(dateIso: string, slot: string) {
-  const [h, m] = slot.split(":").map(Number);
-  const d = new Date(`${dateIso}T00:00:00.000Z`);
-  d.setUTCHours(h, m ?? 0, 0, 0);
-  return d;
+  return slotToUtcDate(dateIso, slot);
 }
 
 const HOLD_DURATION_MS = 30 * 60 * 1000;
@@ -105,11 +102,7 @@ export async function GET(request: NextRequest) {
                   r.status === "confirmada" ||
                   (r.status === "pendiente" && (!r.hold_expires_at || r.hold_expires_at.getTime() > now)),
               )
-              .map((r) => {
-                const h = r.start_time.getUTCHours().toString().padStart(2, "0");
-                const m = r.start_time.getUTCMinutes().toString().padStart(2, "0");
-                return `${h}:${m}`;
-              }),
+              .map((r) => utcDateToSlot(r.start_time)),
           );
 
           const availableSlots = DEFAULT_SLOTS.filter(
@@ -119,15 +112,13 @@ export async function GET(request: NextRequest) {
           const reservations = court.reservations
             .filter((r) => (userId ? r.id_user === Number(userId) : true))
             .map((r) => {
-              const h = r.start_time.getUTCHours().toString().padStart(2, "0");
-              const m = r.start_time.getUTCMinutes().toString().padStart(2, "0");
               const payment = r.payments[0];
               return {
                 id: r.id_reservation,
                 userId: r.id_user,
                 courtId: r.id_court,
                 date: r.date.toISOString().slice(0, 10),
-                timeSlot: `${h}:${m}`,
+                timeSlot: utcDateToSlot(r.start_time),
                 status: r.status as "pendiente" | "confirmada" | "rechazada" | "cancelada",
                 createdAt: r.created_at.toISOString(),
                 paymentMethod: payment?.payment_method ?? null,
@@ -183,12 +174,18 @@ export async function GET(request: NextRequest) {
   });
 }
 
-const PAYMENT_METHODS = ["sinpe", "efectivo"] as const;
+const PAYMENT_METHODS = ["sinpe", "efectivo", "mixto"] as const;
 type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
 function isPaymentMethod(value: unknown): value is PaymentMethod {
   return typeof value === "string" && (PAYMENT_METHODS as readonly string[]).includes(value);
 }
+
+const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  sinpe: "SINPE Móvil",
+  efectivo: "efectivo",
+  mixto: "SINPE + efectivo",
+};
 
 export async function POST(request: NextRequest) {
   try {
@@ -198,7 +195,8 @@ export async function POST(request: NextRequest) {
     const courtId = Number(body?.courtId);
     const date = String(body?.date ?? "");
     const timeSlot = String(body?.timeSlot ?? "");
-    const paymentMethod = isPaymentMethod(body?.paymentMethod) ? body.paymentMethod : null;
+    const rawPaymentMethod = body?.paymentMethod;
+    const paymentMethod = isPaymentMethod(rawPaymentMethod) ? rawPaymentMethod : null;
     const teamId = body?.teamId ? Number(body.teamId) : null;
     const splitPayment = Boolean(body?.splitPayment);
     const rivalTeamId = body?.rivalTeamId ? Number(body.rivalTeamId) : null;
@@ -314,7 +312,7 @@ export async function POST(request: NextRequest) {
         const { reservation, payment } = outcome;
 
         if (userExists.notifications_enabled) {
-          const paymentLabel = paymentMethod === "sinpe" ? "SINPE Móvil" : "efectivo";
+          const paymentLabel = PAYMENT_METHOD_LABELS[paymentMethod];
           const message = `Reserva en ${courtExists.name} a las ${timeSlot} pendiente de confirmación de pago (${paymentLabel}) por el dueño de la cancha.`;
           await prisma.notification.create({
             data: { id_user: userId, type: "reservation", message },
@@ -324,7 +322,7 @@ export async function POST(request: NextRequest) {
 
         const tenant = await prisma.user.findUnique({ where: { id_user: courtExists.id_tenant } });
         if (tenant?.notifications_enabled) {
-          const paymentLabel = paymentMethod === "sinpe" ? "SINPE Móvil" : "efectivo";
+          const paymentLabel = PAYMENT_METHOD_LABELS[paymentMethod];
           const message = `Nueva reserva en ${courtExists.name} el ${date} a las ${timeSlot}. Verifica el pago por ${paymentLabel} (₡${Number(amount)}) para confirmarla.`;
           await prisma.notification.create({
             data: { id_user: tenant.id_user, type: "payment-pending", message },
@@ -463,7 +461,7 @@ export async function DELETE(request: NextRequest) {
           userId: updated.id_user,
           courtId: updated.id_court,
           date: updated.date.toISOString().slice(0, 10),
-          timeSlot: `${updated.start_time.getUTCHours().toString().padStart(2, "0")}:${updated.start_time.getUTCMinutes().toString().padStart(2, "0")}`,
+          timeSlot: utcDateToSlot(updated.start_time),
           status: updated.status,
           createdAt: updated.created_at.toISOString(),
         },
@@ -575,7 +573,7 @@ export async function PATCH(request: NextRequest) {
       ]);
 
       if (reservation.user.notifications_enabled) {
-        const timeSlot = `${reservation.start_time.getUTCHours().toString().padStart(2, "0")}:${reservation.start_time.getUTCMinutes().toString().padStart(2, "0")}`;
+        const timeSlot = utcDateToSlot(reservation.start_time);
         const message =
           action === "confirm"
             ? `¡Pago verificado! Tu reserva en ${reservation.court.name} el ${reservation.date.toISOString().slice(0, 10)} a las ${timeSlot} quedó confirmada.`

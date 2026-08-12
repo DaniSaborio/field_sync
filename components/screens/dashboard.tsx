@@ -13,6 +13,7 @@ import {
   Download,
   ExternalLink,
   Filter,
+  Layers,
   LogIn,
   LogOut,
   Minus,
@@ -45,6 +46,7 @@ import { TenantRequestScreen } from "./tenant-request";
 const paymentMethodLabels: Record<PaymentMethod, string> = {
   sinpe: "SINPE Móvil",
   efectivo: "Efectivo",
+  mixto: "SINPE + Efectivo",
 };
 
 const fieldClassName =
@@ -79,7 +81,7 @@ export type AppUser = {
   notificationsEnabled: boolean;
 };
 
-type PaymentMethod = "sinpe" | "efectivo";
+type PaymentMethod = "sinpe" | "efectivo" | "mixto";
 type PaymentStatus = "pendiente" | "verificado" | "rechazado";
 
 type CourtReservation = {
@@ -732,7 +734,7 @@ function CourtResultCard({
 
               <div>
                 <SectionLabel icon={Banknote}>Método de pago</SectionLabel>
-                <div className="mt-2 grid grid-cols-2 gap-2">
+                <div className="mt-2 grid grid-cols-3 gap-2">
                   <Button
                     type="button"
                     variant={paymentMethod === "sinpe" ? "default" : "secondary"}
@@ -748,6 +750,14 @@ function CourtResultCard({
                   >
                     <Banknote size={16} strokeWidth={2} aria-hidden />
                     Efectivo
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={paymentMethod === "mixto" ? "default" : "secondary"}
+                    onClick={() => setPaymentMethod("mixto")}
+                  >
+                    <Layers size={16} strokeWidth={2} aria-hidden />
+                    Mixto
                   </Button>
                 </div>
               </div>

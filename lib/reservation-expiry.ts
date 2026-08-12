@@ -1,14 +1,13 @@
 import { prisma } from "./prisma";
 import { notifyPush } from "./notify";
+import { utcDateToSlot } from "./utils";
 
 const AUTO_CANCEL_REASON =
   "Vencida automáticamente: la hora de la reserva pasó sin confirmación de pago.";
 
 function formatSlot(date: Date, startTime: Date) {
   const dateLabel = date.toISOString().slice(0, 10);
-  const hour = startTime.getUTCHours().toString().padStart(2, "0");
-  const minute = startTime.getUTCMinutes().toString().padStart(2, "0");
-  return `${dateLabel} ${hour}:${minute}`;
+  return `${dateLabel} ${utcDateToSlot(startTime)}`;
 }
 
 // Reservas "pendiente" cuya hora ya pasó sin que el tenant confirmara el pago

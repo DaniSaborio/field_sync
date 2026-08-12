@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ensureTeamsHydrated, getTeamById } from "@/lib/fieldsync-store";
 import { notifyPush } from "@/lib/notify";
+import { utcDateToSlot } from "@/lib/utils";
 
 function teamOrNull(teamId: number | null) {
   if (!teamId) return null;
@@ -69,7 +70,7 @@ async function buildChecklist(reservationId: number) {
       reservationId,
       courtName: reservation.court.name,
       date: reservation.date.toISOString().slice(0, 10),
-      timeSlot: `${reservation.start_time.getUTCHours().toString().padStart(2, "0")}:${reservation.start_time.getUTCMinutes().toString().padStart(2, "0")}`,
+      timeSlot: utcDateToSlot(reservation.start_time),
       amount,
       perPersonAmount,
       homeTeam: { id: homeTeam.id, name: homeTeam.name, players: homePlayers },
