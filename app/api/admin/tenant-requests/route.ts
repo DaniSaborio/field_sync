@@ -67,46 +67,62 @@ export async function PATCH(request: NextRequest) {
       });
 
       if (requestUser) {
-        const tenantRole = await prisma.role.findUnique({
-          where: { name: "tenant" },
-        });
+        const wasAlreadyTenant = requestUser.role.name === "tenant";
+        const tenantRole = wasAlreadyTenant
+          ? requestUser.role
+          : await prisma.role.findUnique({ where: { name: "tenant" } });
 
         if (tenantRole) {
-          const updatedUser = await prisma.user.update({
-            where: { id_user: requestUser.id_user },
+          const updatedUser = wasAlreadyTenant
+            ? requestUser
+            : await prisma.user.update({
+                where: { id_user: requestUser.id_user },
+                data: {
+                  id_role: tenantRole.id_role,
+                },
+                include: { role: true },
+              });
+
+          if (!wasAlreadyTenant) {
+            upsertStoreUser({
+              id: updatedUser.id_user,
+              fullName: updatedUser.full_name,
+              nickname: updatedUser.nickname,
+              email: updatedUser.email,
+              role: "organizador",
+              tenantId: updatedUser.id_user,
+              notificationsEnabled: updatedUser.notifications_enabled,
+            });
+          }
+
+          const price = Number(result.request.price);
+
+          await prisma.court.create({
             data: {
-              id_role: tenantRole.id_role,
+              id_tenant: updatedUser.id_user,
+              name: result.request.courtName,
+              address: result.request.address || null,
+              maps_url: result.request.mapsUrl || null,
+              surface: result.request.surface || null,
+              capacity: result.request.capacity || null,
+              price_per_hour: Number.isFinite(price) ? price : null,
             },
-            include: { role: true },
           });
 
-          upsertStoreUser({
-            id: updatedUser.id_user,
-            fullName: updatedUser.full_name,
-            nickname: updatedUser.nickname,
-            email: updatedUser.email,
-            role: "organizador",
-            tenantId: updatedUser.id_user,
-            notificationsEnabled: updatedUser.notifications_enabled,
-          });
+          const message = wasAlreadyTenant
+            ? `Tu solicitud para agregar la cancha "${result.request.courtName}" fue aprobada. Ya está disponible en tu panel.`
+            : "Tu solicitud como dueño de cancha fue aprobada. Ya podés administrar tu cancha desde tu panel.";
 
-          createUserNotification(
-            updatedUser.id_user,
-            "account-status",
-            "Tu solicitud como dueño de cancha fue aprobada. Ya podés administrar tu cancha desde tu panel."
-          );
+          createUserNotification(updatedUser.id_user, "account-status", message);
 
           await prisma.notification.create({
             data: {
               id_user: updatedUser.id_user,
               type: "account-status",
-              message: "Tu solicitud como dueño de cancha fue aprobada. Ya podés administrar tu cancha desde tu panel.",
+              message,
             },
           });
-          notifyPush(
-            updatedUser.id_user,
-            "Tu solicitud como dueño de cancha fue aprobada. Ya podés administrar tu cancha desde tu panel.",
-          );
+          notifyPush(updatedUser.id_user, message);
         }
       }
     }

@@ -16,7 +16,7 @@ type TenantRequestUser = {
   email: string;
 };
 
-export function TenantRequestScreen({ user }: { user?: TenantRequestUser | null }) {
+export function TenantRequestScreen({ user, isTenant = false }: { user?: TenantRequestUser | null; isTenant?: boolean }) {
   const [complexName, setComplexName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
@@ -85,16 +85,17 @@ export function TenantRequestScreen({ user }: { user?: TenantRequestUser | null 
   <div className="space-y-6">
     <div>
       <p className="font-mono text-[10px] uppercase tracking-wider text-muted">
-        Solicitud de Tenant
+        {isTenant ? "Solicitud de nueva cancha" : "Solicitud de Tenant"}
       </p>
 
       <h1 className="mt-2 font-display text-4xl font-black tracking-tight text-black">
-        Conviértete en dueño de cancha
+        {isTenant ? "Solicita una cancha adicional" : "Conviértete en dueño de cancha"}
       </h1>
 
       <p className="mt-3 max-w-2xl text-sm text-muted">
-        Completa la información de tu complejo deportivo. Un administrador
-        revisará tu solicitud antes de aprobarla.
+        {isTenant
+          ? "Completa la información de la nueva cancha que querés agregar. Un administrador revisará tu solicitud antes de aprobarla."
+          : "Completa la información de tu complejo deportivo. Un administrador revisará tu solicitud antes de aprobarla."}
       </p>
     </div>
 

@@ -99,6 +99,7 @@ type CourtReservation = {
   playerEmail?: string | null;
   teamId?: number | null;
   rivalTeamId?: number | null;
+  matchClosed?: boolean | null;
 };
 
 type CourtCard = {
@@ -1315,23 +1316,29 @@ function BookingPanel({
                           <RowTag tone="default">Pendiente de confirmación</RowTag>
                         ) : null}
                         {reservation.status === "confirmada" && reservation.teamId && reservation.rivalTeamId ? (
+                          reservation.matchClosed ? (
+                            <RowTag tone="positive">Pagado</RowTag>
+                          ) : (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              disabled={busy}
+                              onClick={() => setChecklistReservationId(reservation.id)}
+                            >
+                              Verificar pagos
+                            </Button>
+                          )
+                        ) : null}
+                        {!reservation.matchClosed ? (
                           <Button
-                            variant="secondary"
+                            variant="destructive"
                             size="sm"
                             disabled={busy}
-                            onClick={() => setChecklistReservationId(reservation.id)}
+                            onClick={() => cancel(reservation.id)}
                           >
-                            Verificar pagos
+                            Cancelar
                           </Button>
                         ) : null}
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          disabled={busy}
-                          onClick={() => cancel(reservation.id)}
-                        >
-                          Cancelar
-                        </Button>
                       </div>
                     )
                   }
@@ -3150,7 +3157,13 @@ function TenantPaymentsPanel({ user }: { user: AppUser }) {
     () =>
       myCourts.flatMap((court) =>
         court.reservations
-          .filter((reservation) => reservation.status === "confirmada" && reservation.teamId && reservation.rivalTeamId)
+          .filter(
+            (reservation) =>
+              reservation.status === "confirmada" &&
+              reservation.teamId &&
+              reservation.rivalTeamId &&
+              !reservation.matchClosed,
+          )
           .map((reservation) => ({ ...reservation, courtName: court.name })),
       ),
     [myCourts],
@@ -3203,7 +3216,7 @@ function TenantPaymentsPanel({ user }: { user: AppUser }) {
               right={
                 <div className="flex items-center gap-2">
                   <Button size="sm" disabled={busy} onClick={() => respond(reservation.id, "confirm")}>
-                    Confirmar pago
+                    Confirmar reserva
                   </Button>
                   <Button variant="destructive" size="sm" disabled={busy} onClick={() => respond(reservation.id, "reject")}>
                     Rechazar
@@ -3296,7 +3309,7 @@ function reservationCsvRow(reservation: CourtReservation) {
   ];
 }
 
-function TenantCourtsPanel({ user }: { user: AppUser }) {
+function TenantCourtsPanel({ user, onRequestMoreCourts }: { user: AppUser; onRequestMoreCourts: () => void }) {
   const [courts, setCourts] = useState<CourtCard[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -3383,7 +3396,14 @@ function TenantCourtsPanel({ user }: { user: AppUser }) {
     <PanelShell
       title="Mis canchas"
       description="Reporte de reservas e ingresos por cancha."
-      action={<StatusPill>{myCourts.length} canchas</StatusPill>}
+      action={
+        <div className="flex items-center gap-3">
+          <StatusPill>{myCourts.length} canchas</StatusPill>
+          <Button type="button" size="sm" onClick={onRequestMoreCourts}>
+            Solicitar más canchas
+          </Button>
+        </div>
+      }
     >
       {message ? <MessageBanner message={message} /> : null}
 
@@ -3885,8 +3905,10 @@ export function DashboardScreen({ user, onLogout, onUserUpdate }: DashboardScree
         {activeTab === "torneos" ? (isAdmin(user) || isTenant(user) ? <TournamentsPanel user={user} /> : <MyTournamentsPanel user={user} />) : null}
         {activeTab === "perfil" ? (<ProfilePanel user={user} onRequestTenant={() => setActiveTab("tenant-request")} onUserUpdate={onUserUpdate} />) : null}
         {activeTab === "plantilla" ? <TeamsPanel user={user} /> : null}
-        {activeTab === "mis-canchas" && isTenant(user) ? <TenantCourtsPanel user={user} /> : null}
-        {activeTab === "tenant-request" ? (<TenantRequestScreen user={user} />) : null}
+        {activeTab === "mis-canchas" && isTenant(user) ? (
+          <TenantCourtsPanel user={user} onRequestMoreCourts={() => setActiveTab("tenant-request")} />
+        ) : null}
+        {activeTab === "tenant-request" ? (<TenantRequestScreen user={user} isTenant={isTenant(user)} />) : null}
         {activeTab === "notificaciones" ? <NotificationsPanel user={user} /> : null}
         {activeTab === "administracion" && isAdmin(user) ? <AdminPanel user={user} /> : null}
       </div>

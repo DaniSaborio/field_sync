@@ -128,6 +128,7 @@ export async function GET(request: NextRequest) {
                 playerEmail: r.user.email,
                 teamId: r.id_team,
                 rivalTeamId: r.id_rival_team,
+                matchClosed: r.match_closed_at != null,
               };
             });
 
@@ -424,6 +425,13 @@ export async function DELETE(request: NextRequest) {
       if (reservation.id_user !== userId) {
         return NextResponse.json(
           { ok: false, error: "No encontramos la reserva solicitada" },
+          { status: 409 },
+        );
+      }
+
+      if (reservation.match_closed_at) {
+        return NextResponse.json(
+          { ok: false, error: "Esta reserva ya fue pagada y cerrada, no se puede cancelar" },
           { status: 409 },
         );
       }
