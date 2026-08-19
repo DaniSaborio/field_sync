@@ -12,7 +12,7 @@ services:
       - .:/app
       - /app/node_modules
       - /app/.next
-    # Si en Windows/Mac los cambios no se reflejan solos, descomenta esto:
+    # Uncomment the following line if you are using WSL2 and experiencing issues with file watching
     # environment:
     #   - WATCHPACK_POLLING=true
     restart: unless-stopped

@@ -96,7 +96,7 @@ model User {
   push_subscriptions PushSubscription[]
   player_profile    PlayerProfile?
 
-  // --- Equipos que este usuario capitanea ---
+  // --- Equipos que este usuario dirige---
   captained_teams Team[] @relation("TeamCaptain")
 
   // --- Recursos que pertenecen a este usuario cuando su rol es "tenant" (dueño de cancha) ---
