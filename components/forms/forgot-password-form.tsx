@@ -3,7 +3,7 @@ import type { FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 
-import { FloatingInput } from "../auth/floating-input";
+import { FloatingInput } from "./floating-input";
 
 type ForgotPasswordFormProps = {
   email: string;

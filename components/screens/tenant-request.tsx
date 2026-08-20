@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FloatingAlert } from "@/components/ui/floating-alert";
-import { FloatingInput } from "./auth/floating-input";
+import { FloatingInput } from "@/components/forms/floating-input";
 import {
   Building2,
   Phone,

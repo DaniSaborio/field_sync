@@ -1,7 +1,7 @@
 "use client";
 
 import { GoogleLogin } from "@react-oauth/google";
-import type { AppUser } from "../dashboard";
+import type { AppUser } from "@/components/screens/dashboard";
 
 type LoginSocialButtonsProps = {
   onLogin?: (user: AppUser) => void;

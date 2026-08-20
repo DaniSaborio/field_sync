@@ -4,7 +4,7 @@ import type { FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { RowCheckbox } from "@/components/ui/row";
 
-import { FloatingInput } from "../auth/floating-input";
+import { FloatingInput } from "./floating-input";
 
 type LoginFormProps = {
   email: string;

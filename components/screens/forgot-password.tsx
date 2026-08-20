@@ -3,8 +3,8 @@
 import { ArrowLeft, MailCheck } from "lucide-react";
 import type { FormEvent } from "react";
 import { useState } from "react";
-import { AuthShell } from "./auth/auth-shell";
-import { ForgotPasswordForm } from "./forgot-password/forgot-password-form";
+import { AuthShell } from "@/components/shared/auth-shell";
+import { ForgotPasswordForm } from "@/components/forms/forgot-password-form";
 
 
 type ForgotPasswordScreenProps = {

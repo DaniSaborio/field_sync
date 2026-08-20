@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Banknote, Building2, ChevronDown, CloudSun, MapPin, Map, Moon, Sun, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
-import { FloatingInput } from "./auth/floating-input";
+import { FloatingInput } from "@/components/forms/floating-input";
 
 type Surface = "synthetic" | "natural" | "indoor";
 type ScheduleKey = "morning" | "afternoon" | "night";

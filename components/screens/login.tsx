@@ -2,11 +2,11 @@
 
 import type { FormEvent } from "react";
 import { useState } from "react";
-import { AuthShell } from "./auth/auth-shell";
+import { AuthShell } from "@/components/shared/auth-shell";
 import { ForgotPasswordScreen } from "./forgot-password"; 
 import { LoginFooter } from "./login/login-footer";
-import { LoginForm } from "./login/login-form";
-import { LoginSocialButtons } from "./login/login-social-buttons";
+import { LoginForm } from "@/components/forms/login-form";
+import { LoginSocialButtons } from "@/components/shared/login-social-buttons";
 import { RegisterScreen } from "./register";
 import type { AppUser } from "./dashboard";
 
