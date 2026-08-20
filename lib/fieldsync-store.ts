@@ -568,10 +568,6 @@ function createNotification(userId: number, type: NotificationType, message: str
   return notification;
 }
 
-export function createUserNotification(userId: number, type: NotificationType, message: string) {
-  return createNotification(userId, type, message);
-}
-
 function findUserById(userId: number) {
   return store.users.find((user) => user.id === userId) ?? null;
 }

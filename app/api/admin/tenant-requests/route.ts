@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { createUserNotification, upsertStoreUser } from "@/lib/fieldsync-store";
+import { upsertStoreUser } from "@/lib/fieldsync-store";
 import { notifyPush } from "@/lib/notify";
 import {
   listTenantRequests,
@@ -112,8 +112,6 @@ export async function PATCH(request: NextRequest) {
           const message = wasAlreadyTenant
             ? `Tu solicitud para agregar la cancha "${result.request.courtName}" fue aprobada. Ya está disponible en tu panel.`
             : "Tu solicitud como dueño de cancha fue aprobada. Ya podés administrar tu cancha desde tu panel.";
-
-          createUserNotification(updatedUser.id_user, "account-status", message);
 
           await prisma.notification.create({
             data: {
