@@ -192,7 +192,7 @@ describe("FieldSync store", () => {
 
       expect(convocation.ok).toBe(true);
 
-      const profile = getPlayerProfile(4);
+      const profile = await getPlayerProfile(4);
       expect(profile).not.toBeNull();
       expect(profile?.profile.visibility).toBe("public");
       expect(profile?.tournaments).toContain("Torneo Apertura 2026");

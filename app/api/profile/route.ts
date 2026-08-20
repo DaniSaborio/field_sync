@@ -95,13 +95,13 @@ dbError
 );
 }
 
-// Torneos/plantillas/perfil de jugador viven en el store en memoria, separado
-// de Postgres: cualquier jugador que no sea de la semilla de demo (registro
-// nuevo o login con Google) necesita sincronizarse acá primero o si no
-// getPlayerProfile nunca lo va a encontrar.
+// Torneos/plantillas viven en el store en memoria, separado de Postgres:
+// cualquier jugador que no sea de la semilla de demo (registro nuevo o login
+// con Google) necesita sincronizarse acá primero o si no getPlayerProfile
+// nunca lo va a encontrar.
 await hydrateStoreUser(userId);
 
-const profile = getPlayerProfile(userId);
+const profile = await getPlayerProfile(userId);
 
 if (!profile) {
 return NextResponse.json(
@@ -130,7 +130,7 @@ if (!userId) {
 }
 
 if (typeof body?.visibility === "string") {
-  const result = updateProfileVisibility({
+  const result = await updateProfileVisibility({
     userId,
     visibility:
       body.visibility === "private" ? "private" : "public",

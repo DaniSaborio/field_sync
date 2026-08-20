@@ -1672,13 +1672,30 @@ export function getTournamentSnapshot() {
   });
 }
 
-export function getPlayerProfile(userId: number) {
+export async function getPlayerProfile(userId: number) {
   const user = findUserById(userId);
   if (!user) {
     return null;
   }
 
-  const profile = ensureProfile(userId);
+  const dbProfile = await ensurePlayerProfile(userId);
+  const playedReservations = await prisma.reservation.findMany({
+    where: { id_user: userId, status: "confirmada" },
+    include: { court: { select: { name: true } } },
+  });
+  const courts = Array.from(new Set(playedReservations.map((r) => r.court.name)));
+
+  const profile: PlayerProfileRecord = {
+    id: dbProfile.id_player,
+    userId: dbProfile.id_user,
+    goals: dbProfile.goals,
+    assists: dbProfile.assists,
+    matchesPlayed: dbProfile.matches_played,
+    tournaments: [],
+    courts,
+    visibility: dbProfile.visibility as "public" | "private",
+  };
+
   return clone({
     user: {
       id: user.id,
@@ -1691,7 +1708,7 @@ export function getPlayerProfile(userId: number) {
     },
     profile,
     tournaments: store.tournaments.filter((tournament) => tournament.teamIds.some((teamId) => store.teams.some((team) => team.id === teamId && team.playerIds.includes(userId)))).map((tournament) => tournament.name),
-    courts: profile.courts,
+    courts,
     standings: store.standings.filter((standing) => store.tournaments.some((tournament) => tournament.id === standing.tournamentId && tournament.teamIds.some((teamId) => store.teams.some((team) => team.id === teamId && team.playerIds.includes(userId))))),
   });
 }
@@ -1706,13 +1723,29 @@ export function updateNickname(userId: number, nickname: string | null) {
   return { ok: true as const, user: clone(user) };
 }
 
-export function updateProfileVisibility(input: { userId: number; visibility: "public" | "private" }) {
-  const profile = store.playerProfiles.find((item) => item.userId === input.userId);
-  if (!profile) {
+export async function updateProfileVisibility(input: { userId: number; visibility: "public" | "private" }) {
+  const user = findUserById(input.userId);
+  if (!user) {
     return { ok: false, error: "No encontramos el perfil" } as const;
   }
 
-  profile.visibility = input.visibility;
+  const dbProfile = await prisma.playerProfile.upsert({
+    where: { id_user: input.userId },
+    update: { visibility: input.visibility },
+    create: { id_user: input.userId, visibility: input.visibility, is_available: true },
+  });
+
+  const profile: PlayerProfileRecord = {
+    id: dbProfile.id_player,
+    userId: dbProfile.id_user,
+    goals: dbProfile.goals,
+    assists: dbProfile.assists,
+    matchesPlayed: dbProfile.matches_played,
+    tournaments: [],
+    courts: [],
+    visibility: dbProfile.visibility as "public" | "private",
+  };
+
   return { ok: true as const, profile: clone(profile) };
 }
 
