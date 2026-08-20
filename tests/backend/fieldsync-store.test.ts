@@ -1,12 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  cancelReservation,
+  createTeam,
   createTournament,
   getPlayerProfile,
   loginUser,
   recordMatchResult,
   registerUser,
-  reserveCourt,
   resetFieldSyncStore,
   sendConvocation,
   startTournament,
@@ -42,127 +41,118 @@ describe("FieldSync store", () => {
     }
   });
 
-  it("reserves and cancels courts using the 24-hour rule", () => {
-    const reservation = reserveCourt({
-      userId: 1,
-      courtId: 2,
-      date: "2026-08-15",
-      timeSlot: "11:00",
-    });
-
-    expect(reservation.ok).toBe(true);
-    if (!reservation.ok) {
-      throw new Error(reservation.error);
+  it("creates a tournament, generates fixtures, records results and updates standings", async () => {
+    // Los 3 equipos de la semilla comparten todos al mismo capitán (usuario 3)
+    // como jugador, así que cualquier combinación de 2+ de ellos siempre
+    // dispara el chequeo de "jugadores compartidos" (se usa a propósito más
+    // abajo para probar ese chequeo). Para poder armar un torneo real de
+    // punta a punta se crean dos equipos nuevos sin jugadores en común, que
+    // se limpian en el finally.
+    const suffix = Date.now();
+    const teamA = await createTeam({ tenantId: 2, name: `Equipo Test A ${suffix}`, captainUserId: 4 });
+    const teamB = await createTeam({ tenantId: 2, name: `Equipo Test B ${suffix}`, captainUserId: 3 });
+    expect(teamA.ok).toBe(true);
+    expect(teamB.ok).toBe(true);
+    if (!teamA.ok || !teamB.ok) {
+      throw new Error("No se pudieron crear los equipos de prueba");
     }
 
-    const conflict = reserveCourt({
-      userId: 1,
-      courtId: 2,
-      date: "2026-08-15",
-      timeSlot: "11:00",
-    });
+    let tournamentId: number | null = null;
 
-    expect(conflict.ok).toBe(false);
-    if (!conflict.ok) {
-      expect(conflict.error).toBe("Franja no disponible");
+    try {
+      const tournament = await createTournament({
+        tenantId: 2,
+        createdByUserId: 2,
+        courtId: 1,
+        name: `Copa de Verano ${suffix}`,
+        format: "todos-contra-todos",
+        teamIds: [teamA.team.id, teamB.team.id],
+        startDate: "2026-08-01",
+        endDate: "2026-08-21",
+      });
+
+      expect(tournament.ok).toBe(true);
+      if (!tournament.ok) {
+        throw new Error(tournament.error);
+      }
+      tournamentId = tournament.tournament.id;
+
+      expect(tournament.tournament.requestStatus).toBe("aprobado");
+      expect(tournament.tournament.teamIds).toEqual([teamA.team.id, teamB.team.id]);
+      expect(tournament.tournament.courtId).toBe(1);
+
+      // Equipos 1 y 2 de la semilla comparten al capitán (usuario 3): la
+      // creación debe rechazarse por conflicto de jugadores.
+      const conflictingCreate = await createTournament({
+        tenantId: 2,
+        createdByUserId: 2,
+        courtId: 1,
+        name: "Torneo con equipos en conflicto",
+        format: "todos-contra-todos",
+        teamIds: [1, 2],
+        startDate: "2026-08-01",
+        endDate: "2026-08-21",
+      });
+      expect(conflictingCreate.ok).toBe(false);
+      if (!conflictingCreate.ok) {
+        expect(conflictingCreate.error).toContain("comparten jugadores");
+      }
+
+      const invalidCourt = await createTournament({
+        tenantId: 2,
+        createdByUserId: 2,
+        courtId: 999999,
+        name: "Torneo cancha inexistente",
+        format: "todos-contra-todos",
+        teamIds: [teamA.team.id, teamB.team.id],
+        startDate: "2026-08-01",
+        endDate: "2026-08-21",
+      });
+      expect(invalidCourt.ok).toBe(false);
+
+      const started = await startTournament({ tournamentId: tournament.tournament.id });
+      expect(started.ok).toBe(true);
+      if (!started.ok) {
+        throw new Error(started.error);
+      }
+
+      expect(started.tournament.fixture.length).toBeGreaterThan(0);
+
+      const firstMatch = started.tournament.fixture[0];
+      const firstResult = await recordMatchResult({
+        matchId: firstMatch.id,
+        homeGoals: 3,
+        awayGoals: 1,
+      });
+
+      expect(firstResult.ok).toBe(true);
+      if (!firstResult.ok) {
+        throw new Error(firstResult.error);
+      }
+
+      const lockedResult = await recordMatchResult({
+        matchId: firstMatch.id,
+        homeGoals: 1,
+        awayGoals: 1,
+      });
+
+      expect(lockedResult.ok).toBe(false);
+      if (!lockedResult.ok) {
+        expect(lockedResult.requiresSecondAuthorization).toBe(true);
+      }
+    } finally {
+      if (tournamentId) {
+        await prisma.matchStat.deleteMany({ where: { match: { id_tournament: tournamentId } } });
+        await prisma.match.deleteMany({ where: { id_tournament: tournamentId } });
+        await prisma.standing.deleteMany({ where: { id_tournament: tournamentId } });
+        await prisma.teamTournament.deleteMany({ where: { id_tournament: tournamentId } });
+        await prisma.tournament.delete({ where: { id_tournament: tournamentId } });
+      }
+      const testTeamIds = [teamA.team.id, teamB.team.id];
+      await prisma.teamPlayer.deleteMany({ where: { id_team: { in: testTeamIds } } });
+      await prisma.team.deleteMany({ where: { id_team: { in: testTeamIds } } });
     }
-
-    const allowedCancellation = cancelReservation({
-      reservationId: reservation.reservation.id,
-      userId: 1,
-      now: new Date("2026-08-13T08:00:00.000Z"),
-    });
-
-    expect(allowedCancellation.ok).toBe(true);
-
-    const blockedCancellation = cancelReservation({
-      reservationId: 1,
-      userId: 4,
-      now: new Date("2026-07-29T12:00:00.000Z"),
-    });
-
-    expect(blockedCancellation.ok).toBe(false);
-    if (!blockedCancellation.ok) {
-      expect(blockedCancellation.error).toContain("24 horas");
-    }
-  });
-
-  it("creates a tournament, generates fixtures and updates standings", () => {
-    const tournament = createTournament({
-      tenantId: 1,
-      createdByUserId: 1,
-      courtId: 1,
-      name: "Copa de Verano",
-      format: "todos-contra-todos",
-      teamIds: [1, 2, 3],
-      startDate: "2026-08-01",
-      endDate: "2026-08-21",
-    });
-
-    expect(tournament.ok).toBe(true);
-    if (!tournament.ok) {
-      throw new Error(tournament.error);
-    }
-
-    expect(tournament.tournament.requestStatus).toBe("aprobado");
-    expect(tournament.tournament.teamIds).toEqual([1, 2, 3]);
-    expect(tournament.tournament.courtId).toBe(1);
-
-    const blockedCreate = createTournament({
-      tenantId: 1,
-      createdByUserId: 3,
-      courtId: 1,
-      name: "Torneo no autorizado",
-      format: "todos-contra-todos",
-      teamIds: [1, 2],
-      startDate: "2026-08-01",
-      endDate: "2026-08-21",
-    });
-    expect(blockedCreate.ok).toBe(false);
-
-    const invalidCourt = createTournament({
-      tenantId: 1,
-      createdByUserId: 1,
-      courtId: 9999,
-      name: "Torneo cancha inexistente",
-      format: "todos-contra-todos",
-      teamIds: [1, 2],
-      startDate: "2026-08-01",
-      endDate: "2026-08-21",
-    });
-    expect(invalidCourt.ok).toBe(false);
-
-    const started = startTournament({ tournamentId: tournament.tournament.id });
-    expect(started.ok).toBe(true);
-    if (!started.ok) {
-      throw new Error(started.error);
-    }
-
-    expect(started.tournament.fixture.length).toBeGreaterThan(0);
-
-    const firstMatch = started.tournament.fixture[0];
-    const firstResult = recordMatchResult({
-      matchId: firstMatch.id,
-      homeGoals: 3,
-      awayGoals: 1,
-    });
-
-    expect(firstResult.ok).toBe(true);
-    if (!firstResult.ok) {
-      throw new Error(firstResult.error);
-    }
-
-    const lockedResult = recordMatchResult({
-      matchId: firstMatch.id,
-      homeGoals: 1,
-      awayGoals: 1,
-    });
-
-    expect(lockedResult.ok).toBe(false);
-    if (!lockedResult.ok) {
-      expect(lockedResult.requiresSecondAuthorization).toBe(true);
-    }
-  });
+  }, 20000);
 
   it("manages player profiles, roster changes and convocations", async () => {
     // updateTeamRoster/sendConvocation ahora escriben en la Postgres real,

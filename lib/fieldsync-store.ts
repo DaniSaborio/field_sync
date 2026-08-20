@@ -636,7 +636,7 @@ function ensureProfile(userId: number) {
   return profile;
 }
 
-function recalculateStandings(tournamentId: number) {
+async function recalculateStandings(tournamentId: number) {
   const tournament = store.tournaments.find((item) => item.id === tournamentId);
   if (!tournament) {
     return [] as StandingRecord[];
@@ -698,6 +698,38 @@ function recalculateStandings(tournamentId: number) {
     return right.goalsFor - left.goalsFor;
   });
 
+  await prisma.$transaction(
+    standings.map((standing, index) =>
+      prisma.standing.upsert({
+        where: { id_tournament_id_team: { id_tournament: tournamentId, id_team: standing.teamId } },
+        update: {
+          points: standing.points,
+          matches_played: standing.played,
+          wins: standing.wins,
+          draws: standing.draws,
+          losses: standing.losses,
+          goals_for: standing.goalsFor,
+          goals_against: standing.goalsAgainst,
+          goal_difference: standing.goalsFor - standing.goalsAgainst,
+          position: index + 1,
+        },
+        create: {
+          id_tournament: tournamentId,
+          id_team: standing.teamId,
+          points: standing.points,
+          matches_played: standing.played,
+          wins: standing.wins,
+          draws: standing.draws,
+          losses: standing.losses,
+          goals_for: standing.goalsFor,
+          goals_against: standing.goalsAgainst,
+          goal_difference: standing.goalsFor - standing.goalsAgainst,
+          position: index + 1,
+        },
+      }),
+    ),
+  );
+
   store.standings = store.standings.filter((standing) => standing.tournamentId !== tournamentId).concat(standings);
   return standings;
 }
@@ -711,39 +743,53 @@ function shuffle<T>(items: T[]): T[] {
   return result;
 }
 
-function createMatchRecord(tournamentId: number, homeTeamId: number, awayTeamId: number, index: number): MatchRecord {
-  return {
-    id: nextId("match"),
-    tournamentId,
-    homeTeamId,
-    awayTeamId,
-    scheduledAt: new Date(Date.UTC(2026, 6, 28 + index, 19, 0, 0)).toISOString(),
+// Solo se llama para torneos en modo "aleatorio" (el modo "manual" arma los
+// pares a mano en setManualFixture) — por eso siempre sortea el orden de los
+// equipos antes de emparejarlos. Pura: no toca la base ni el store, solo
+// calcula los enfrentamientos; persistFixture se encarga de guardarlos.
+function buildFixturePairs(tournament: TournamentRecord): Array<{ homeTeamId: number; awayTeamId: number }> {
+  const teamIds = shuffle(tournament.teamIds);
+  const pairs: Array<{ homeTeamId: number; awayTeamId: number }> = [];
+
+  if (tournament.format === "todos-contra-todos") {
+    for (let homeIndex = 0; homeIndex < teamIds.length; homeIndex += 1) {
+      for (let awayIndex = homeIndex + 1; awayIndex < teamIds.length; awayIndex += 1) {
+        pairs.push({ homeTeamId: teamIds[homeIndex], awayTeamId: teamIds[awayIndex] });
+      }
+    }
+  } else {
+    for (let index = 0; index < teamIds.length - 1; index += 2) {
+      pairs.push({ homeTeamId: teamIds[index], awayTeamId: teamIds[index + 1] });
+    }
+  }
+
+  return pairs;
+}
+
+async function persistFixture(tournament: TournamentRecord, pairs: Array<{ homeTeamId: number; awayTeamId: number }>): Promise<MatchRecord[]> {
+  const created = await prisma.match.createManyAndReturn({
+    data: pairs.map((pair, index) => ({
+      id_tournament: tournament.id,
+      id_court: tournament.courtId,
+      id_home_team: pair.homeTeamId,
+      id_away_team: pair.awayTeamId,
+      scheduled_at: new Date(Date.UTC(2026, 6, 28 + index, 19, 0, 0)),
+      status: "scheduled",
+    })),
+  });
+
+  const matches: MatchRecord[] = created.map((m) => ({
+    id: m.id_match,
+    tournamentId: tournament.id,
+    homeTeamId: m.id_home_team,
+    awayTeamId: m.id_away_team,
+    scheduledAt: m.scheduled_at.toISOString(),
     homeGoals: null,
     awayGoals: null,
     status: "scheduled",
     resultLocked: false,
     auditTrail: [],
-  };
-}
-
-// Solo se llama para torneos en modo "aleatorio" (el modo "manual" arma el
-// fixture a través de setManualFixture) — por eso siempre sortea el orden de
-// los equipos antes de emparejarlos.
-function generateFixture(tournament: TournamentRecord) {
-  const teamIds = shuffle(tournament.teamIds);
-  const matches: MatchRecord[] = [];
-
-  if (tournament.format === "todos-contra-todos") {
-    for (let homeIndex = 0; homeIndex < teamIds.length; homeIndex += 1) {
-      for (let awayIndex = homeIndex + 1; awayIndex < teamIds.length; awayIndex += 1) {
-        matches.push(createMatchRecord(tournament.id, teamIds[homeIndex], teamIds[awayIndex], matches.length));
-      }
-    }
-  } else {
-    for (let index = 0; index < teamIds.length - 1; index += 2) {
-      matches.push(createMatchRecord(tournament.id, teamIds[index], teamIds[index + 1], matches.length));
-    }
-  }
+  }));
 
   tournament.fixture = matches;
   store.matches.push(...matches);
@@ -990,6 +1036,109 @@ export async function ensureTeamsHydrated() {
   teamsHydrated = true;
 }
 
+// Mismo patrón que hydrateTeamsFromDb: torneos/partidos/standings ya se
+// escriben en Postgres, pero createTournament/recordMatchResult/etc. siguen
+// leyendo store.tournaments/store.matches/store.standings de forma síncrona
+// (fixture, standings y validación de jugadores compartidos comparten mucho
+// código con la lógica de equipos). Por eso se hidrata un espejo en memoria
+// una vez por proceso, y cada escritura lo mantiene al día.
+let tournamentsHydrated = false;
+
+async function hydrateTournamentsFromDb() {
+  const dbTournaments = await prisma.tournament.findMany({
+    include: {
+      estado: true,
+      team_tournaments: true,
+      matches: { include: { match_stats: true }, orderBy: { id_match: "asc" } },
+      standings: true,
+    },
+    orderBy: { id_tournament: "asc" },
+  });
+
+  const matches: MatchRecord[] = [];
+  const matchStats: MatchStatRecord[] = [];
+  const standings: StandingRecord[] = [];
+
+  const tournaments: TournamentRecord[] = dbTournaments.map((t) => {
+    for (const m of t.matches) {
+      matches.push({
+        id: m.id_match,
+        tournamentId: t.id_tournament,
+        homeTeamId: m.id_home_team,
+        awayTeamId: m.id_away_team,
+        scheduledAt: m.scheduled_at.toISOString(),
+        homeGoals: m.status === "confirmed" ? m.home_goals : null,
+        awayGoals: m.status === "confirmed" ? m.away_goals : null,
+        status: m.status as MatchStatus,
+        resultLocked: m.result_locked,
+        auditTrail: m.audit_trail,
+      });
+
+      for (const stat of m.match_stats) {
+        matchStats.push({
+          id: stat.id_match_stat,
+          matchId: m.id_match,
+          playerId: stat.id_player,
+          teamId: stat.id_team,
+          goals: stat.goals,
+          yellowCards: stat.yellow_cards,
+          redCards: stat.red_cards,
+        });
+      }
+    }
+
+    for (const s of t.standings) {
+      standings.push({
+        teamId: s.id_team,
+        tournamentId: t.id_tournament,
+        played: s.matches_played,
+        wins: s.wins,
+        draws: s.draws,
+        losses: s.losses,
+        goalsFor: s.goals_for,
+        goalsAgainst: s.goals_against,
+        points: s.points,
+      });
+    }
+
+    return {
+      id: t.id_tournament,
+      tenantId: t.id_tenant,
+      createdByUserId: t.id_requested_by,
+      courtId: t.id_court,
+      name: t.name,
+      format: t.format as TournamentFormat,
+      fixtureMode: t.fixture_mode as TournamentFixtureMode,
+      teamsRequired: t.min_teams,
+      startDate: t.start_date.toISOString().slice(0, 10),
+      endDate: t.end_date.toISOString().slice(0, 10),
+      status: t.matches.length > 0 ? "active" : "draft",
+      requestStatus: t.estado.name as TournamentRequestStatus,
+      rejectionReason: t.rejection_reason,
+      teamIds: t.team_tournaments.map((tt) => tt.id_team),
+      fixture: [],
+    };
+  });
+
+  store.tournaments = tournaments;
+  store.matches = matches;
+  store.matchStats = matchStats;
+  store.standings = standings;
+}
+
+export async function ensureTournamentsHydrated() {
+  if (tournamentsHydrated) return;
+  await hydrateTournamentsFromDb();
+  tournamentsHydrated = true;
+}
+
+async function notifyTournamentTenant(tenantId: number, message: string) {
+  const owner = await prisma.user.findUnique({ where: { id_user: tenantId } });
+  if (!owner || !owner.notifications_enabled) return;
+  await prisma.notification.create({ data: { id_user: owner.id_user, type: "tournament", message } });
+  notifyPush(owner.id_user, message);
+}
+
 export async function notifyTeamMembers(input: {
   teamId: number;
   excludeUserId?: number;
@@ -1087,7 +1236,7 @@ function findSharedPlayerConflict(teamIds: number[]): { teamA: TeamRecord; teamB
   return null;
 }
 
-export function createTournament(input: {
+export async function createTournament(input: {
   createdByUserId: number;
   creatorRole?: string;
   tenantId?: number;
@@ -1098,7 +1247,7 @@ export function createTournament(input: {
   teamIds: number[];
   startDate: string;
   endDate: string;
-}) : TournamentResult {
+}) : Promise<TournamentResult> {
   if (!input.name.trim()) {
     return { ok: false, error: "El nombre del torneo es obligatorio" };
   }
@@ -1109,7 +1258,10 @@ export function createTournament(input: {
     return { ok: false, error: "No pudimos identificar tu rol de usuario" };
   }
 
-  const court = store.courts.find((item) => item.id === input.courtId);
+  // Las canchas reales viven en Prisma (store.courts es solo la semilla demo
+  // en memoria), así que se valida contra la base para reconocer canchas de
+  // tenants reales y no solo las 4 de la semilla.
+  const court = await prisma.court.findUnique({ where: { id_court: input.courtId } });
   if (!court) {
     return { ok: false, error: "Selecciona una cancha válida para el torneo" };
   }
@@ -1133,15 +1285,43 @@ export function createTournament(input: {
   }
 
   const autoApproved = AUTO_APPROVE_ROLES.includes(inferredRole);
+  const fixtureMode: TournamentFixtureMode = input.fixtureMode === "manual" ? "manual" : "aleatorio";
+  const estado = await prisma.estado.findUniqueOrThrow({ where: { name: autoApproved ? "aprobado" : "pendiente" } });
+  // Los horarios de inicio/fin de partido no los captura ningún formulario
+  // hoy (solo se pide la fecha) — se fija una hora por defecto, igual que en
+  // la semilla, ya que Tournament.start_time/end_time no se leen en ningún
+  // lado de la app.
+  const startDateTime = new Date(`${input.startDate}T19:00:00.000Z`);
+  const endDateTime = new Date(`${input.endDate}T22:00:00.000Z`);
+
+  const dbTournament = await prisma.tournament.create({
+    data: {
+      id_tenant: court.id_tenant,
+      id_court: court.id_court,
+      id_requested_by: input.createdByUserId,
+      name: input.name.trim(),
+      format: input.format,
+      fixture_mode: fixtureMode,
+      min_teams: teamIds.length,
+      start_date: new Date(`${input.startDate}T00:00:00.000Z`),
+      end_date: new Date(`${input.endDate}T00:00:00.000Z`),
+      start_time: startDateTime,
+      end_time: endDateTime,
+      id_estado: estado.id_estado,
+      id_approved_by: autoApproved ? input.createdByUserId : null,
+      approved_at: autoApproved ? new Date() : null,
+      team_tournaments: { create: teamIds.map((id_team) => ({ id_team })) },
+    },
+  });
 
   const tournament: TournamentRecord = {
-    id: nextId("tournament"),
-    tenantId: court.tenantId,
+    id: dbTournament.id_tournament,
+    tenantId: court.id_tenant,
     createdByUserId: input.createdByUserId,
-    courtId: input.courtId,
-    name: input.name.trim(),
+    courtId: court.id_court,
+    name: dbTournament.name,
     format: input.format,
-    fixtureMode: input.fixtureMode === "manual" ? "manual" : "aleatorio",
+    fixtureMode,
     teamsRequired: teamIds.length,
     startDate: input.startDate,
     endDate: input.endDate,
@@ -1154,31 +1334,26 @@ export function createTournament(input: {
 
   store.tournaments.push(tournament);
 
-  const notifications: NotificationRecord[] = [];
   if (!autoApproved) {
     const requester = findUserById(input.createdByUserId);
-    const ownerNotification = notifyCourtOwner(
-      court,
-      "tournament",
+    await notifyTournamentTenant(
+      court.id_tenant,
       `${requester?.fullName ?? "Un jugador"} solicitó el torneo "${tournament.name}" en ${court.name}. Revisalo para aprobarlo o rechazarlo.`,
     );
-    if (ownerNotification) {
-      notifications.push(ownerNotification);
-    }
   }
 
-  return { ok: true, tournament: clone(tournament), notifications: clone(notifications) };
+  return { ok: true, tournament: clone(tournament), notifications: [] };
 }
 
 // El dueño de la cancha (o un admin de plataforma) aprueba o rechaza una
 // solicitud de torneo pendiente, y se notifica a quien la pidió.
-export function respondToTournamentRequest(input: {
+export async function respondToTournamentRequest(input: {
   tournamentId: number;
   responderId: number;
   responderRole?: string;
   action: "approve" | "reject";
   reason?: string | null;
-}) : TournamentResult {
+}) : Promise<TournamentResult> {
   const tournament = store.tournaments.find((item) => item.id === input.tournamentId) ?? null;
   if (!tournament) {
     return { ok: false, error: "No encontramos el torneo" };
@@ -1188,9 +1363,8 @@ export function respondToTournamentRequest(input: {
     return { ok: false, error: "Esta solicitud ya fue procesada" };
   }
 
-  const court = store.courts.find((item) => item.id === tournament.courtId) ?? null;
   const isPlatformAdmin = input.responderRole === "administrador" || input.responderRole === "admin_plataforma";
-  if (!isPlatformAdmin && (!court || court.tenantId !== input.responderId)) {
+  if (!isPlatformAdmin && tournament.tenantId !== input.responderId) {
     return { ok: false, error: "Este torneo no pertenece a una de tus canchas" };
   }
 
@@ -1198,27 +1372,33 @@ export function respondToTournamentRequest(input: {
     return { ok: false, error: "Indica el motivo del rechazo" };
   }
 
+  const estado = await prisma.estado.findUniqueOrThrow({ where: { name: input.action === "approve" ? "aprobado" : "rechazado" } });
+  await prisma.tournament.update({
+    where: { id_tournament: tournament.id },
+    data: {
+      id_estado: estado.id_estado,
+      rejection_reason: input.action === "reject" ? input.reason ?? null : null,
+      id_approved_by: input.action === "approve" ? input.responderId : null,
+      approved_at: input.action === "approve" ? new Date() : null,
+    },
+  });
+
   tournament.requestStatus = input.action === "approve" ? "aprobado" : "rechazado";
   tournament.rejectionReason = input.action === "reject" ? input.reason ?? null : null;
 
-  const notifications: NotificationRecord[] = [];
   const requester = findUserById(tournament.createdByUserId);
   if (requester?.notificationsEnabled) {
-    notifications.push(
-      createNotification(
-        requester.id,
-        "tournament",
-        input.action === "approve"
-          ? `¡Tu solicitud de torneo "${tournament.name}" fue aprobada! Ya podés inscribir equipos y comenzarlo.`
-          : `Tu solicitud de torneo "${tournament.name}" fue rechazada: ${input.reason}.`,
-      ),
-    );
+    const message = input.action === "approve"
+      ? `¡Tu solicitud de torneo "${tournament.name}" fue aprobada! Ya podés inscribir equipos y comenzarlo.`
+      : `Tu solicitud de torneo "${tournament.name}" fue rechazada: ${input.reason}.`;
+    await prisma.notification.create({ data: { id_user: requester.id, type: "tournament", message } });
+    notifyPush(requester.id, message);
   }
 
-  return { ok: true, tournament: clone(tournament), notifications: clone(notifications) };
+  return { ok: true, tournament: clone(tournament), notifications: [] };
 }
 
-export function enrollTeamToTournament(input: {
+export async function enrollTeamToTournament(input: {
   tournamentId: number;
   teamId: number;
 }) {
@@ -1240,23 +1420,28 @@ export function enrollTeamToTournament(input: {
       return { ok: false, error: `${team.name} comparte jugadores con ${otherTeam.name}: no pueden estar en el mismo torneo` } as const;
     }
 
+    await prisma.teamTournament.upsert({
+      where: { id_team_id_tournament: { id_team: team.id, id_tournament: tournament.id } },
+      update: {},
+      create: { id_team: team.id, id_tournament: tournament.id },
+    });
     tournament.teamIds.push(team.id);
   }
 
   return { ok: true as const, tournament: clone(tournament) };
 }
 
-function notifyTournamentStart(tournament: TournamentRecord) {
-  return store.teams
-    .filter((team) => tournament.teamIds.includes(team.id))
-    .flatMap((team) => {
+async function notifyTournamentStart(tournament: TournamentRecord) {
+  const captainTeams = store.teams.filter((team) => tournament.teamIds.includes(team.id));
+  await Promise.all(
+    captainTeams.map(async (team) => {
       const captain = findUserById(team.captainUserId);
-      if (!captain || !captain.notificationsEnabled) {
-        return [] as NotificationRecord[];
-      }
-
-      return [createNotification(captain.id, "tournament", `El torneo ${tournament.name} ya tiene calendario generado.`)];
-    });
+      if (!captain || !captain.notificationsEnabled) return;
+      const message = `El torneo ${tournament.name} ya tiene calendario generado.`;
+      await prisma.notification.create({ data: { id_user: captain.id, type: "tournament", message } });
+      notifyPush(captain.id, message);
+    }),
+  );
 }
 
 function validateTournamentReadyToStart(tournament: TournamentRecord): string | null {
@@ -1271,9 +1456,9 @@ function validateTournamentReadyToStart(tournament: TournamentRecord): string | 
   return null;
 }
 
-export function startTournament(input: {
+export async function startTournament(input: {
   tournamentId: number;
-}) : TournamentResult {
+}) : Promise<TournamentResult> {
   const tournament = store.tournaments.find((item) => item.id === input.tournamentId) ?? null;
   if (!tournament) {
     return { ok: false, error: "No encontramos el torneo" };
@@ -1288,17 +1473,18 @@ export function startTournament(input: {
     return { ok: false, error: validationError };
   }
 
+  const pairs = buildFixturePairs(tournament);
+  const fixture = await persistFixture(tournament, pairs);
   tournament.status = "active";
-  const fixture = generateFixture(tournament);
-  const notifications = notifyTournamentStart(tournament);
+  await notifyTournamentStart(tournament);
 
-  return { ok: true, tournament: clone({ ...tournament, fixture }), notifications: clone(notifications) };
+  return { ok: true, tournament: clone({ ...tournament, fixture }), notifications: [] };
 }
 
-export function setManualFixture(input: {
+export async function setManualFixture(input: {
   tournamentId: number;
   pairs: Array<{ homeTeamId: number; awayTeamId: number }>;
-}) : TournamentResult {
+}) : Promise<TournamentResult> {
   const tournament = store.tournaments.find((item) => item.id === input.tournamentId) ?? null;
   if (!tournament) {
     return { ok: false, error: "No encontramos el torneo" };
@@ -1332,23 +1518,20 @@ export function setManualFixture(input: {
     }
   }
 
-  const matches = input.pairs.map((pair, index) => createMatchRecord(tournament.id, pair.homeTeamId, pair.awayTeamId, index));
-  tournament.fixture = matches;
-  store.matches.push(...matches);
+  const matches = await persistFixture(tournament, input.pairs);
   tournament.status = "active";
+  await notifyTournamentStart(tournament);
 
-  const notifications = notifyTournamentStart(tournament);
-
-  return { ok: true, tournament: clone({ ...tournament, fixture: matches }), notifications: clone(notifications) };
+  return { ok: true, tournament: clone({ ...tournament, fixture: matches }), notifications: [] };
 }
 
-export function recordMatchResult(input: {
+export async function recordMatchResult(input: {
   matchId: number;
   stats?: Array<{ playerId: number; teamId: number; goals: number; yellowCards: number; redCards: number }>;
   homeGoals?: number;
   awayGoals?: number;
   confirmedByAdmin?: boolean;
-}) : MatchResultUpdate {
+}) : Promise<MatchResultUpdate> {
   const match = store.matches.find((item) => item.id === input.matchId) ?? null;
   if (!match) {
     return { ok: false, error: "No encontramos el partido" };
@@ -1358,6 +1541,7 @@ export function recordMatchResult(input: {
 
   if (match.resultLocked && !input.confirmedByAdmin) {
     match.auditTrail.push("Intento de modificación rechazado: se requiere segunda autorización.");
+    await prisma.match.update({ where: { id_match: match.id }, data: { audit_trail: match.auditTrail } });
     return {
       ok: false,
       error: "Se requiere una segunda autorización para modificar un resultado confirmado",
@@ -1392,6 +1576,41 @@ export function recordMatchResult(input: {
   match.resultLocked = true;
   match.auditTrail.push(input.confirmedByAdmin ? "Resultado modificado con segunda autorización" : "Resultado confirmado");
 
+  await prisma.$transaction([
+    prisma.match.update({
+      where: { id_match: match.id },
+      data: {
+        home_goals: homeGoals,
+        away_goals: awayGoals,
+        status: "confirmed",
+        result_locked: true,
+        audit_trail: match.auditTrail,
+      },
+    }),
+    prisma.matchStat.deleteMany({ where: { id_match: match.id } }),
+    ...(statRows.length > 0
+      ? [
+          prisma.matchStat.createMany({
+            data: statRows.map((stat) => ({
+              id_match: match.id,
+              id_player: stat.playerId,
+              id_team: stat.teamId,
+              goals: stat.goals,
+              yellow_cards: stat.yellowCards,
+              red_cards: stat.redCards,
+            })),
+          }),
+        ]
+      : []),
+    ...statRows.map((stat) =>
+      prisma.playerProfile.upsert({
+        where: { id_user: stat.playerId },
+        update: { goals: { increment: stat.goals }, matches_played: { increment: 1 } },
+        create: { id_user: stat.playerId, visibility: "public", is_available: true, goals: stat.goals, matches_played: 1 },
+      }),
+    ),
+  ]);
+
   store.matchStats = store.matchStats.filter((stat) => stat.matchId !== match.id).concat(
     statRows.map((stat) => ({
       id: nextId("matchStat"),
@@ -1404,34 +1623,31 @@ export function recordMatchResult(input: {
     })),
   );
 
-  const standings = recalculateStandings(match.tournamentId);
-  const notifications: NotificationRecord[] = [];
+  const standings = await recalculateStandings(match.tournamentId);
 
   if (homeTeam) {
     const captain = findUserById(homeTeam.captainUserId);
     if (captain?.notificationsEnabled) {
-      notifications.push(createNotification(captain.id, "match-result", `Resultado actualizado para ${homeTeam.name}.`));
+      const message = `Resultado actualizado para ${homeTeam.name}.`;
+      await prisma.notification.create({ data: { id_user: captain.id, type: "match-result", message } });
+      notifyPush(captain.id, message);
     }
   }
 
   if (awayTeam) {
     const captain = findUserById(awayTeam.captainUserId);
     if (captain?.notificationsEnabled) {
-      notifications.push(createNotification(captain.id, "match-result", `Resultado actualizado para ${awayTeam.name}.`));
+      const message = `Resultado actualizado para ${awayTeam.name}.`;
+      await prisma.notification.create({ data: { id_user: captain.id, type: "match-result", message } });
+      notifyPush(captain.id, message);
     }
-  }
-
-  for (const stat of statRows) {
-    const profile = ensureProfile(stat.playerId);
-    profile.goals += stat.goals;
-    profile.matchesPlayed += 1;
   }
 
   return {
     ok: true,
     match: clone(match),
     standings: clone(standings),
-    notifications: clone(notifications),
+    notifications: [],
   };
 }
 

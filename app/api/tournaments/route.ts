@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   createTournament,
   ensureTeamsHydrated,
+  ensureTournamentsHydrated,
   enrollTeamToTournament,
   getTournamentSnapshot,
   recordMatchResult,
@@ -11,18 +12,18 @@ import {
 } from "@/lib/fieldsync-store";
 
 export async function GET() {
-  await ensureTeamsHydrated();
+  await Promise.all([ensureTeamsHydrated(), ensureTournamentsHydrated()]);
   return NextResponse.json(getTournamentSnapshot());
 }
 
 export async function POST(request: NextRequest) {
   try {
-    await ensureTeamsHydrated();
+    await Promise.all([ensureTeamsHydrated(), ensureTournamentsHydrated()]);
     const body = await request.json();
     const action = String(body?.action ?? "create");
 
     if (action === "create") {
-      const result = createTournament({
+      const result = await createTournament({
         createdByUserId: Number(body?.userId ?? 0),
         creatorRole: typeof body?.role === "string" ? body.role : undefined,
         courtId: Number(body?.courtId ?? 0),
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "respond") {
-      const result = respondToTournamentRequest({
+      const result = await respondToTournamentRequest({
         tournamentId: Number(body?.tournamentId),
         responderId: Number(body?.userId),
         responderRole: typeof body?.role === "string" ? body.role : undefined,
@@ -58,7 +59,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "enroll") {
-      const result = enrollTeamToTournament({
+      const result = await enrollTeamToTournament({
         tournamentId: Number(body?.tournamentId),
         teamId: Number(body?.teamId),
       });
@@ -71,7 +72,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "start") {
-      const result = startTournament({
+      const result = await startTournament({
         tournamentId: Number(body?.tournamentId),
       });
 
@@ -90,7 +91,7 @@ export async function POST(request: NextRequest) {
           }))
         : [];
 
-      const result = setManualFixture({
+      const result = await setManualFixture({
         tournamentId: Number(body?.tournamentId),
         pairs,
       });
@@ -122,7 +123,7 @@ export async function POST(request: NextRequest) {
           })
         : [];
 
-      const result = recordMatchResult({
+      const result = await recordMatchResult({
         matchId: Number(body?.matchId),
         stats,
         confirmedByAdmin: Boolean(body?.confirmedByAdmin),

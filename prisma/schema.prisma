@@ -108,6 +108,9 @@ model User {
   // --- Torneos que este usuario (tenant) ha aprobado/rechazado ---
   approved_tournaments Tournament[] @relation("TournamentApprover")
 
+  // --- Torneos que este usuario solicitó (puede ser el propio tenant o un jugador/organizador) ---
+  requested_tournaments Tournament[] @relation("TournamentRequester")
+
   // --- Pagos de reserva que este usuario (tenant) ha verificado/rechazado ---
   verified_payments Payment[] @relation("PaymentVerifier")
 
@@ -142,6 +145,7 @@ model Court {
   reservations Reservation[]
   matches      Match[]
   rates        Rate[]
+  tournaments  Tournament[]
 
   @@map("court")
 }
@@ -166,12 +170,23 @@ model Tournament {
   id_tournament Int      @id @default(autoincrement())
   id_tenant     Int
   tenant        User     @relation("TournamentTenant", fields: [id_tenant], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
+  id_court      Int
+  court         Court    @relation(fields: [id_court], references: [id_court], onDelete: Restrict, onUpdate: Cascade)
   name          String   @db.VarChar(100)
+  // eliminatorio | todos-contra-todos
+  format        String   @default("todos-contra-todos") @db.VarChar(30)
+  // aleatorio | manual — si es manual, el fixture se arma a mano en vez de generarse solo
+  fixture_mode  String   @default("aleatorio") @db.VarChar(20)
   min_teams     Int
   start_date    DateTime @db.Date()
   end_date      DateTime @db.Date()
   start_time    DateTime
   end_time      DateTime
+
+  // --- Quién solicitó el torneo (dueño de cancha auto-aprobado, o jugador/organizador
+  // que queda pendiente de aprobación) — distinto del tenant dueño de la cancha ---
+  id_requested_by Int
+  requested_by    User @relation("TournamentRequester", fields: [id_requested_by], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
 
   // --- Solicitud de torneo sujeta a aprobación de horarios por el tenant ---
   id_estado        Int
@@ -204,6 +219,7 @@ model Team {
   home_matches     Match[]          @relation("home_team")
   away_matches     Match[]          @relation("away_team")
   standings        Standing[]
+  match_stats      MatchStat[]
 
   @@map("team")
 }
@@ -338,6 +354,7 @@ model TeamTournament {
   tournament         Tournament @relation(fields: [id_tournament], references: [id_tournament], onDelete: Restrict, onUpdate: Cascade)
   registration_date  DateTime   @default(now()) @db.Timestamp()
 
+  @@unique([id_team, id_tournament])
   @@map("team_tournament")
 }
 
@@ -364,8 +381,10 @@ model Match {
   home_team     Team          @relation("home_team", fields: [id_home_team], references: [id_team], onDelete: Restrict, onUpdate: Cascade)
   id_away_team  Int
   away_team     Team          @relation("away_team", fields: [id_away_team], references: [id_team], onDelete: Restrict, onUpdate: Cascade)
-  id_player     Int
-  player        PlayerProfile @relation(fields: [id_player], references: [id_player], onDelete: Restrict, onUpdate: Cascade)
+  // Sin concepto de "jugador" a nivel de partido en torneos equipo-contra-equipo
+  // (las estadísticas por jugador viven en MatchStat) — se deja opcional.
+  id_player     Int?
+  player        PlayerProfile? @relation(fields: [id_player], references: [id_player], onDelete: Restrict, onUpdate: Cascade)
   scheduled_at  DateTime      @db.Timestamp()
   home_goals    Int           @default(0)
   away_goals    Int           @default(0)
@@ -373,6 +392,10 @@ model Match {
   yellow_card   String?       @db.VarChar(30)
   red_card      String?       @db.VarChar(30)
   assists       Int           @default(0)
+
+  // --- Segunda autorización requerida para editar un resultado ya confirmado ---
+  result_locked Boolean  @default(false)
+  audit_trail   String[] @default([])
 
   match_stats MatchStat[]
 
@@ -385,6 +408,8 @@ model MatchStat {
   match          Match         @relation(fields: [id_match], references: [id_match], onDelete: Restrict, onUpdate: Cascade)
   id_player      Int
   player_profile PlayerProfile @relation(fields: [id_player], references: [id_player], onDelete: Restrict, onUpdate: Cascade)
+  id_team        Int
+  team           Team          @relation(fields: [id_team], references: [id_team], onDelete: Restrict, onUpdate: Cascade)
   goals          Int           @default(0)
   assists        Int           @default(0)
   yellow_cards   Int           @default(0)
@@ -401,8 +426,14 @@ model Standing {
   team            Team       @relation(fields: [id_team], references: [id_team], onDelete: Restrict, onUpdate: Cascade)
   points          Int        @default(0)
   matches_played  Int        @default(0)
+  wins            Int        @default(0)
+  draws           Int        @default(0)
+  losses          Int        @default(0)
+  goals_for       Int        @default(0)
+  goals_against   Int        @default(0)
   goal_difference Int        @default(0)
   position        Int        @default(0)
 
+  @@unique([id_tournament, id_team])
   @@map("standing")
 }

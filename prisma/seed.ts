@@ -234,13 +234,17 @@ async function main() {
     update: {},
     create: {
       id_tenant: tenantOwner.id_user,
+      id_court: courts[0].id_court,
       name: "Torneo Apertura 2026",
+      format: "todos-contra-todos",
+      fixture_mode: "aleatorio",
       min_teams: 3,
       start_date: new Date("2026-07-25"),
       end_date: new Date("2026-08-15"),
       start_time: new Date("2026-07-25T19:00:00.000Z"),
       end_time: new Date("2026-08-15T22:00:00.000Z"),
-      // Solicitud ya revisada y aprobada por el tenant en el ambiente demo
+      // El propio tenant solicitó y aprobó este torneo demo (auto-aprobado)
+      id_requested_by: tenantOwner.id_user,
       id_estado: estados.aprobado.id_estado,
       id_approved_by: tenantOwner.id_user,
       approved_at: new Date("2026-07-20T12:00:00.000Z"),
@@ -269,9 +273,16 @@ async function main() {
   const playerProfile = await prisma.playerProfile.findUnique({ where: { id_user: jugador.id_user } });
   for (let i = 0; i < matchesData.length; i += 1) {
     const m = matchesData[i];
+    const matchData = {
+      home_goals: m.home ?? 0,
+      away_goals: m.away ?? 0,
+      status: m.confirmed ? "confirmed" : "scheduled",
+      result_locked: m.confirmed,
+      audit_trail: m.confirmed ? ["Resultado inicial confirmado"] : [],
+    };
     await prisma.match.upsert({
       where: { id_match: i + 1 },
-      update: {},
+      update: matchData,
       create: {
         id_tournament: tournament.id_tournament,
         id_court: courts[0].id_court,
@@ -279,9 +290,7 @@ async function main() {
         id_away_team: teams[m.awayIdx].id_team,
         id_player: playerProfile?.id_player ?? 1,
         scheduled_at: m.date,
-        home_goals: m.home ?? 0,
-        away_goals: m.away ?? 0,
-        status: m.confirmed ? "confirmed" : "scheduled",
+        ...matchData,
       },
     });
   }
@@ -294,16 +303,24 @@ async function main() {
   ];
   for (let i = 0; i < standingsData.length; i += 1) {
     const s = standingsData[i];
+    const standingData = {
+      points: s.points,
+      matches_played: s.played,
+      wins: s.wins,
+      draws: s.draws,
+      losses: s.losses,
+      goals_for: s.goalsFor,
+      goals_against: s.goalsAgainst,
+      goal_difference: s.goalsFor - s.goalsAgainst,
+      position: s.points === 3 ? 1 : s.teamIdx + 1,
+    };
     await prisma.standing.upsert({
       where: { id_standing: i + 1 },
-      update: {},
+      update: standingData,
       create: {
         id_tournament: tournament.id_tournament,
         id_team: teams[s.teamIdx].id_team,
-        points: s.points,
-        matches_played: s.played,
-        goal_difference: s.goalsFor - s.goalsAgainst,
-        position: s.points === 3 ? 1 : s.teamIdx + 1,
+        ...standingData,
       },
     });
   }
