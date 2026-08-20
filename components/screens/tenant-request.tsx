@@ -139,7 +139,7 @@ export function TenantRequestScreen({ user, isTenant = false }: { user?: TenantR
             type="text"
             value={complexName}
             onChange={setComplexName}
-            placeholder="Ej. Complejo Deportivo La Sabana"
+            placeholder="Ej. Complejo Deportivo La Sabana (De no estar en un complejo formal, puede usar el pueblo al que pertenece)"
             icon={<Building2 size={16} />}
             required
           />

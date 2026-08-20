@@ -7,8 +7,8 @@ import {
   notifyTeamCaptain,
   notifyTeamMembers,
 } from "@/lib/fieldsync-store";
-import { isNightHour, slotToUtcDate, utcDateToSlot } from "@/lib/utils";
-import { resolveNightRate, type RateCandidate } from "@/lib/rates";
+import { slotToUtcDate, utcDateToSlot } from "@/lib/utils";
+import { resolveRateForHour, resolveRateForSchedule, SCHEDULE_TYPES, type RateCandidate, type ScheduleType } from "@/lib/rates";
 import { expireStalePendingReservations } from "@/lib/reservation-expiry";
 import { notifyPush } from "@/lib/notify";
 
@@ -132,15 +132,17 @@ export async function GET(request: NextRequest) {
               };
             });
 
-          const nightRate = resolveNightRate(
-            court.rates.map((rate) => ({
-              id_rate: rate.id_rate,
-              id_court: rate.id_court,
-              schedule_type: rate.schedule_type,
-              amount: Number(rate.amount),
-              priority: rate.priority,
-            })),
-          );
+          const rateCandidates: RateCandidate[] = court.rates.map((rate) => ({
+            id_rate: rate.id_rate,
+            id_court: rate.id_court,
+            schedule_type: rate.schedule_type,
+            amount: Number(rate.amount),
+            priority: rate.priority,
+          }));
+          const nightRate = resolveRateForSchedule(rateCandidates, "night");
+          const ratesBySchedule = Object.fromEntries(
+            SCHEDULE_TYPES.map((type) => [type, resolveRateForSchedule(rateCandidates, type)?.amount ?? null]),
+          ) as Record<ScheduleType, number | null>;
 
           return {
             id: court.id_court,
@@ -152,6 +154,7 @@ export async function GET(request: NextRequest) {
             capacity: court.capacity,
             pricePerHour: Number(court.price_per_hour),
             pricePerHourNight: nightRate ? nightRate.amount : null,
+            rates: ratesBySchedule,
             rating: Number(court.rating),
             availableSlots,
             reservations,
@@ -236,20 +239,19 @@ export async function POST(request: NextRequest) {
 
       {
         const [hourPart] = timeSlot.split(":");
-        const nightRate = isNightHour(Number(hourPart))
-          ? resolveNightRate(
-              courtExists.rates.map(
-                (rate): RateCandidate => ({
-                  id_rate: rate.id_rate,
-                  id_court: rate.id_court,
-                  schedule_type: rate.schedule_type,
-                  amount: Number(rate.amount),
-                  priority: rate.priority,
-                }),
-              ),
-            )
-          : null;
-        const amount = nightRate ? nightRate.amount : Number(courtExists.price_per_hour ?? 0);
+        const matchedRate = resolveRateForHour(
+          courtExists.rates.map(
+            (rate): RateCandidate => ({
+              id_rate: rate.id_rate,
+              id_court: rate.id_court,
+              schedule_type: rate.schedule_type,
+              amount: Number(rate.amount),
+              priority: rate.priority,
+            }),
+          ),
+          Number(hourPart),
+        );
+        const amount = matchedRate ? matchedRate.amount : Number(courtExists.price_per_hour ?? 0);
 
         const outcome = await prisma.$transaction(async (tx) => {
           // Bloquea la fila de la cancha para serializar cualquier intento
@@ -268,7 +270,7 @@ export async function POST(request: NextRequest) {
             data: {
               id_court: courtId,
               id_user: userId,
-              id_rate: nightRate?.id_rate ?? null,
+              id_rate: matchedRate?.id_rate ?? null,
               date: dateOnly,
               start_time: startDateTime,
               end_time: endDateTime,

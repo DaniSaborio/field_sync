@@ -943,6 +943,7 @@ export function listCourts(filters: ReservationFilter = {}) {
     return {
       ...clone(court),
       pricePerHourNight: court.pricePerHourNight ?? null,
+      rates: { morning: null, afternoon: null, night: court.pricePerHourNight ?? null },
       availableSlots: slots,
       reservations: store.reservations
         .filter((reservation) => reservation.courtId === court.id && reservation.status !== "cancelada" && (!date || reservation.date === date) && (!userId || reservation.userId === userId))
