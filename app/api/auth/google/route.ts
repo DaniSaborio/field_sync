@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
       },
       include: {
         role: true,
+        estado: true,
       },
     });
 
@@ -60,6 +61,7 @@ export async function POST(req: NextRequest) {
         },
         include: {
           role: true,
+          estado: true,
         },
       });
     }
@@ -85,6 +87,9 @@ export async function POST(req: NextRequest) {
         nickname: user.nickname,
         email: user.email,
         role: user.role.name,
+        tenantId: user.role.name === "tenant" ? user.id_user : null,
+        notificationsEnabled: user.notifications_enabled,
+        status: user.estado.name,
       },
     });
   } catch (error) {

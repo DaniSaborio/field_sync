@@ -290,6 +290,17 @@ export function TenantCourtsPanel({ user, onRequestMoreCourts }: { user: AppUser
     ]);
   }
 
+  // Un administrador de plataforma suspendió esta cuenta (HU-11): se bloquea
+  // la gestión de canchas hasta que se reactive. La notificación del aviso ya
+  // se crea del lado del servidor cuando se aplica la suspensión.
+  if (user.status === "suspendido") {
+    return (
+      <PanelShell title="Mis canchas" description="Gestión de canchas bloqueada.">
+        <MessageBanner message="No es posible gestionar tus canchas: un administrador de plataforma suspendió tu cuenta. Revisá tus notificaciones para más detalles." />
+      </PanelShell>
+    );
+  }
+
   return (
     <>
     <PanelShell

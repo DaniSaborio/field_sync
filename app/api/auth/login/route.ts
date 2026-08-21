@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     try {
       dbUser = await prisma.user.findUnique({
         where: { email },
-        include: { role: true },
+        include: { role: true, estado: true },
       });
     } catch (dbError) {
       console.warn("Prisma login query failed, falling back to in-memory store:", dbError);
@@ -58,7 +58,9 @@ export async function POST(req: NextRequest) {
             fullName: dbUser.full_name,
             nickname: dbUser.nickname,
             role: dbUser.role.name,
+            tenantId: dbUser.role.name === "tenant" ? dbUser.id_user : null,
             notificationsEnabled: dbUser.notifications_enabled,
+            status: dbUser.estado.name,
           },
         },
         { status: 200 }

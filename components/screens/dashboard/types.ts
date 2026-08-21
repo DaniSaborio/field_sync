@@ -8,6 +8,8 @@ export type AppUser = {
   // solo los usuarios con rol "tenant" tienen id_user propio como identificador de cancha.
   tenantId?: number | null;
   notificationsEnabled: boolean;
+  // pendiente | verificado | suspendido — solo relevante para rol "tenant" (HU-11).
+  status?: string;
 };
 
 export type PaymentMethod = "sinpe" | "efectivo" | "mixto";
