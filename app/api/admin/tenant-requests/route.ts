@@ -28,6 +28,7 @@ export async function POST(request: NextRequest) {
       surface: body?.surface,
       capacity: body?.capacity,
       price: body?.price,
+      hasLights: body?.hasLights ?? false,
     });
 
     if (!result.ok) {
@@ -106,6 +107,7 @@ export async function PATCH(request: NextRequest) {
               surface: result.request.surface || null,
               capacity: result.request.capacity || null,
               price_per_hour: Number.isFinite(price) ? price : null,
+              has_light: result.request.hasLights,
             },
           });
 

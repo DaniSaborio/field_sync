@@ -15,6 +15,7 @@ export async function POST(req: NextRequest) {
       surface: body?.surface ?? "",
       capacity: body?.capacity ?? "",
       price: body?.price ?? "",
+      hasLights: body?.hasLights ?? false,
     });
 
     if (!result.ok) {

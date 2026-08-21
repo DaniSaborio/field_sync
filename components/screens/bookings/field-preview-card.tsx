@@ -61,6 +61,7 @@ export function FieldPreviewCard({ field }: FieldPreviewCardProps) {
         </span>
         <RowTag>{surfaceLabel[field.surface]}</RowTag>
         {field.hasLights ? <RowTag tone="night">Iluminada</RowTag> : null}
+        
       </div>
 
       <div className="flex flex-wrap gap-1.5">

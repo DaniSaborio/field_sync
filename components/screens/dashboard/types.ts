@@ -159,6 +159,7 @@ export type TenantRequestAdminRow = {
   surface: string;
   capacity: string;
   price: string;
+  hasLights: boolean;
   status: "pendiente" | "aprobado" | "rechazado";
   reviewerName: string | null;
   notes: string | null;

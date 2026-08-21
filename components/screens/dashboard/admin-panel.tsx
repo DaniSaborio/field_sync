@@ -226,6 +226,7 @@ export function AdminPanel({ user }: { user: AppUser }) {
                   <p><strong>Superficie:</strong> {request.surface}</p>
                   <p><strong>Capacidad:</strong> {request.capacity}</p>
                   <p><strong>Precio:</strong> {request.price}</p>
+                  <p><strong>Luces:</strong> {request.hasLights ? "Sí" : "No"}</p>
                 </div>
 
                 {request.mapsUrl ? (
