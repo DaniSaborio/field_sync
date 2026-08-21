@@ -11,7 +11,7 @@ import { slotToUtcDate, utcDateToSlot } from "@/lib/utils";
 import { resolveRateForHour, resolveRateForSchedule, SCHEDULE_TYPES, type RateCandidate, type ScheduleType } from "@/lib/rates";
 import { expireStalePendingReservations } from "@/lib/reservation-expiry";
 import { notifyPush } from "@/lib/notify";
-
+// Slots of 30 minutes each, from 8:00 to 21:00. The last slot is 20:30-21:00, which is the last hour of the day.
 const DEFAULT_SLOTS = [
   "08:00", "09:00", "09:30", "10:30", "11:00", "12:00",
   "13:00", "15:00", "16:30", "17:30", "18:00", "19:00", "20:00", "21:00",
@@ -30,7 +30,7 @@ function slotMatchesTimeRange(slot: string, timeSlot: string) {
 function parseSlotTime(dateIso: string, slot: string) {
   return slotToUtcDate(dateIso, slot);
 }
-
+// The hold duration is the time window during which a "pending" reservation is considered active and blocks the slot from being booked by others. After this time, if the tenant hasn't confirmed the payment, the reservation can be considered stale and the slot becomes available again.
 const HOLD_DURATION_MS = 30 * 60 * 1000;
 
 // Un horario está ocupado si tiene una reserva "confirmada", o una "pendiente"
