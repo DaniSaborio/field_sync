@@ -9,6 +9,7 @@ import {
   Clock3,
   ExternalLink,
   Layers,
+  Lightbulb,
   MapPin,
   Moon,
   Smartphone,
@@ -126,6 +127,13 @@ export function CourtResultCard({
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 font-mono text-[11px] uppercase tracking-wider text-muted">
             <RowTag>{surfaceLabel(court.surface)}</RowTag>
+            <RowTag
+              tone={court.hasLights ? "night" : "default"}
+              className="inline-flex items-center gap-1"
+            >
+              <Lightbulb size={11} strokeWidth={2} aria-hidden />
+              {court.hasLights ? "Con luces" : "Sin luces"}
+            </RowTag>
             <span className="flex items-center gap-1.5">
               <Users size={13} strokeWidth={2} aria-hidden />
               {court.capacity}

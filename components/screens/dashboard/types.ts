@@ -40,6 +40,7 @@ export type CourtCard = {
   location: string;
   mapsUrl?: string | null;
   surface: "synthetic" | "natural" | "indoor";
+  hasLights: boolean;
   capacity: string;
   pricePerHour: number;
   pricePerHourNight: number | null;

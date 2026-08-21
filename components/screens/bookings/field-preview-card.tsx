@@ -10,6 +10,7 @@ export type FieldPreview = {
   name: string;
   location: string;
   surface: "synthetic" | "natural" | "indoor";
+  hasLights: boolean;
   capacity: string;
   pricePerHour: number;
   pricePerHourNight: number | null;
@@ -59,6 +60,7 @@ export function FieldPreviewCard({ field }: FieldPreviewCardProps) {
           {field.availableSlots.length} horarios
         </span>
         <RowTag>{surfaceLabel[field.surface]}</RowTag>
+        {field.hasLights ? <RowTag tone="night">Iluminada</RowTag> : null}
       </div>
 
       <div className="flex flex-wrap gap-1.5">
@@ -84,7 +86,9 @@ export function FieldPreviewCard({ field }: FieldPreviewCardProps) {
             ? `Horario nocturno a $${field.pricePerHourNight}/h`
             : "Horario nocturno con tarifa más alta"}
         </p>
-      ) : null}
+      
+      ) 
+      : null}
 
       <CardFooter className="justify-between">
         <p className="flex items-baseline gap-1 font-mono text-black">

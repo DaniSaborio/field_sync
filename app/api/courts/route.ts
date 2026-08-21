@@ -56,6 +56,7 @@ export async function GET(request: NextRequest) {
   const timeSlot = url.searchParams.get("timeSlot") ?? undefined;
   const surface = url.searchParams.get("surface") ?? undefined;
   const userId = url.searchParams.get("userId");
+  const haslights = url.searchParams.get("hasLights") === "true" ? true : undefined;
   const tenantIdParam = url.searchParams.get("tenantId");
   const manage = url.searchParams.get("manage") === "true";
 
@@ -91,6 +92,7 @@ export async function GET(request: NextRequest) {
       const courts = courtsFromDb
   .filter((court: (typeof courtsFromDb)[number]) => {
           if (surface && surface !== "all" && court.surface !== surface) return false;
+          if (haslights !== undefined && court.has_light !== haslights) return false;
           return true;
         })
         .map((court) => {
@@ -143,13 +145,14 @@ export async function GET(request: NextRequest) {
           const ratesBySchedule = Object.fromEntries(
             SCHEDULE_TYPES.map((type) => [type, resolveRateForSchedule(rateCandidates, type)?.amount ?? null]),
           ) as Record<ScheduleType, number | null>;
-
+// Resolve the rates for each schedule type
           return {
             id: court.id_court,
             tenantId: court.id_tenant,
             name: court.name,
             location: court.address ?? "Ubicación no disponible",
             mapsUrl: court.maps_url ?? null,
+            hasLights: court.has_light,
             surface: court.surface as "synthetic" | "natural" | "indoor",
             capacity: court.capacity,
             pricePerHour: Number(court.price_per_hour),
