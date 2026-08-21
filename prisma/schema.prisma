@@ -131,6 +131,7 @@ model Court {
   tenant    User    @relation(fields: [id_tenant], references: [id_user], onDelete: Restrict, onUpdate: Cascade)
   name      String  @db.VarChar(100)
   is_active Boolean @default(true)
+  has_light Boolean @default(false)
 
   // --- Ubicación (verificación anti-troll y navegación del cliente) ---
   address  String? @db.VarChar(255)

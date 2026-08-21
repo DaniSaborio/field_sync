@@ -13,11 +13,13 @@ export async function GET() {
       name: court.name,
       address: court.address,
       surface: court.surface,
+      hasLights: court.has_light,
       pricePerHour: court.price_per_hour !== null ? Number(court.price_per_hour) : null,
       isActive: court.is_active,
       tenantId: court.id_tenant,
       tenantName: court.tenant.full_name,
       tenantEmail: court.tenant.email,
+      
     })),
   });
 }

@@ -136,6 +136,7 @@ export type AdminCourtRow = {
   address: string | null;
   surface: string | null;
   pricePerHour: number | null;
+  hasLights: boolean;
   isActive: boolean;
   tenantId: number;
   tenantName: string;

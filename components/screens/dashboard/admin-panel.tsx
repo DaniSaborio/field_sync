@@ -274,6 +274,7 @@ export function AdminPanel({ user }: { user: AppUser }) {
                       right={
                         <div className="flex items-center gap-2">
                           <RowTag tone={court.isActive ? "positive" : "negative"}>{court.isActive ? "Activa" : "Inactiva"}</RowTag>
+                          <RowTag tone={court.hasLights ? "positive" : "negative"}>{court.hasLights ? "Con luces" : "Sin luces"}</RowTag>
                           <Button
                             variant="secondary"
                             size="sm"
