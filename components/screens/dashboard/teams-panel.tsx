@@ -107,7 +107,7 @@ export function TeamsPanel({ user }: { user: AppUser }) {
       setMessage(payload.error || "No pudimos crear la plantilla");
       return;
     }
-    setMessage("Plantilla creada. Ya eres el capitán.");
+    setMessage("Equipo creado. Ya eres el capitán.");
     setNewTeamName("");
     if (payload.team) {
       setSelectedTeamId(payload.team.id);
@@ -172,7 +172,7 @@ export function TeamsPanel({ user }: { user: AppUser }) {
   }
 
   return (
-    <PanelShell title="Plantilla y convocatorias" description="Agregá o eliminá jugadores y notificá al equipo de forma inmediata.">
+    <PanelShell title="Equipos y convocatorias" description="Agregá o eliminá jugadores y notificá al equipo de forma inmediata.">
       {message ? <MessageBanner message={message} /> : null}
       <div className="mb-4 flex flex-wrap items-center gap-3 border border-black bg-paper p-4">
         <input

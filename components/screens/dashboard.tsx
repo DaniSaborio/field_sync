@@ -25,7 +25,7 @@ const tabButtons = [
   { id: "reservas", label: "Reservas", icon: MapPin },
   { id: "torneos", label: "Torneos", icon: Trophy },
   { id: "perfil", label: "Perfil", icon: Settings2 },
-  { id: "plantilla", label: "Plantilla", icon: Users },
+  { id: "equipo", label: "Equipos", icon: Users },
   { id: "notificaciones", label: "Notificaciones", icon: Bell },
   { id: "administracion", label: "Administración", icon: ShieldCheck },
 ] as const;
@@ -37,7 +37,7 @@ type DashboardScreenProps = {
 };
 
 export function DashboardScreen({ user, onLogout, onUserUpdate }: DashboardScreenProps) {
-  type DashboardTab = "reservas" | "torneos" | "perfil" | "plantilla" | "notificaciones" | "tenant-request" |"mis-canchas" |"administracion";
+  type DashboardTab = "reservas" | "torneos" | "perfil" | "equipo" | "notificaciones" | "tenant-request" |"mis-canchas" |"administracion";
 
   const [activeTab, setActiveTab] = useState<DashboardTab>("reservas");
   const visibleTabs = [
@@ -115,7 +115,7 @@ export function DashboardScreen({ user, onLogout, onUserUpdate }: DashboardScree
         ) : null}
         {activeTab === "torneos" ? (isAdmin(user) || isTenant(user) ? <TournamentsPanel user={user} /> : <MyTournamentsPanel user={user} />) : null}
         {activeTab === "perfil" ? (<ProfilePanel user={user} onRequestTenant={() => setActiveTab("tenant-request")} onUserUpdate={onUserUpdate} />) : null}
-        {activeTab === "plantilla" ? <TeamsPanel user={user} /> : null}
+        {activeTab === "equipo" ? <TeamsPanel user={user} /> : null}
         {activeTab === "mis-canchas" && isTenant(user) ? (
           <TenantCourtsPanel user={user} onRequestMoreCourts={() => setActiveTab("tenant-request")} />
         ) : null}

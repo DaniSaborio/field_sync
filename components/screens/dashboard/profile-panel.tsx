@@ -170,7 +170,6 @@ export function ProfilePanel({user, onRequestTenant, onUserUpdate}: ProfilePanel
               />
               <Button type="button" size="sm" variant="secondary" onClick={saveNickname}>Guardar</Button>
             </div>
-            <p className="mt-3 font-sans text-sm text-black">Rol: {humanRole(profile.user.role)}</p>
             <p className="font-sans text-sm text-black">Notificaciones: {profile.user.notificationsEnabled ? "activas" : "desactivadas"}</p>
           </Card>
           <Card nested>
@@ -185,14 +184,14 @@ export function ProfilePanel({user, onRequestTenant, onUserUpdate}: ProfilePanel
 
           <Card nested>
             <p className="font-mono text-[10px] uppercase tracking-wider text-muted">
-             Conviértete en Tenant
+             Conviértete en dueño de cancha
             </p>
             <h3 className="mt-2 font-display text-xl font-black leading-tight tracking-tight text-black">
               Administra tus propias canchas
             </h3>
             <p className="mt-2 text-sm text-muted">
                Solicita convertirte en dueño de cancha para administrar tus instalaciones,
-                reservas, horarios e ingresos desde un panel exclusivo para tenants.
+                reservas, horarios e ingresos desde un panel exclusivo para dueños de canchas.
             </p>
            <Button
              type="button"
