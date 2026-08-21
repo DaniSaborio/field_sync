@@ -398,6 +398,10 @@ model Match {
   result_locked Boolean  @default(false)
   audit_trail   String[] @default([])
 
+  // --- Ronda del cuadro eliminatorio (1 = primera ronda). Sin uso real en
+  // formato todos-contra-todos, siempre queda en 1 ahí. ---
+  round Int @default(1)
+
   match_stats MatchStat[]
 
   @@map("match")

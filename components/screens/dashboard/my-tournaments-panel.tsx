@@ -238,6 +238,7 @@ export function MyTournamentsPanel({ user }: { user: AppUser }) {
                         <Badge>{match.status}</Badge>
                       </div>
                       <p className="mt-1 font-mono text-[11px] uppercase tracking-wider text-muted">
+                        {tournament.format === "eliminatorio" ? `Ronda ${match.round} · ` : ""}
                         {formatDateTime(match.scheduledAt)} · {courtName(tournament.courtId)}
                       </p>
                       <p className="mt-1 font-mono text-sm font-bold tabular-nums text-black">

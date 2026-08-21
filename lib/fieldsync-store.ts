@@ -106,6 +106,7 @@ export type MatchRecord = {
   status: MatchStatus;
   resultLocked: boolean;
   auditTrail: string[];
+  round: number;
 };
 
 // Una fila por jugador por partido: sus goles y tarjetas en ese partido.
@@ -438,6 +439,7 @@ const seedState = (): StoreState => ({
       status: "confirmed",
       resultLocked: true,
       auditTrail: ["Resultado inicial confirmado"],
+      round: 1,
     },
     {
       id: 2,
@@ -450,6 +452,7 @@ const seedState = (): StoreState => ({
       status: "scheduled",
       resultLocked: false,
       auditTrail: [],
+      round: 1,
     },
     {
       id: 3,
@@ -462,6 +465,7 @@ const seedState = (): StoreState => ({
       status: "scheduled",
       resultLocked: false,
       auditTrail: [],
+      round: 1,
     },
   ],
   matchStats: [],
@@ -766,7 +770,7 @@ function buildFixturePairs(tournament: TournamentRecord): Array<{ homeTeamId: nu
   return pairs;
 }
 
-async function persistFixture(tournament: TournamentRecord, pairs: Array<{ homeTeamId: number; awayTeamId: number }>): Promise<MatchRecord[]> {
+async function persistFixture(tournament: TournamentRecord, pairs: Array<{ homeTeamId: number; awayTeamId: number }>, round = 1): Promise<MatchRecord[]> {
   const created = await prisma.match.createManyAndReturn({
     data: pairs.map((pair, index) => ({
       id_tournament: tournament.id,
@@ -775,6 +779,7 @@ async function persistFixture(tournament: TournamentRecord, pairs: Array<{ homeT
       id_away_team: pair.awayTeamId,
       scheduled_at: new Date(Date.UTC(2026, 6, 28 + index, 19, 0, 0)),
       status: "scheduled",
+      round,
     })),
   });
 
@@ -789,11 +794,40 @@ async function persistFixture(tournament: TournamentRecord, pairs: Array<{ homeT
     status: "scheduled",
     resultLocked: false,
     auditTrail: [],
+    round: m.round,
   }));
 
   tournament.fixture = matches;
   store.matches.push(...matches);
   return matches;
+}
+
+function isPowerOfTwo(value: number) {
+  return value >= 2 && (value & (value - 1)) === 0;
+}
+
+// Arma la siguiente ronda del cuadro eliminatorio una vez que todos los
+// partidos de la ronda actual quedaron confirmados: toma los ganadores,
+// los sortea y los empareja. Si la ronda recién jugada era la final (un solo
+// partido), no genera nada más — ya hay campeón.
+async function advanceEliminationBracket(tournament: TournamentRecord, completedRound: number) {
+  const roundMatches = store.matches.filter((match) => match.tournamentId === tournament.id && match.round === completedRound);
+  if (roundMatches.length <= 1) return;
+  if (!roundMatches.every((match) => match.status === "confirmed")) return;
+
+  const winners = roundMatches.map((match) => {
+    if (match.homeGoals === null || match.awayGoals === null || match.homeGoals === match.awayGoals) return null;
+    return match.homeGoals > match.awayGoals ? match.homeTeamId : match.awayTeamId;
+  });
+  if (winners.some((winner) => winner === null)) return;
+
+  const shuffledWinners = shuffle(winners as number[]);
+  const pairs: Array<{ homeTeamId: number; awayTeamId: number }> = [];
+  for (let index = 0; index < shuffledWinners.length; index += 2) {
+    pairs.push({ homeTeamId: shuffledWinners[index], awayTeamId: shuffledWinners[index + 1] });
+  }
+
+  await persistFixture(tournament, pairs, completedRound + 1);
 }
 
 export function resetFieldSyncStore() {
@@ -1049,7 +1083,7 @@ async function hydrateTournamentsFromDb() {
     include: {
       estado: true,
       team_tournaments: true,
-      matches: { include: { match_stats: true }, orderBy: { id_match: "asc" } },
+      matches: { include: { match_stats: { include: { player_profile: true } } }, orderBy: { id_match: "asc" } },
       standings: true,
     },
     orderBy: { id_tournament: "asc" },
@@ -1072,13 +1106,14 @@ async function hydrateTournamentsFromDb() {
         status: m.status as MatchStatus,
         resultLocked: m.result_locked,
         auditTrail: m.audit_trail,
+        round: m.round,
       });
 
       for (const stat of m.match_stats) {
         matchStats.push({
           id: stat.id_match_stat,
           matchId: m.id_match,
-          playerId: stat.id_player,
+          playerId: stat.player_profile.id_user,
           teamId: stat.id_team,
           goals: stat.goals,
           yellowCards: stat.yellow_cards,
@@ -1453,6 +1488,10 @@ function validateTournamentReadyToStart(tournament: TournamentRecord): string | 
     return "Aún no se completa el número mínimo de equipos";
   }
 
+  if (tournament.format === "eliminatorio" && !isPowerOfTwo(tournament.teamIds.length)) {
+    return "Los torneos eliminatorios necesitan una cantidad de equipos potencia de 2 (2, 4, 8, 16...)";
+  }
+
   return null;
 }
 
@@ -1540,8 +1579,12 @@ export async function recordMatchResult(input: {
   const statRowsFromInput = Array.isArray(input.stats) ? input.stats : [];
 
   if (match.resultLocked && !input.confirmedByAdmin) {
-    match.auditTrail.push("Intento de modificación rechazado: se requiere segunda autorización.");
-    await prisma.match.update({ where: { id_match: match.id }, data: { audit_trail: match.auditTrail } });
+    // No se muta match.auditTrail hasta que la escritura en Postgres se
+    // confirme: si se hiciera antes y el update fallara, el estado en
+    // memoria quedaría "confirmado" sin que la base lo respalde.
+    const rejectedAuditTrail = [...match.auditTrail, "Intento de modificación rechazado: se requiere segunda autorización."];
+    await prisma.match.update({ where: { id_match: match.id }, data: { audit_trail: rejectedAuditTrail } });
+    match.auditTrail = rejectedAuditTrail;
     return {
       ok: false,
       error: "Se requiere una segunda autorización para modificar un resultado confirmado",
@@ -1570,11 +1613,28 @@ export async function recordMatchResult(input: {
   const homeGoals = input.homeGoals ?? statRows.filter((stat) => stat.teamId === match.homeTeamId).reduce((sum, stat) => sum + stat.goals, 0);
   const awayGoals = input.awayGoals ?? statRows.filter((stat) => stat.teamId === match.awayTeamId).reduce((sum, stat) => sum + stat.goals, 0);
 
-  match.homeGoals = homeGoals;
-  match.awayGoals = awayGoals;
-  match.status = "confirmed";
-  match.resultLocked = true;
-  match.auditTrail.push(input.confirmedByAdmin ? "Resultado modificado con segunda autorización" : "Resultado confirmado");
+  const tournament = store.tournaments.find((item) => item.id === match.tournamentId);
+  if (tournament?.format === "eliminatorio" && homeGoals === awayGoals) {
+    return { ok: false, error: "Los partidos eliminatorios no pueden terminar en empate: definí un equipo ganador" };
+  }
+
+  // Todo lo que sigue calcula valores en variables locales primero y recién
+  // muta match/store.matches (el espejo en memoria) después de que Postgres
+  // confirme la escritura — si se mutara antes y el write fallara (como pasó
+  // con el bug del id_player), el partido quedaría "confirmado" en memoria
+  // sin respaldo real en la base, y encima bloqueado para reintentar.
+  const newAuditTrail = [...match.auditTrail, input.confirmedByAdmin ? "Resultado modificado con segunda autorización" : "Resultado confirmado"];
+
+  // MatchStat.id_player referencia PlayerProfile.id_player, no User.id_user
+  // (a diferencia de todo lo demás en esta función, que identifica jugadores
+  // por su id de usuario) — hay que resolverlo antes de insertar.
+  const profileIdByUserId = new Map<number, number>();
+  for (const stat of statRows) {
+    if (!profileIdByUserId.has(stat.playerId)) {
+      const profile = await ensurePlayerProfile(stat.playerId);
+      profileIdByUserId.set(stat.playerId, profile.id_player);
+    }
+  }
 
   await prisma.$transaction([
     prisma.match.update({
@@ -1584,7 +1644,7 @@ export async function recordMatchResult(input: {
         away_goals: awayGoals,
         status: "confirmed",
         result_locked: true,
-        audit_trail: match.auditTrail,
+        audit_trail: newAuditTrail,
       },
     }),
     prisma.matchStat.deleteMany({ where: { id_match: match.id } }),
@@ -1593,7 +1653,7 @@ export async function recordMatchResult(input: {
           prisma.matchStat.createMany({
             data: statRows.map((stat) => ({
               id_match: match.id,
-              id_player: stat.playerId,
+              id_player: profileIdByUserId.get(stat.playerId)!,
               id_team: stat.teamId,
               goals: stat.goals,
               yellow_cards: stat.yellowCards,
@@ -1610,6 +1670,12 @@ export async function recordMatchResult(input: {
       }),
     ),
   ]);
+
+  match.homeGoals = homeGoals;
+  match.awayGoals = awayGoals;
+  match.status = "confirmed";
+  match.resultLocked = true;
+  match.auditTrail = newAuditTrail;
 
   store.matchStats = store.matchStats.filter((stat) => stat.matchId !== match.id).concat(
     statRows.map((stat) => ({
@@ -1641,6 +1707,10 @@ export async function recordMatchResult(input: {
       await prisma.notification.create({ data: { id_user: captain.id, type: "match-result", message } });
       notifyPush(captain.id, message);
     }
+  }
+
+  if (tournament?.format === "eliminatorio") {
+    await advanceEliminationBracket(tournament, match.round);
   }
 
   return {

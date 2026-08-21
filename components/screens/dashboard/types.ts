@@ -70,6 +70,7 @@ export type TournamentMatch = {
   status: "scheduled" | "confirmed";
   resultLocked: boolean;
   auditTrail: string[];
+  round: number;
   stats: MatchStat[];
 };
 

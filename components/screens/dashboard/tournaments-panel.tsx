@@ -574,6 +574,17 @@ export function TournamentsPanel({ user }: { user: AppUser }) {
                     <p className="font-mono text-[11px] uppercase tracking-wider text-muted">Motivo: {tournament.rejectionReason}</p>
                   ) : null}
 
+                  {tournament.teamIds.length > 0 ? (
+                    <div>
+                      <p className="mb-1 font-mono text-[10px] uppercase tracking-wider text-muted">Equipos inscritos:</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {tournament.teamIds.map((teamId) => (
+                          <RowTag key={teamId} tone="positive">{teamName(teamId)}</RowTag>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
                   {canRespond ? (
                     <div className="flex flex-wrap gap-2">
                       <Button type="button" size="sm" onClick={() => respondToRequest(tournament.id, "approve")}>
@@ -584,24 +595,32 @@ export function TournamentsPanel({ user }: { user: AppUser }) {
                       </Button>
                     </div>
                   ) : (
-                    <div className="flex flex-wrap gap-1.5">
-                      {teams.map((team) => (
-                        <Button
-                          key={team.id}
-                          type="button"
-                          variant="secondary"
-                          size="sm"
-                          disabled={tournament.requestStatus !== "aprobado"}
-                          title={tournament.requestStatus !== "aprobado" ? "Este torneo todavía no fue aprobado" : undefined}
-                          onClick={() => {
-                            setSelectedTournamentId(tournament.id);
-                            void enrollTeam(team.id);
-                          }}
-                        >
-                          + {team.name}
-                        </Button>
-                      ))}
-                    </div>
+                    (() => {
+                      const availableTeams = teams.filter((team) => !tournament.teamIds.includes(team.id));
+                      return availableTeams.length > 0 ? (
+                        <div>
+                          <p className="mb-1 font-mono text-[10px] uppercase tracking-wider text-muted">Agregar equipo:</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {availableTeams.map((team) => (
+                              <Button
+                                key={team.id}
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                disabled={tournament.requestStatus !== "aprobado"}
+                                title={tournament.requestStatus !== "aprobado" ? "Este torneo todavía no fue aprobado" : undefined}
+                                onClick={() => {
+                                  setSelectedTournamentId(tournament.id);
+                                  void enrollTeam(team.id);
+                                }}
+                              >
+                                + {team.name}
+                              </Button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null;
+                    })()
                   )}
                   <p className="font-mono text-[10px] uppercase tracking-wider text-muted">
                     Equipos inscritos: {tournament.teamIds.length} / {tournament.teamsRequired}
@@ -634,7 +653,10 @@ export function TournamentsPanel({ user }: { user: AppUser }) {
                       className="block w-full border border-black p-3 text-left transition-transform duration-150 ease-pop active:translate-x-px active:translate-y-px"
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-black">Partido #{match.id}</p>
+                        <p className="text-sm font-semibold text-black">
+                          Partido #{match.id}
+                          {currentTournament.format === "eliminatorio" ? ` · Ronda ${match.round}` : ""}
+                        </p>
                         <Badge>{match.status}</Badge>
                       </div>
                       <p className="mt-1 font-sans text-sm text-black">{teamName(match.homeTeamId)} vs {teamName(match.awayTeamId)} · {formatDateTime(match.scheduledAt)}</p>
