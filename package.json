@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0",
     "dev:docker": "prisma generate && next dev --hostname 0.0.0.0",
+    "postinstall": "prisma generate",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
