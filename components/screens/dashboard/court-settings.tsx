@@ -15,6 +15,7 @@ export type EditableCourt = {
   location: string;
   mapsUrl?: string | null;
   surface: Surface;
+  hasLights: boolean;
   capacity: string;
   pricePerHour: number;
   rates: Record<ScheduleKey, number | null>;

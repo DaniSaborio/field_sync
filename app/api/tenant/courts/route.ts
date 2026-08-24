@@ -34,6 +34,7 @@ export async function PATCH(request: NextRequest) {
       address?: string | null;
       maps_url?: string | null;
       surface?: string;
+      has_light?: boolean;
       capacity?: string;
       price_per_hour?: number;
     } = {};
