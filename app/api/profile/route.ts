@@ -1,14 +1,12 @@
 /**
  * /api/profile — GET: returns a tenant-shaped profile (owned courts + booking
- * stats/revenue, from Postgres) or a player-shaped profile (stats/visibility,
- * from the in-memory store) depending on the user's role. New players/Google
- * sign-ups are hydrated into the in-memory store on first read.
+ * stats/revenue) or a player-shaped profile (stats/visibility/tournaments),
+ * depending on the user's role. Both are read directly from Postgres.
  * PATCH: update visibility, nickname, or the notifications toggle for a user.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getPlayerProfile, toggleNotifications, updateNickname, updateProfileVisibility } from "@/lib/fieldsync-store";
-import { hydrateStoreUser } from "@/lib/hydrate-user";
+import { getPlayerProfile, updateProfileVisibility } from "@/lib/services/profiles";
 import { expireStalePendingReservations } from "@/lib/reservation-expiry";
 
 export async function GET(request: NextRequest) {
@@ -28,7 +26,14 @@ where: { id_user: userId },
 include: { role: true },
 });
 
-if (dbUser?.role.name === "tenant") {
+if (!dbUser) {
+return NextResponse.json(
+{ ok: false, error: "No encontramos el perfil" },
+{ status: 404 }
+);
+}
+
+if (dbUser.role.name === "tenant") {
   try {
     await expireStalePendingReservations();
   } catch (dbError) {
@@ -94,33 +99,31 @@ if (dbUser?.role.name === "tenant") {
   });
 }
 
-
-} catch (dbError) {
-console.warn(
-"Prisma profile lookup failed, falling back to in-memory store:",
-dbError
-);
-}
-
-// Tournaments/rosters live in the in-memory store, separate from Postgres:
-// any player who isn't part of the demo seed (new registration or Google
-// login) needs to be synced here first, or getPlayerProfile will never find
-// them.
-await hydrateStoreUser(userId);
-
 const profile = await getPlayerProfile(userId);
 
 if (!profile) {
-return NextResponse.json(
-{ ok: false, error: "No encontramos el perfil" },
-{ status: 404 }
-);
+  return NextResponse.json(
+    { ok: false, error: "No encontramos el perfil" },
+    { status: 404 }
+  );
 }
 
 return NextResponse.json({
-kind: "jugador" as const,
-...profile,
+  kind: "jugador" as const,
+  ...profile,
 });
+} catch (error) {
+return NextResponse.json(
+{
+ok: false,
+error:
+error instanceof Error
+? error.message
+: "No pudimos obtener el perfil",
+},
+{ status: 500 }
+);
+}
 }
 
 export async function PATCH(request: NextRequest) {
@@ -159,68 +162,35 @@ if (
       ? body.nickname.trim()
       : null;
 
-  try {
-    const updated = await prisma.user.update({
-      where: { id_user: userId },
-      data: { nickname },
-    });
+  const updated = await prisma.user.update({
+    where: { id_user: userId },
+    data: { nickname },
+  });
 
-    return NextResponse.json({
-      ok: true,
-      user: {
-        id: updated.id_user,
-        nickname: updated.nickname,
-      },
-    });
-  } catch (dbError) {
-    console.warn(
-      "Prisma nickname update failed, falling back to in-memory store:",
-      dbError
-    );
-  }
-
-  const result = updateNickname(userId, nickname);
-
-  if (!result.ok) {
-    return NextResponse.json(result, { status: 404 });
-  }
-
-  return NextResponse.json(result);
+  return NextResponse.json({
+    ok: true,
+    user: {
+      id: updated.id_user,
+      nickname: updated.nickname,
+    },
+  });
 }
 
 if (typeof body?.notificationsEnabled === "boolean") {
-  try {
-    const updated = await prisma.user.update({
-      where: { id_user: userId },
-      data: {
-        notifications_enabled: body.notificationsEnabled,
-      },
-    });
+  const updated = await prisma.user.update({
+    where: { id_user: userId },
+    data: {
+      notifications_enabled: body.notificationsEnabled,
+    },
+  });
 
-    return NextResponse.json({
-      ok: true,
-      user: {
-        id: updated.id_user,
-        notificationsEnabled: updated.notifications_enabled,
-      },
-    });
-  } catch (dbError) {
-    console.warn(
-      "Prisma notifications update failed, falling back to in-memory store:",
-      dbError
-    );
-  }
-
-  const result = toggleNotifications(
-    userId,
-    body.notificationsEnabled
-  );
-
-  if (!result.ok) {
-    return NextResponse.json(result, { status: 404 });
-  }
-
-  return NextResponse.json(result);
+  return NextResponse.json({
+    ok: true,
+    user: {
+      id: updated.id_user,
+      notificationsEnabled: updated.notifications_enabled,
+    },
+  });
 }
 
 return NextResponse.json(
