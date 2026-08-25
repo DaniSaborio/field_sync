@@ -1,3 +1,12 @@
+/**
+ * /api/tournaments — tournament lifecycle (data lives in the in-memory store).
+ * GET:  full tournament snapshot (all tournaments, brackets/standings).
+ * POST: action-based — `"create"` (round-robin or knockout), `"respond"`
+ *       (approve/reject a court owner's tournament request), `"enroll"` a
+ *       team, `"start"` the bracket, `"setManualFixture"` for manual
+ *       pairings, `"result"` to record a match result (goals/cards per
+ *       player; may require a second admin confirmation).
+ */
 import { NextRequest, NextResponse } from "next/server";
 import {
   createTournament,

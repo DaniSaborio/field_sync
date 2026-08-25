@@ -1,3 +1,9 @@
+/**
+ * /api/notifications — GET: list a user's notifications, newest first.
+ * Requires `userId` as a query param (no further role check — any caller who
+ * knows a userId can read that user's notifications). Reads from Postgres,
+ * falling back to the in-memory store if the Prisma query fails.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { listNotifications } from "@/lib/fieldsync-store";

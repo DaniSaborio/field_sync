@@ -1,3 +1,9 @@
+/**
+ * /api/auth/login — POST: email + password login. Public.
+ * Looks up the user in Postgres and checks the password with bcrypt; if the
+ * Prisma query fails, falls back to the in-memory demo store. On success,
+ * syncs the user into the in-memory store (teams/tournaments/profile data).
+ */
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
@@ -36,9 +42,9 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Equipos/torneos/perfil viven en el store en memoria, separado de
-      // Postgres: sincronizamos al usuario acá para que esas funciones lo
-      // reconozcan desde el primer login, no solo a los 4 de la semilla.
+      // Teams/tournaments/profile live in the in-memory store, separate from
+      // Postgres: we sync the user here so those functions recognize them
+      // from the first login, not just the 4 seeded demo users.
       upsertStoreUser({
         id: dbUser.id_user,
         fullName: dbUser.full_name,

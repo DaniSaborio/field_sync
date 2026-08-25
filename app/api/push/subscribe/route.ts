@@ -1,3 +1,8 @@
+/**
+ * /api/push/subscribe — POST: register (or update) a Web Push subscription
+ * for a user, upserted by its unique `endpoint`. Used to deliver notifyPush
+ * messages triggered across the other reservation/notification routes.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 

@@ -1,3 +1,10 @@
+/**
+ * /api/auth/forgot-password — POST: request a password-reset link. Public.
+ * Always returns the same generic message whether or not the email exists,
+ * to avoid leaking which addresses are registered. Issues a 30-min token
+ * (only its SHA-256 hash is stored) and emails it via Resend; if email isn't
+ * configured, the reset URL is returned in the response for local/demo use.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes, createHash } from "crypto";
 import { prisma } from "@/lib/prisma";
@@ -16,8 +23,8 @@ export async function POST(req: NextRequest) {
 
     const user = await prisma.user.findUnique({ where: { email } });
 
-    // Por seguridad, la respuesta es la misma exista o no la cuenta: nunca
-    // confirmamos si un correo está registrado.
+    // For security, the response is the same whether or not the account
+    // exists: we never confirm if an email is registered.
     if (!user) {
       return NextResponse.json({ message: "Si la cuenta existe, se generó un enlace de recuperación" });
     }
@@ -37,8 +44,8 @@ export async function POST(req: NextRequest) {
     const resetUrl = new URL(`/reset-password?token=${rawToken}`, req.nextUrl.origin).toString();
 
     if (!isEmailConfigured()) {
-      // Sin RESEND_API_KEY configurada seguimos en modo demo: devolvemos el
-      // enlace en la respuesta en vez de mandarlo por correo.
+      // Without RESEND_API_KEY configured we stay in demo mode: return the
+      // link in the response instead of emailing it.
       console.log(`[forgot-password] Enlace de recuperación para ${email}: ${resetUrl}`);
       return NextResponse.json({
         message: "Si la cuenta existe, se generó un enlace de recuperación",

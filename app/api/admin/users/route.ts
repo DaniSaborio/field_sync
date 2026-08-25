@@ -1,3 +1,10 @@
+/**
+ * /api/admin/users — platform-admin user directory and tenant vetting (HU-11).
+ * GET:   list every user with role/status/verification metadata. Admin-only.
+ * PATCH: verify or suspend a tenant account only — action must target a user
+ *        whose role is "tenant". Writes an EstadoHistorial audit row and
+ *        notifies the affected user. Admin-only.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { notifyPush } from "@/lib/notify";
@@ -31,8 +38,8 @@ export async function GET(request: NextRequest) {
   });
 }
 
-// Verifica o suspende una cuenta tenant (HU-11): solo un admin de plataforma
-// puede hacerlo, y solo aplica a usuarios con rol "tenant" (dueños de cancha).
+// Verifies or suspends a tenant account (HU-11): only a platform admin can
+// do this, and it only applies to users with the "tenant" role (court owners).
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();

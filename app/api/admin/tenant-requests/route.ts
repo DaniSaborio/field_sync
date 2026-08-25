@@ -1,3 +1,11 @@
+/**
+ * /api/admin/tenant-requests — lifecycle of "become a tenant / add a court" requests.
+ * GET:   list all requests. Admin-only (ADMIN_ROLES).
+ * POST:  submit a new request. Public (any authenticated user can apply).
+ * PATCH: approve or reject a request. Admin-only. Approval promotes the user to
+ *        role "tenant" (if not already), creates the requested Court row, and
+ *        sends an in-app + push notification to the requester.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { upsertStoreUser } from "@/lib/fieldsync-store";

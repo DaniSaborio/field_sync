@@ -1,3 +1,11 @@
+/**
+ * /api/tenant/courts — PATCH: a tenant edits one of their own courts (name,
+ * location, surface, capacity, base price) and its per-schedule rates
+ * (morning/afternoon/night). Ownership is checked by comparing the court's
+ * `id_tenant` to the `tenantId` sent in the request body — unlike the admin
+ * routes, this does not re-verify the caller's role/identity via requireRole,
+ * so it trusts whatever tenantId the client sends.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resolveRateForSchedule, scheduleTypeLabel, SCHEDULE_TYPES, type RateCandidate, type ScheduleType } from "@/lib/rates";
@@ -8,9 +16,9 @@ function isSurface(value: unknown): value is (typeof SURFACES)[number] {
   return typeof value === "string" && (SURFACES as readonly string[]).includes(value);
 }
 
-// El dueño de la cancha (tenant) edita el nombre, ubicación, superficie,
-// capacidad, precio base y los precios por franja horaria (mañana/tarde/
-// noche) de una de sus propias canchas.
+// The court owner (tenant) edits the name, location, surface, capacity,
+// base price, and per-schedule prices (morning/afternoon/night) of one of
+// their own courts.
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();

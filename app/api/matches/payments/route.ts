@@ -1,3 +1,12 @@
+/**
+ * /api/matches/payments — post-match "who owes what" checklist and close-out,
+ * for a confirmed reservation that has both a home and a rival team assigned.
+ * GET:   fetch the checklist (per-player paid/unpaid, per-person amount).
+ * PATCH: mark one player as paid/unpaid. Caller must be the booker, the
+ *        court's tenant, or either team's captain (isAllowedToManageMatch).
+ * POST:  formally close the match payment; requires everyone already marked
+ *        paid and the same caller permissions as PATCH.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ensureTeamsHydrated, getTeamById } from "@/lib/fieldsync-store";
@@ -208,8 +217,8 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
-// Cierra formalmente el pago del partido: requiere que alguien con permiso lo
-// confirme a propósito, no basta con que el checklist quede todo en true.
+// Formally closes the match payment: requires someone with permission to
+// deliberately confirm it — it's not enough for the checklist to be all true.
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();

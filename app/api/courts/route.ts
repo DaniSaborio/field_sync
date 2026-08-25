@@ -1,3 +1,17 @@
+/**
+ * /api/courts — the core booking API. Public (no admin/tenant role required;
+ * ownership is enforced per-action instead).
+ * GET:    court availability. Public mode returns active courts with open
+ *         slots; `manage=true&tenantId=` returns one tenant's own courts with
+ *         all reservations (used by the tenant dashboard).
+ * POST:   create a reservation as "pendiente" + its Payment row. Uses
+ *         `SELECT ... FOR UPDATE` on the court row to serialize concurrent
+ *         attempts and prevent double-booking the same slot.
+ * DELETE: the booking player cancels their own reservation (must be the
+ *         owner, 24h+ notice, and not already closed/paid).
+ * PATCH:  the tenant confirms or rejects the declared payment for a
+ *         reservation on one of their own courts (checked via court.id_tenant).
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
@@ -33,8 +47,9 @@ function parseSlotTime(dateIso: string, slot: string) {
 // The hold duration is the time window during which a "pending" reservation is considered active and blocks the slot from being booked by others. After this time, if the tenant hasn't confirmed the payment, the reservation can be considered stale and the slot becomes available again.
 const HOLD_DURATION_MS = 30 * 60 * 1000;
 
-// Un horario está ocupado si tiene una reserva "confirmada", o una "pendiente"
-// cuyo hold todavía no vence (mientras el dueño no confirme el pago).
+// A time slot is taken if it has a "confirmada" (confirmed) reservation, or a
+// "pendiente" (pending) one whose hold hasn't expired yet (while the owner
+// hasn't confirmed the payment).
 function activeSlotWhere(courtId: number, date: Date, startTime: Date) {
   return {
     id_court: courtId,
@@ -267,8 +282,8 @@ export async function POST(request: NextRequest) {
         const amount = matchedRate ? matchedRate.amount : Number(courtExists.price_per_hour ?? 0);
 
         const outcome = await prisma.$transaction(async (tx) => {
-          // Bloquea la fila de la cancha para serializar cualquier intento
-          // concurrente de reservar el mismo horario (evita el double-booking).
+          // Locks the court row to serialize any concurrent attempt to book
+          // the same time slot (prevents double-booking).
           await tx.$executeRaw`SELECT id_court FROM court WHERE id_court = ${courtId} FOR UPDATE`;
 
           const conflict = await tx.reservation.findFirst({
@@ -346,9 +361,10 @@ export async function POST(request: NextRequest) {
           notifyPush(tenant.id_user, message);
         }
 
-        // La plantilla y las notificaciones de pago dividido / invitación viven en el
-        // store en memoria (igual que /api/teams y /api/notifications), así que se
-        // notifican ahí sin importar si la reserva en sí se guardó en Prisma o no.
+        // The roster and split-payment/invite notifications live in the
+        // in-memory store (same as /api/teams and /api/notifications), so
+        // they're notified there regardless of whether the reservation
+        // itself was saved in Prisma.
         if (teamId && splitPayment) {
           const team = getTeamById(teamId);
           if (team) {
@@ -391,11 +407,11 @@ export async function POST(request: NextRequest) {
         );
       }
     } catch (dbError) {
-      // Antes esto caía en un fallback silencioso al store en memoria: la
-      // reserva "se creaba" ahí, pero como el GET siempre lee de Postgres
-      // (que sí responde normalmente), quedaba invisible para siempre tanto
-      // para el jugador como para el dueño de la cancha. Mejor devolver el
-      // error real para que el usuario reintente.
+      // This used to silently fall back to the in-memory store: the
+      // reservation "got created" there, but since GET always reads from
+      // Postgres (which does respond normally), it stayed invisible forever
+      // to both the player and the court owner. Better to return the real
+      // error so the user can retry.
       console.error("Reserve court failed:", dbError);
       return NextResponse.json(
         { ok: false, error: "No pudimos procesar la reserva. Intenta de nuevo." },
@@ -491,9 +507,9 @@ export async function DELETE(request: NextRequest) {
         notifications,
       });
     } catch (dbError) {
-      // Ver nota en POST: un fallback silencioso al store en memoria dejaba
-      // la cancelación invisible para el dueño de la cancha. Se propaga el
-      // error real en su lugar.
+      // See note in POST: a silent fallback to the in-memory store left the
+      // cancellation invisible to the court owner. The real error is
+      // propagated instead.
       console.error("Cancel reservation failed:", dbError);
       return NextResponse.json(
         { ok: false, error: "No pudimos cancelar la reserva. Intenta de nuevo." },
@@ -508,8 +524,9 @@ export async function DELETE(request: NextRequest) {
   }
 }
 
-// El dueño de la cancha (tenant) confirma o rechaza el pago declarado por el
-// jugador. Solo entonces la reserva pasa de "pendiente" a su estado final.
+// The court owner (tenant) confirms or rejects the payment declared by the
+// player. Only then does the reservation move from "pendiente" (pending) to
+// its final status.
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
@@ -582,7 +599,7 @@ export async function PATCH(request: NextRequest) {
             rejection_reason: action === "reject" ? rejectionReason : null,
           },
         }),
-        // Auditoría: registra quién verificó/rechazó el pago y por qué.
+        // Audit trail: records who verified/rejected the payment and why.
         prisma.estadoHistorial.create({
           data: {
             entidad: "payment",
@@ -625,9 +642,10 @@ export async function PATCH(request: NextRequest) {
         },
       });
     } catch (dbError) {
-      // Ver nota en POST: un fallback silencioso al store en memoria dejaba
-      // la confirmación/rechazo sin efecto real, porque la reserva vivía en
-      // Postgres y el store en memoria no la conocía. Se propaga el error.
+      // See note in POST: a silent fallback to the in-memory store left the
+      // confirm/reject action without real effect, because the reservation
+      // lived in Postgres and the in-memory store didn't know about it. The
+      // error is propagated instead.
       console.error("Verify payment failed:", dbError);
       return NextResponse.json(
         { ok: false, error: "No pudimos verificar el pago. Intenta de nuevo." },

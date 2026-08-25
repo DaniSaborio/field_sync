@@ -1,3 +1,9 @@
+/**
+ * /api/auth/reset-password — POST: consume a reset token from
+ * /api/auth/forgot-password. Public. Hashes the submitted token and compares
+ * it to the stored hash; rejects if missing, already used, or expired. On
+ * success, updates the password and deletes all reset tokens for that user.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
 import bcrypt from "bcryptjs";

@@ -1,3 +1,10 @@
+/**
+ * /api/profile — GET: returns a tenant-shaped profile (owned courts + booking
+ * stats/revenue, from Postgres) or a player-shaped profile (stats/visibility,
+ * from the in-memory store) depending on the user's role. New players/Google
+ * sign-ups are hydrated into the in-memory store on first read.
+ * PATCH: update visibility, nickname, or the notifications toggle for a user.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getPlayerProfile, toggleNotifications, updateNickname, updateProfileVisibility } from "@/lib/fieldsync-store";
@@ -95,10 +102,10 @@ dbError
 );
 }
 
-// Torneos/plantillas viven en el store en memoria, separado de Postgres:
-// cualquier jugador que no sea de la semilla de demo (registro nuevo o login
-// con Google) necesita sincronizarse acá primero o si no getPlayerProfile
-// nunca lo va a encontrar.
+// Tournaments/rosters live in the in-memory store, separate from Postgres:
+// any player who isn't part of the demo seed (new registration or Google
+// login) needs to be synced here first, or getPlayerProfile will never find
+// them.
 await hydrateStoreUser(userId);
 
 const profile = await getPlayerProfile(userId);

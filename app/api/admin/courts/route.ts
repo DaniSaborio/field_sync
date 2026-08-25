@@ -1,3 +1,9 @@
+/**
+ * /api/admin/courts — platform-admin view over every court, across all tenants.
+ * GET:   list all courts with their owning tenant's name/email. Admin-only (ADMIN_ROLES).
+ * PATCH: activate/deactivate a court; an inactive court disappears from public
+ *        availability (GET /api/courts filters by is_active). Admin-only.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ADMIN_ROLES, requireRole } from "@/lib/authz";
@@ -31,8 +37,8 @@ export async function GET(request: NextRequest) {
   });
 }
 
-// Activa o desactiva una cancha: una cancha inactiva deja de aparecer en el
-// listado público de disponibilidad (GET /api/courts ya filtra por is_active).
+// Activates or deactivates a court: an inactive court disappears from the
+// public availability listing (GET /api/courts already filters by is_active).
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();

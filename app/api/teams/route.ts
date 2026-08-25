@@ -1,11 +1,19 @@
+/**
+ * /api/teams — team/roster management (data lives in the in-memory store,
+ * except the user directory which is read from Postgres).
+ * GET:  list all teams plus every real user (for the "add to roster" picker).
+ * POST: action-based — `action: "create"` makes a team with a captain,
+ *       `"roster"` adds/removes a player, `"convocation"` notifies the roster
+ *       about an upcoming match (captain-only, enforced in sendConvocation).
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { createTeam, ensureTeamsHydrated, listTeams, sendConvocation, updateTeamRoster } from "@/lib/fieldsync-store";
 import { hydrateStoreUser, listAllRealUsers } from "@/lib/hydrate-user";
 
 export async function GET() {
-  // La lista de jugadores para "agregar a la plantilla" tiene que salir de
-  // Postgres (todos los usuarios reales), no del store en memoria (que solo
-  // conoce a los 4 usuarios de la semilla de demo).
+  // The player list for "add to roster" has to come from Postgres (all real
+  // users), not from the in-memory store (which only knows the 4 seeded
+  // demo users).
   const [users] = await Promise.all([listAllRealUsers(), ensureTeamsHydrated()]);
   return NextResponse.json({ teams: listTeams(), users });
 }
