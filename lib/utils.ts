@@ -39,3 +39,10 @@ export function utcDateToSlot(date: Date): string {
   const m = crShifted.getUTCMinutes().toString().padStart(2, "0");
   return `${h}:${m}`;
 }
+
+// Una franja ya pasó si su instante real (hora de Costa Rica) quedó antes de
+// ahora — cubre tanto fechas pasadas como franjas de hoy anteriores a la hora
+// actual (ej: son las 15:00 y la franja es 14:00).
+export function isSlotInPast(dateIso: string, slot: string): boolean {
+  return slotToUtcDate(dateIso, slot).getTime() < Date.now();
+}

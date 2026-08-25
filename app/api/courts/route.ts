@@ -7,7 +7,7 @@ import {
   notifyTeamCaptain,
   notifyTeamMembers,
 } from "@/lib/fieldsync-store";
-import { slotToUtcDate, utcDateToSlot } from "@/lib/utils";
+import { isSlotInPast, slotToUtcDate, utcDateToSlot } from "@/lib/utils";
 import { resolveRateForHour, resolveRateForSchedule, SCHEDULE_TYPES, type RateCandidate, type ScheduleType } from "@/lib/rates";
 import { expireStalePendingReservations } from "@/lib/reservation-expiry";
 import { notifyPush } from "@/lib/notify";
@@ -108,7 +108,10 @@ export async function GET(request: NextRequest) {
           );
 
           const availableSlots = DEFAULT_SLOTS.filter(
-            (slot) => slotMatchesTimeRange(slot, timeSlot ?? "all") && !reservedSlots.has(slot),
+            (slot) =>
+              slotMatchesTimeRange(slot, timeSlot ?? "all") &&
+              !reservedSlots.has(slot) &&
+              !(date && isSlotInPast(date, slot)),
           );
 
           const reservations = court.reservations
@@ -225,6 +228,13 @@ export async function POST(request: NextRequest) {
     const startDateTime = parseSlotTime(date, timeSlot);
     const endDateTime = new Date(startDateTime.getTime() + 60 * 60 * 1000);
     const dateOnly = new Date(`${date}T00:00:00.000Z`);
+
+    if (isSlotInPast(date, timeSlot)) {
+      return NextResponse.json(
+        { ok: false, error: "No podés reservar una fecha u hora que ya pasó" },
+        { status: 400 },
+      );
+    }
 
     try {
       const [courtExists, userExists, pendienteEstado] = await Promise.all([
