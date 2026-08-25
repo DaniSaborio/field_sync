@@ -1,5 +1,5 @@
 /**
- * /api/tournaments — tournament lifecycle (data lives in the in-memory store).
+ * /api/tournaments — tournament lifecycle, backed directly by Postgres.
  * GET:  full tournament snapshot (all tournaments, brackets/standings).
  * POST: action-based — `"create"` (round-robin or knockout), `"respond"`
  *       (approve/reject a court owner's tournament request), `"enroll"` a
@@ -10,24 +10,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   createTournament,
-  ensureTeamsHydrated,
-  ensureTournamentsHydrated,
   enrollTeamToTournament,
   getTournamentSnapshot,
-  recordMatchResult,
   respondToTournamentRequest,
-  setManualFixture,
-  startTournament,
-} from "@/lib/fieldsync-store";
+} from "@/lib/services/tournaments";
+import { recordMatchResult, setManualFixture, startTournament } from "@/lib/services/matches";
 
 export async function GET() {
-  await Promise.all([ensureTeamsHydrated(), ensureTournamentsHydrated()]);
-  return NextResponse.json(getTournamentSnapshot());
+  return NextResponse.json(await getTournamentSnapshot());
 }
 
 export async function POST(request: NextRequest) {
   try {
-    await Promise.all([ensureTeamsHydrated(), ensureTournamentsHydrated()]);
     const body = await request.json();
     const action = String(body?.action ?? "create");
 
