@@ -17,7 +17,7 @@ export function isNightSlot(slot: string) {
 }
 
 // Costa Rica no observa horario de verano: el offset UTC-6 es fijo todo el año.
-const COSTA_RICA_UTC_OFFSET_HOURS = 6;
+export const COSTA_RICA_UTC_OFFSET_HOURS = 6;
 
 // Convierte una fecha + franja en hora local de Costa Rica ("2026-08-12",
 // "20:00") al instante UTC real que representa (20:00 CR = 02:00 UTC del día
