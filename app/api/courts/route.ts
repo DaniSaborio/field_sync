@@ -14,13 +14,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import {
-  ensureTeamsHydrated,
-  getTeamById,
-  listCourts as listCourtsMemory,
-  notifyTeamCaptain,
-  notifyTeamMembers,
-} from "@/lib/fieldsync-store";
+import { getTeamById, notifyTeamCaptain, notifyTeamMembers } from "@/lib/services/teams";
 import { isSlotInPast, slotToUtcDate, utcDateToSlot } from "@/lib/utils";
 import { resolveRateForHour, resolveRateForSchedule, SCHEDULE_TYPES, type RateCandidate, type ScheduleType } from "@/lib/rates";
 import { expireStalePendingReservations } from "@/lib/reservation-expiry";
@@ -185,18 +179,15 @@ export async function GET(request: NextRequest) {
 
       return NextResponse.json({ courts });
     }
-  } catch (dbError) {
-    console.warn("Prisma courts query failed, falling back to in-memory store:", dbError);
-  }
 
-  return NextResponse.json({
-    courts: listCourtsMemory({
-      date,
-      timeSlot,
-      surface,
-      userId: userId ? Number(userId) : undefined,
-    }),
-  });
+    return NextResponse.json({ courts: [] });
+  } catch (dbError) {
+    console.error("Courts query failed:", dbError);
+    return NextResponse.json(
+      { ok: false, error: "No pudimos cargar las canchas. Intenta de nuevo." },
+      { status: 503 },
+    );
+  }
 }
 
 const PAYMENT_METHODS = ["sinpe", "efectivo", "mixto"] as const;
@@ -214,7 +205,6 @@ const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
 
 export async function POST(request: NextRequest) {
   try {
-    await ensureTeamsHydrated();
     const body = await request.json();
     const userId = Number(body?.userId);
     const courtId = Number(body?.courtId);
@@ -361,12 +351,8 @@ export async function POST(request: NextRequest) {
           notifyPush(tenant.id_user, message);
         }
 
-        // The roster and split-payment/invite notifications live in the
-        // in-memory store (same as /api/teams and /api/notifications), so
-        // they're notified there regardless of whether the reservation
-        // itself was saved in Prisma.
         if (teamId && splitPayment) {
-          const team = getTeamById(teamId);
+          const team = await getTeamById(teamId);
           if (team) {
             const perPerson = (Number(amount) / Math.max(1, team.playerIds.length)).toFixed(2);
             await notifyTeamMembers({

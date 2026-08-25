@@ -9,17 +9,16 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { ensureTeamsHydrated, getTeamById } from "@/lib/fieldsync-store";
+import { getTeamById } from "@/lib/services/teams";
 import { notifyPush } from "@/lib/notify";
 import { utcDateToSlot } from "@/lib/utils";
 
 function teamOrNull(teamId: number | null) {
-  if (!teamId) return null;
+  if (!teamId) return Promise.resolve(null);
   return getTeamById(teamId);
 }
 
 async function buildChecklist(reservationId: number) {
-  await ensureTeamsHydrated();
   const reservation = await prisma.reservation.findUnique({
     where: { id_reservation: reservationId },
     include: { court: true, payments: true, match_closed_by: true },
@@ -37,8 +36,10 @@ async function buildChecklist(reservationId: number) {
     return { ok: false as const, error: "El partido todavía no está confirmado", status: 409 };
   }
 
-  const homeTeam = teamOrNull(reservation.id_team);
-  const rivalTeam = teamOrNull(reservation.id_rival_team);
+  const [homeTeam, rivalTeam] = await Promise.all([
+    teamOrNull(reservation.id_team),
+    teamOrNull(reservation.id_rival_team),
+  ]);
 
   if (!homeTeam || !rivalTeam) {
     return { ok: false as const, error: "No encontramos alguna de las plantillas de este partido", status: 404 };
@@ -54,7 +55,7 @@ async function buildChecklist(reservationId: number) {
   const paidByPlayerId = new Map(checks.map((check) => [check.id_player, check]));
   const amount = reservation.payments[0] ? Number(reservation.payments[0].amount) : null;
 
-  function playersFor(team: NonNullable<ReturnType<typeof teamOrNull>>, teamId: number) {
+  function playersFor(team: NonNullable<Awaited<ReturnType<typeof teamOrNull>>>, teamId: number) {
     return team.playerIds.map((playerId) => {
       const user = userById.get(playerId);
       const check = paidByPlayerId.get(playerId);
