@@ -8,7 +8,6 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { upsertStoreUser } from "@/lib/fieldsync-store";
 import { notifyPush } from "@/lib/notify";
 import { ADMIN_ROLES, requireRole } from "@/lib/authz";
 import {
@@ -104,18 +103,6 @@ export async function PATCH(request: NextRequest) {
                 },
                 include: { role: true },
               });
-
-          if (!wasAlreadyTenant) {
-            upsertStoreUser({
-              id: updatedUser.id_user,
-              fullName: updatedUser.full_name,
-              nickname: updatedUser.nickname,
-              email: updatedUser.email,
-              role: "organizador",
-              tenantId: updatedUser.id_user,
-              notificationsEnabled: updatedUser.notifications_enabled,
-            });
-          }
 
           const price = Number(result.request.price);
 

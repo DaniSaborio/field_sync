@@ -1,14 +1,11 @@
 /**
  * /api/auth/google — POST: sign in / sign up with a Google ID token. Public.
  * Verifies the credential server-side with google-auth-library before trusting
- * it. Creates a new user (role "jugador", status "pendiente") on first login,
- * then syncs the user into the in-memory store used by teams/tournaments/profile.
+ * it. Creates a new user (role "jugador", status "pendiente") on first login.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { OAuth2Client } from "google-auth-library";
 import { prisma } from "@/lib/prisma";
-import { upsertStoreUser } from "@/lib/fieldsync-store";
-import { DEMO_TENANT_ID, mapPrismaRole } from "@/lib/hydrate-user";
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -71,19 +68,6 @@ export async function POST(req: NextRequest) {
         },
       });
     }
-
-    // Teams/tournaments/profile live in the in-memory store, separate from
-    // Postgres: we sync the user here so those functions recognize them from
-    // the first Google login, not just the 4 seeded demo users.
-    upsertStoreUser({
-      id: user.id_user,
-      fullName: user.full_name,
-      nickname: user.nickname,
-      email: user.email,
-      role: mapPrismaRole(user.role.name),
-      tenantId: DEMO_TENANT_ID,
-      notificationsEnabled: user.notifications_enabled,
-    });
 
     return NextResponse.json({
       success: true,

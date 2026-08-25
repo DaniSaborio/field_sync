@@ -2,14 +2,11 @@
  * /api/auth/register — POST: public self-service sign-up.
  * Always creates the account with role "jugador" regardless of what the
  * client sends (becoming a tenant goes through /api/tenant/request instead).
- * Hashes the password with bcrypt, creates the PlayerProfile row, and syncs
- * the new user into the in-memory store.
+ * Hashes the password with bcrypt and creates the PlayerProfile row.
  */
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { upsertStoreUser } from "@/lib/fieldsync-store";
-import { DEMO_TENANT_ID, mapPrismaRole } from "@/lib/hydrate-user";
 
 export async function POST(req: NextRequest) {
   try {
@@ -75,19 +72,6 @@ export async function POST(req: NextRequest) {
         assists: 0,
         matches_played: 0,
       },
-    });
-
-    // Teams/tournaments/profile live in the in-memory store, separate from
-    // Postgres: we sync the user here so those functions recognize them
-    // from registration, not just the 4 seeded demo users.
-    upsertStoreUser({
-      id: createdUser.id_user,
-      fullName: createdUser.full_name,
-      nickname: createdUser.nickname,
-      email: createdUser.email,
-      role: mapPrismaRole(createdUser.role.name),
-      tenantId: DEMO_TENANT_ID,
-      notificationsEnabled: createdUser.notifications_enabled,
     });
 
     return NextResponse.json(
