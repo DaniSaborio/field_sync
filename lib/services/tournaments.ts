@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { notifyPush } from "@/lib/notify";
+import { notifyUser } from "@/lib/notify";
 import { findSharedPlayerConflict } from "@/lib/services/teams";
 
 // Torneos creados por el dueño de la cancha o un admin de plataforma quedan
@@ -9,9 +9,8 @@ const AUTO_APPROVE_ROLES = ["admin_plataforma", "tenant"];
 
 async function notifyTournamentTenant(tenantId: number, message: string) {
   const owner = await prisma.user.findUnique({ where: { id_user: tenantId } });
-  if (!owner || !owner.notifications_enabled) return;
-  await prisma.notification.create({ data: { id_user: owner.id_user, type: "tournament", message } });
-  notifyPush(owner.id_user, message);
+  if (!owner) return;
+  await notifyUser(owner.id_user, owner.notifications_enabled, "tournament", message);
 }
 
 export async function createTournament(input: {
@@ -151,13 +150,12 @@ export async function respondToTournamentRequest(input: {
   });
 
   const requester = await prisma.user.findUnique({ where: { id_user: tournament.id_requested_by } });
-  if (requester?.notifications_enabled) {
+  if (requester) {
     const message =
       input.action === "approve"
         ? `¡Tu solicitud de torneo "${tournament.name}" fue aprobada! Ya podés inscribir equipos y comenzarlo.`
         : `Tu solicitud de torneo "${tournament.name}" fue rechazada: ${input.reason}.`;
-    await prisma.notification.create({ data: { id_user: requester.id_user, type: "tournament", message } });
-    notifyPush(requester.id_user, message);
+    await notifyUser(requester.id_user, requester.notifications_enabled, "tournament", message);
   }
 
   return { ok: true as const };

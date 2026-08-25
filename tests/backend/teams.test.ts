@@ -2,7 +2,18 @@ import { describe, expect, it, vi } from "vitest";
 import { createTeam, sendConvocation, updateTeamRoster } from "@/lib/services/teams";
 import { prisma } from "@/lib/prisma";
 
-vi.mock("@/lib/notify", () => ({ notifyPush: vi.fn() }));
+// notifyPush llama a next/server's after(), que solo funciona dentro de un
+// request real — se mockea para que los tests no exploten. notifyUser sigue
+// escribiendo la fila real en la tabla notification (los tests la limpian
+// en su finally), solo se salta el push.
+vi.mock("@/lib/notify", () => ({
+  notifyPush: vi.fn(),
+  notifyUser: async (userId: number, enabled: boolean, type: string, message: string) => {
+    if (!enabled) return;
+    const { prisma } = await import("@/lib/prisma");
+    await prisma.notification.create({ data: { id_user: userId, type, message } });
+  },
+}));
 
 // Datos de la semilla (prisma/seed.ts): equipo 1 "Tigres del Barrio", capitán
 // = usuario 3 (Capitán Deportivo), jugadores = [3, 4].

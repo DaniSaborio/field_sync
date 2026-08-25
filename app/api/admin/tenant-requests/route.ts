@@ -8,7 +8,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { notifyPush } from "@/lib/notify";
+import { notifyUser } from "@/lib/notify";
 import { ADMIN_ROLES, requireRole } from "@/lib/authz";
 import {
   listTenantRequests,
@@ -123,14 +123,7 @@ export async function PATCH(request: NextRequest) {
             ? `Tu solicitud para agregar la cancha "${result.request.courtName}" fue aprobada. Ya está disponible en tu panel.`
             : "Tu solicitud como dueño de cancha fue aprobada. Ya podés administrar tu cancha desde tu panel.";
 
-          await prisma.notification.create({
-            data: {
-              id_user: updatedUser.id_user,
-              type: "account-status",
-              message,
-            },
-          });
-          notifyPush(updatedUser.id_user, message);
+          await notifyUser(updatedUser.id_user, updatedUser.notifications_enabled, "account-status", message);
         }
       }
     }

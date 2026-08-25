@@ -1,5 +1,5 @@
 import { prisma } from "./prisma";
-import { notifyPush } from "./notify";
+import { notifyUser } from "./notify";
 import { utcDateToSlot } from "./utils";
 
 const AUTO_CANCEL_REASON =
@@ -63,20 +63,18 @@ export async function expireStalePendingReservations(now: Date = new Date()) {
 
     const slotLabel = formatSlot(reservation.date, reservation.start_time);
 
-    if (reservation.user.notifications_enabled) {
-      const message = `Tu reserva en ${reservation.court.name} para ${slotLabel} venció y se canceló automáticamente porque no se confirmó el pago a tiempo.`;
-      await prisma.notification.create({
-        data: { id_user: reservation.id_user, type: "cancellation", message },
-      });
-      notifyPush(reservation.id_user, message);
-    }
+    await notifyUser(
+      reservation.id_user,
+      reservation.user.notifications_enabled,
+      "cancellation",
+      `Tu reserva en ${reservation.court.name} para ${slotLabel} venció y se canceló automáticamente porque no se confirmó el pago a tiempo.`,
+    );
 
-    if (reservation.court.tenant.notifications_enabled) {
-      const message = `La reserva pendiente en ${reservation.court.name} para ${slotLabel} venció sin confirmación de pago y se canceló automáticamente.`;
-      await prisma.notification.create({
-        data: { id_user: reservation.court.id_tenant, type: "cancellation", message },
-      });
-      notifyPush(reservation.court.id_tenant, message);
-    }
+    await notifyUser(
+      reservation.court.id_tenant,
+      reservation.court.tenant.notifications_enabled,
+      "cancellation",
+      `La reserva pendiente en ${reservation.court.name} para ${slotLabel} venció sin confirmación de pago y se canceló automáticamente.`,
+    );
   }
 }

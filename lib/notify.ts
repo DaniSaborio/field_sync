@@ -1,4 +1,5 @@
 import { after } from "next/server";
+import { prisma } from "./prisma";
 import { sendPushToUser } from "./push";
 
 // Dispara una notificación push sin bloquear la respuesta ni la transacción
@@ -12,4 +13,13 @@ export function notifyPush(userId: number, message: string, title = "FieldSync")
       console.warn("No se pudo enviar la notificación push:", error);
     }),
   );
+}
+
+// El patrón repetido en todo el backend: si el usuario tiene las
+// notificaciones activadas, guardar la fila en la tabla notification y
+// mandar el push. No hace nada si están desactivadas.
+export async function notifyUser(userId: number, notificationsEnabled: boolean, type: string, message: string) {
+  if (!notificationsEnabled) return;
+  await prisma.notification.create({ data: { id_user: userId, type, message } });
+  notifyPush(userId, message);
 }

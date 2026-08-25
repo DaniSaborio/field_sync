@@ -4,7 +4,18 @@ import { createTournament, getTournaments } from "@/lib/services/tournaments";
 import { recordMatchResult, startTournament } from "@/lib/services/matches";
 import { prisma } from "@/lib/prisma";
 
-vi.mock("@/lib/notify", () => ({ notifyPush: vi.fn() }));
+// notifyPush llama a next/server's after(), que solo funciona dentro de un
+// request real — se mockea para que los tests no exploten. notifyUser sigue
+// escribiendo la fila real en la tabla notification (se limpia en el
+// finally por el `suffix`), solo se salta el push.
+vi.mock("@/lib/notify", () => ({
+  notifyPush: vi.fn(),
+  notifyUser: async (userId: number, enabled: boolean, type: string, message: string) => {
+    if (!enabled) return;
+    const { prisma } = await import("@/lib/prisma");
+    await prisma.notification.create({ data: { id_user: userId, type, message } });
+  },
+}));
 
 describe("tournaments + matches services", () => {
   it("creates a tournament, generates fixtures, records results and updates standings", async () => {

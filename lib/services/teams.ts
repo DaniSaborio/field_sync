@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { notifyPush } from "@/lib/notify";
+import { notifyUser } from "@/lib/notify";
 import { ensurePlayerProfile } from "@/lib/services/profiles";
 
 type TeamDTO = {
@@ -148,11 +148,9 @@ export async function sendConvocation(input: {
 
   const message = `Convocatoria para ${team.name}: ${input.scheduledAt} en ${input.courtName}.`;
   await Promise.all(
-    team.team_players.map(async (tp) => {
+    team.team_players.map((tp) => {
       const player = tp.player_profile.user;
-      if (!player.notifications_enabled) return;
-      await prisma.notification.create({ data: { id_user: player.id_user, type: "convocation", message } });
-      notifyPush(player.id_user, message);
+      return notifyUser(player.id_user, player.notifications_enabled, "convocation", message);
     }),
   );
 
@@ -172,18 +170,12 @@ export async function notifyTeamMembers(input: {
     team.team_players
       .map((tp) => tp.player_profile.user)
       .filter((member) => member.id_user !== input.excludeUserId)
-      .map(async (member) => {
-        if (!member.notifications_enabled) return;
-        const message = input.message(member);
-        await prisma.notification.create({ data: { id_user: member.id_user, type: input.type, message } });
-        notifyPush(member.id_user, message);
-      }),
+      .map((member) => notifyUser(member.id_user, member.notifications_enabled, input.type, input.message(member))),
   );
 }
 
 export async function notifyTeamCaptain(input: { teamId: number; type: string; message: string }) {
   const team = await prisma.team.findUnique({ where: { id_team: input.teamId }, include: { user: true } });
-  if (!team || !team.user.notifications_enabled) return;
-  await prisma.notification.create({ data: { id_user: team.id_user, type: input.type, message: input.message } });
-  notifyPush(team.id_user, input.message);
+  if (!team) return;
+  await notifyUser(team.id_user, team.user.notifications_enabled, input.type, input.message);
 }
