@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { expireStalePendingReservations } from "@/lib/reservation-expiry";
 
 export async function ensurePlayerProfile(userId: number) {
   await prisma.playerProfile.upsert({
@@ -7,6 +8,62 @@ export async function ensurePlayerProfile(userId: number) {
     create: { id_user: userId, visibility: "public", is_available: true },
   });
   return prisma.playerProfile.findUniqueOrThrow({ where: { id_user: userId } });
+}
+
+export async function getTenantProfile(userId: number) {
+  const user = await prisma.user.findUnique({ where: { id_user: userId }, include: { role: true } });
+  if (!user) {
+    return null;
+  }
+
+  try {
+    await expireStalePendingReservations();
+  } catch (dbError) {
+    console.warn("No pudimos vencer reservas pendientes:", dbError);
+  }
+
+  const courts = await prisma.court.findMany({
+    where: { id_tenant: userId },
+    include: {
+      reservations: {
+        include: {
+          payments: { include: { estado: true } },
+        },
+      },
+    },
+  });
+
+  const ownedCourts = courts.map((court) => {
+    const pendingCount = court.reservations.filter((r) => r.status === "pendiente").length;
+    const confirmedCount = court.reservations.filter((r) => r.status === "confirmada").length;
+    const verifiedRevenue = court.reservations
+      .flatMap((r) => r.payments)
+      .filter((p) => p.estado.name === "verificado")
+      .reduce((sum, p) => sum + Number(p.amount), 0);
+
+    return {
+      id: court.id_court,
+      name: court.name,
+      address: court.address,
+      pricePerHour: court.price_per_hour !== null ? Number(court.price_per_hour) : null,
+      rating: court.rating !== null ? Number(court.rating) : null,
+      pendingCount,
+      confirmedCount,
+      verifiedRevenue,
+    };
+  });
+
+  return {
+    user: {
+      id: user.id_user,
+      fullName: user.full_name,
+      nickname: user.nickname,
+      email: user.email,
+      role: user.role.name,
+      notificationsEnabled: user.notifications_enabled,
+    },
+    courts: ownedCourts,
+  };
 }
 
 export async function getPlayerProfile(userId: number) {

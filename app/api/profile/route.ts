@@ -6,8 +6,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getPlayerProfile, updateProfileVisibility } from "@/lib/services/profiles";
-import { expireStalePendingReservations } from "@/lib/reservation-expiry";
+import { getPlayerProfile, getTenantProfile, updateProfileVisibility } from "@/lib/services/profiles";
 
 export async function GET(request: NextRequest) {
 const url = new URL(request.url);
@@ -34,69 +33,14 @@ return NextResponse.json(
 }
 
 if (dbUser.role.name === "tenant") {
-  try {
-    await expireStalePendingReservations();
-  } catch (dbError) {
-    console.warn("No pudimos vencer reservas pendientes:", dbError);
+  const profile = await getTenantProfile(userId);
+  if (!profile) {
+    return NextResponse.json(
+      { ok: false, error: "No encontramos el perfil" },
+      { status: 404 }
+    );
   }
-
-  const courts = await prisma.court.findMany({
-    where: { id_tenant: userId },
-    include: {
-      reservations: {
-        include: {
-          payments: {
-            include: {
-              estado: true,
-            },
-          },
-        },
-      },
-    },
-  });
-
-  const ownedCourts = courts.map((court) => {
-    const pendingCount = court.reservations.filter(
-      (r) => r.status === "pendiente"
-    ).length;
-
-    const confirmedCount = court.reservations.filter(
-      (r) => r.status === "confirmada"
-    ).length;
-
-    const verifiedRevenue = court.reservations
-      .flatMap((r) => r.payments)
-      .filter((p) => p.estado.name === "verificado")
-      .reduce((sum, p) => sum + Number(p.amount), 0);
-
-    return {
-      id: court.id_court,
-      name: court.name,
-      address: court.address,
-      pricePerHour:
-        court.price_per_hour !== null
-          ? Number(court.price_per_hour)
-          : null,
-      rating:
-        court.rating !== null ? Number(court.rating) : null,
-      pendingCount,
-      confirmedCount,
-      verifiedRevenue,
-    };
-  });
-
-  return NextResponse.json({
-    kind: "tenant" as const,
-    user: {
-      id: dbUser.id_user,
-      fullName: dbUser.full_name,
-      nickname: dbUser.nickname,
-      email: dbUser.email,
-      role: dbUser.role.name,
-      notificationsEnabled: dbUser.notifications_enabled,
-    },
-    courts: ownedCourts,
-  });
+  return NextResponse.json({ kind: "tenant" as const, ...profile });
 }
 
 const profile = await getPlayerProfile(userId);
