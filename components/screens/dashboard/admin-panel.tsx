@@ -20,7 +20,7 @@ export function AdminPanel({ user }: { user: AppUser }) {
   const [message, setMessage] = useState("");
 
   async function loadUsers() {
-    const response = await fetch("/api/admin/users");
+    const response = await fetch(`/api/admin/users?adminId=${user.id}`);
     const payload = await readJson<ApiResponse<{ users: AdminUserRow[] }>>(response);
     if (!response.ok) {
       throw new Error(payload.error || "No pudimos cargar los usuarios");
@@ -29,7 +29,7 @@ export function AdminPanel({ user }: { user: AppUser }) {
   }
 
   async function loadCourts() {
-    const response = await fetch("/api/admin/courts");
+    const response = await fetch(`/api/admin/courts?adminId=${user.id}`);
     const payload = await readJson<ApiResponse<{ courts: AdminCourtRow[] }>>(response);
     if (!response.ok) {
       throw new Error(payload.error || "No pudimos cargar las canchas");
@@ -38,7 +38,7 @@ export function AdminPanel({ user }: { user: AppUser }) {
   }
 
   async function loadTenantRequests() {
-    const response = await fetch("/api/admin/tenant-requests");
+    const response = await fetch(`/api/admin/tenant-requests?adminId=${user.id}`);
     const payload = await readJson<ApiResponse<{ requests: TenantRequestAdminRow[] }>>(response);
     if (!response.ok) {
       throw new Error(payload.error || "No pudimos cargar las solicitudes");
@@ -83,7 +83,7 @@ export function AdminPanel({ user }: { user: AppUser }) {
       const response = await fetch("/api/admin/users", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, adminId: user.id, adminRole: user.role, action }),
+        body: JSON.stringify({ userId, adminId: user.id, action }),
       });
       const payload = await readJson<ApiResponse<Record<string, never>>>(response);
       if (!response.ok) {
@@ -105,7 +105,7 @@ export function AdminPanel({ user }: { user: AppUser }) {
       const response = await fetch("/api/admin/courts", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ courtId, isActive }),
+        body: JSON.stringify({ courtId, isActive, adminId: user.id }),
       });
       const payload = await readJson<ApiResponse<Record<string, never>>>(response);
       if (!response.ok) {
@@ -130,6 +130,7 @@ export function AdminPanel({ user }: { user: AppUser }) {
         body: JSON.stringify({
           requestId,
           status,
+          adminId: user.id,
           reviewerName: user.fullName,
           notes: status === "aprobado" ? "Solicitud aprobada por el administrador de plataforma." : "Solicitud rechazada por el administrador de plataforma.",
         }),

@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { notifyPush } from "@/lib/notify";
+import { ADMIN_ROLES, requireRole } from "@/lib/authz";
 
-const ADMIN_ROLES = ["administrador", "admin_plataforma"];
+export async function GET(request: NextRequest) {
+  const adminId = request.nextUrl.searchParams.get("adminId");
+  const authz = await requireRole(adminId, ADMIN_ROLES);
+  if (!authz.ok) {
+    return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
+  }
 
-export async function GET() {
   const users = await prisma.user.findMany({
     include: { role: true, estado: true, verifier: true },
     orderBy: { full_name: "asc" },
@@ -32,17 +37,17 @@ export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
     const targetUserId = Number(body?.userId);
-    const adminId = Number(body?.adminId);
-    const adminRole = typeof body?.adminRole === "string" ? body.adminRole : undefined;
     const action = String(body?.action ?? "");
 
-    if (!targetUserId || !adminId || (action !== "verify" && action !== "suspend")) {
+    if (!targetUserId || (action !== "verify" && action !== "suspend")) {
       return NextResponse.json({ ok: false, error: "Faltan datos para procesar la acción" }, { status: 400 });
     }
 
-    if (!adminRole || !ADMIN_ROLES.includes(adminRole)) {
-      return NextResponse.json({ ok: false, error: "Solo un administrador de plataforma puede hacer esto" }, { status: 403 });
+    const authz = await requireRole(body?.adminId, ADMIN_ROLES);
+    if (!authz.ok) {
+      return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
     }
+    const adminId = authz.userId;
 
     const target = await prisma.user.findUnique({
       where: { id_user: targetUserId },

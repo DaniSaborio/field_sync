@@ -2,13 +2,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { upsertStoreUser } from "@/lib/fieldsync-store";
 import { notifyPush } from "@/lib/notify";
+import { ADMIN_ROLES, requireRole } from "@/lib/authz";
 import {
   listTenantRequests,
   submitTenantRequest,
   updateTenantRequestStatus,
 } from "@/lib/tenant-requests";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const adminId = request.nextUrl.searchParams.get("adminId");
+  const authz = await requireRole(adminId, ADMIN_ROLES);
+  if (!authz.ok) {
+    return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
+  }
+
   return NextResponse.json({
     requests: listTenantRequests(),
   });
@@ -50,6 +57,12 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
+
+    const authz = await requireRole(body?.adminId, ADMIN_ROLES);
+    if (!authz.ok) {
+      return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
+    }
+
     const result = updateTenantRequestStatus({
       requestId: body?.requestId,
       status: body?.status,

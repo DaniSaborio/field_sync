@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { ADMIN_ROLES, requireRole } from "@/lib/authz";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const adminId = request.nextUrl.searchParams.get("adminId");
+  const authz = await requireRole(adminId, ADMIN_ROLES);
+  if (!authz.ok) {
+    return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
+  }
+
   const courts = await prisma.court.findMany({
     include: { tenant: true },
     orderBy: [{ id_tenant: "asc" }, { name: "asc" }],
@@ -34,6 +41,11 @@ export async function PATCH(request: NextRequest) {
 
     if (!courtId) {
       return NextResponse.json({ ok: false, error: "Falta el id de la cancha" }, { status: 400 });
+    }
+
+    const authz = await requireRole(body?.adminId, ADMIN_ROLES);
+    if (!authz.ok) {
+      return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
     }
 
     const updated = await prisma.court.update({
