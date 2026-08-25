@@ -14,7 +14,7 @@ import { notifyPush } from "@/lib/notify";
 // Slots of 30 minutes each, from 8:00 to 21:00. The last slot is 20:30-21:00, which is the last hour of the day.
 const DEFAULT_SLOTS = [
   "08:00", "09:00", "09:30", "10:30", "11:00", "12:00",
-  "13:00", "15:00", "16:30", "17:30", "18:00", "19:00", "20:00", "21:00",
+  "13:00", "15:00", "16:30", "17:30", "18:00", "19:00", "20:00", "21:00","22:00"
 ];
 
 function slotMatchesTimeRange(slot: string, timeSlot: string) {
