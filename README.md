@@ -1,6 +1,31 @@
 # FieldSync
 
-App de gestión de reservas y torneos de canchas, construida con [Next.js](https://nextjs.org).
+FieldSync es una PWA para gestionar canchas deportivas: reserva y pago de horarios, organización de torneos y equipos, perfil global de jugador, y un panel para que los dueños de cancha (tenants) administren su complejo y verifiquen pagos. Incluye soporte offline (service worker) y notificaciones push.
+
+## Demo desplegada
+
+[https://field-sync-theta.vercel.app](https://field-sync-theta.vercel.app)
+
+## Stack tecnológico
+
+| Capa | Tecnología |
+| --- | --- |
+| Framework | [Next.js](https://nextjs.org) 16 (App Router) + React 19 |
+| Lenguaje | TypeScript 5 |
+| Estilos | Tailwind CSS 4 |
+| Base de datos | PostgreSQL ([Neon](https://neon.tech)) vía [Prisma](https://www.prisma.io) 7 (`@prisma/adapter-pg`) |
+| Autenticación | JWT propio (`jsonwebtoken`) en cookie httpOnly + bcrypt para contraseñas + Google OAuth |
+| Notificaciones | Web Push (`web-push`) + email transaccional ([Resend](https://resend.com)) |
+| Offline / PWA | Service worker propio (`public/sw.js`) |
+| Testing | Vitest + Testing Library |
+| Despliegue | [Vercel](https://vercel.com) |
+
+## Equipo (Scrum)
+
+| Integrante | Rol Scrum |
+| --- | --- |
+| Daniel Saborio | Scrum Master · Dev Team |
+| Vanessa Amador | Dev Team |
 
 ## Requisitos previos
 
