@@ -85,6 +85,13 @@ export async function PATCH(request: NextRequest) {
         },
         include: { role: true, estado: true },
       }),
+      // Suspender desactiva todas las canchas del tenant (desaparecen de la
+      // disponibilidad pública y ya no se puede reservar ni crear torneos ahí);
+      // verificar (incluye reinstalar a un tenant antes suspendido) las reactiva.
+      prisma.court.updateMany({
+        where: { id_tenant: targetUserId },
+        data: { is_active: action === "verify" },
+      }),
       prisma.estadoHistorial.create({
         data: {
           entidad: "tenant",
