@@ -72,7 +72,14 @@ export function BookingPanel({
       }
       setCourts(payload.courts);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "No pudimos cargar las canchas");
+      // Sin conexión y sin nada cacheado por el service worker para esta
+      // combinación de filtros: no borramos `courts`, así la última
+      // disponibilidad cargada se sigue viendo en pantalla.
+      if (!navigator.onLine) {
+        setMessage(courts.length > 0 ? "Sin conexión: mostrando la última disponibilidad guardada." : "Sin conexión y sin datos guardados de canchas todavía.");
+      } else {
+        setMessage(error instanceof Error ? error.message : "No pudimos cargar las canchas");
+      }
     } finally {
       setBusy(false);
     }
@@ -91,7 +98,11 @@ export function BookingPanel({
       }
       setMyCourtsData(payload.courts);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "No pudimos cargar tus reservas");
+      if (!navigator.onLine) {
+        setMessage(myCourtsData.length > 0 ? "Sin conexión: mostrando tus últimas reservas guardadas." : "Sin conexión y sin reservas guardadas todavía.");
+      } else {
+        setMessage(error instanceof Error ? error.message : "No pudimos cargar tus reservas");
+      }
     }
   }
 
