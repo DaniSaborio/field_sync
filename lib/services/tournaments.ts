@@ -165,7 +165,7 @@ export async function enrollTeamToTournament(input: { tournamentId: number; team
   const [tournament, team] = await Promise.all([
     prisma.tournament.findUnique({
       where: { id_tournament: input.tournamentId },
-      include: { estado: true, team_tournaments: true },
+      include: { estado: true, team_tournaments: true, matches: { select: { id_match: true }, take: 1 } },
     }),
     prisma.team.findUnique({ where: { id_team: input.teamId } }),
   ]);
@@ -176,6 +176,10 @@ export async function enrollTeamToTournament(input: { tournamentId: number; team
 
   if (tournament.estado.name !== "aprobado") {
     return { ok: false as const, error: "El torneo aún no ha sido aprobado por el dueño de la cancha" };
+  }
+
+  if (tournament.matches.length > 0) {
+    return { ok: false as const, error: "El torneo ya comenzó: no se pueden agregar más equipos" };
   }
 
   const alreadyEnrolled = tournament.team_tournaments.some((tt) => tt.id_team === team.id_team);

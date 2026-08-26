@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, ChevronDown, MapPin, Minus, Plus, Trophy, Users, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -101,6 +101,12 @@ export function TournamentsPanel({ user }: { user: AppUser }) {
     awayTeamId: null,
   });
   const [teamSearch, setTeamSearch] = useState("");
+  const fixtureSectionRef = useRef<HTMLDivElement>(null);
+
+  function viewMatches(tournamentId: number) {
+    setSelectedTournamentId(tournamentId);
+    fixtureSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   const filteredTeamsForCreate = useMemo(() => {
     const query = teamSearch.trim().toLowerCase();
@@ -551,8 +557,13 @@ export function TournamentsPanel({ user }: { user: AppUser }) {
                 tournament.requestStatus === "pendiente" &&
                 (isAdmin(user) || courts.find((court) => court.id === tournament.courtId)?.tenantId === user.id);
 
+              const isSelected = tournament.id === currentTournament?.id;
+
               return (
-                <Card key={tournament.id} className="gap-3">
+                <Card
+                  key={tournament.id}
+                  className={cn("gap-3", isSelected && "border-l-4 border-neon pl-3")}
+                >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <h3 className="font-display text-lg font-black leading-tight tracking-tight text-black">{tournament.name}</h3>
@@ -569,6 +580,11 @@ export function TournamentsPanel({ user }: { user: AppUser }) {
                       </RowTag>
                     </div>
                   </div>
+
+                  <Button type="button" variant="secondary" size="sm" onClick={() => viewMatches(tournament.id)}>
+                    <CalendarDays size={14} strokeWidth={2} aria-hidden />
+                    Ver partidos ({tournament.fixture.length})
+                  </Button>
 
                   {tournament.requestStatus === "rechazado" && tournament.rejectionReason ? (
                     <p className="font-mono text-[11px] uppercase tracking-wider text-muted">Motivo: {tournament.rejectionReason}</p>
@@ -597,9 +613,18 @@ export function TournamentsPanel({ user }: { user: AppUser }) {
                   ) : (
                     (() => {
                       const availableTeams = teams.filter((team) => !tournament.teamIds.includes(team.id));
+                      const alreadyStarted = tournament.status === "active";
+                      const disabledReason = alreadyStarted
+                        ? "El torneo ya comenzó: no se pueden agregar más equipos"
+                        : tournament.requestStatus !== "aprobado"
+                          ? "Este torneo todavía no fue aprobado"
+                          : undefined;
                       return availableTeams.length > 0 ? (
                         <div>
                           <p className="mb-1 font-mono text-[10px] uppercase tracking-wider text-muted">Agregar equipo:</p>
+                          {alreadyStarted ? (
+                            <p className="mb-1 font-mono text-[11px] uppercase tracking-wider text-muted">{disabledReason}</p>
+                          ) : null}
                           <div className="flex flex-wrap gap-1.5">
                             {availableTeams.map((team) => (
                               <Button
@@ -607,8 +632,8 @@ export function TournamentsPanel({ user }: { user: AppUser }) {
                                 type="button"
                                 variant="secondary"
                                 size="sm"
-                                disabled={tournament.requestStatus !== "aprobado"}
-                                title={tournament.requestStatus !== "aprobado" ? "Este torneo todavía no fue aprobado" : undefined}
+                                disabled={disabledReason !== undefined}
+                                title={disabledReason}
                                 onClick={() => {
                                   setSelectedTournamentId(tournament.id);
                                   void enrollTeam(team.id);
@@ -631,7 +656,7 @@ export function TournamentsPanel({ user }: { user: AppUser }) {
           </div>
         </section>
 
-        <section>
+        <section ref={fixtureSectionRef}>
           <SectionLabel icon={CalendarDays} className="mb-3">Calendario de partidos y tabla</SectionLabel>
           <Card>
             {currentTournament ? (

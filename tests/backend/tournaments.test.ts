@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createTeam } from "@/lib/services/teams";
-import { createTournament, getTournaments } from "@/lib/services/tournaments";
+import { createTournament, enrollTeamToTournament, getTournaments } from "@/lib/services/tournaments";
 import { recordMatchResult, startTournament } from "@/lib/services/matches";
 import { prisma } from "@/lib/prisma";
 
@@ -34,6 +34,7 @@ describe("tournaments + matches services", () => {
     }
 
     let tournamentId: number | null = null;
+    const testTeamIds = [teamA.team.id, teamB.team.id];
 
     try {
       const tournament = await createTournament({
@@ -96,6 +97,20 @@ describe("tournaments + matches services", () => {
       const afterStart = (await getTournaments()).find((t) => t.id === tournamentId);
       expect(afterStart?.fixture.length).toBeGreaterThan(0);
 
+      // El torneo ya tiene calendario (matches creados): no debe aceptar más equipos.
+      const teamC = await createTeam({ tenantId: 2, name: `Equipo Test C ${suffix}`, captainUserId: 2 });
+      expect(teamC.ok).toBe(true);
+      if (!teamC.ok) {
+        throw new Error("No se pudo crear el equipo de prueba C");
+      }
+      testTeamIds.push(teamC.team.id);
+
+      const lateEnroll = await enrollTeamToTournament({ tournamentId, teamId: teamC.team.id });
+      expect(lateEnroll.ok).toBe(false);
+      if (!lateEnroll.ok) {
+        expect(lateEnroll.error).toContain("ya comenzó");
+      }
+
       const firstMatch = afterStart!.fixture[0];
       const firstResult = await recordMatchResult({
         matchId: firstMatch.id,
@@ -131,7 +146,6 @@ describe("tournaments + matches services", () => {
         await prisma.teamTournament.deleteMany({ where: { id_tournament: tournamentId } });
         await prisma.tournament.delete({ where: { id_tournament: tournamentId } });
       }
-      const testTeamIds = [teamA.team.id, teamB.team.id];
       await prisma.teamPlayer.deleteMany({ where: { id_team: { in: testTeamIds } } });
       await prisma.team.deleteMany({ where: { id_team: { in: testTeamIds } } });
     }
