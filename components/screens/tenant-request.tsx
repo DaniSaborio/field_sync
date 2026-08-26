@@ -13,7 +13,9 @@ import {
   Banknote,
   Users,
   ChevronDown,
+  Lightbulb,
 } from "lucide-react";
+import { Row, RowCheckbox } from "../ui/row";
 
 type TenantRequestUser = {
   id: number;
@@ -33,6 +35,7 @@ export function TenantRequestScreen({ user, isTenant = false }: { user?: TenantR
   const [capacityPreset, setCapacityPreset] = useState("");
   const [capacityCustom, setCapacityCustom] = useState("");
   const [price, setPrice] = useState("");
+  const [hasLights, setHasLights] = useState(false);
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState<{ key: number; message: string; variant: "default" | "negative" } | null>(null);
 
@@ -62,6 +65,7 @@ export function TenantRequestScreen({ user, isTenant = false }: { user?: TenantR
         address,
         mapsUrl,
         courtName,
+        hasLights,
         surface,
         capacity,
         price,
@@ -257,6 +261,18 @@ export function TenantRequestScreen({ user, isTenant = false }: { user?: TenantR
             rightSlot={<span className="font-mono text-xs font-bold text-muted">₡</span>}
             required
           />
+          <ul>
+            <Row
+              left={
+                <RowCheckbox
+                  checked={hasLights}
+                  onCheckedChange={setHasLights}
+                  aria-label="La cancha tiene luces"
+                />
+              }
+              title="¿La cancha tiene luces?"
+            />
+          </ul>
 
           <div className="flex justify-end">
             <Button type="submit" disabled={loading}>

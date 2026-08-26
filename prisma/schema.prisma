@@ -95,6 +95,7 @@ model User {
   notifications     Notification[]
   push_subscriptions PushSubscription[]
   player_profile    PlayerProfile?
+  password_reset_tokens PasswordResetToken[]
 
   // --- Equipos que este usuario dirige---
   captained_teams Team[] @relation("TeamCaptain")
@@ -197,6 +198,10 @@ model Tournament {
   approved_at      DateTime? @db.Timestamp()
   rejection_reason String?   @db.VarChar(255)
 
+  // --- El dueño de la cancha (o un admin) cierra el torneo manualmente: ya
+  // no se pueden inscribir equipos ni generar/editar su calendario ---
+  closed_at DateTime? @db.Timestamp()
+
   team_tournaments TeamTournament[]
   matches          Match[]
   standings        Standing[]
@@ -272,6 +277,21 @@ model PushSubscription {
   created_at           DateTime @default(now()) @db.Timestamp()
 
   @@map("push_subscription")
+}
+
+// Token de un solo uso para el flujo de "olvidé mi contraseña". Se guarda el
+// hash (sha256) del token, nunca el valor crudo que viaja por el link.
+model PasswordResetToken {
+  id_password_reset_token Int       @id @default(autoincrement())
+  id_user                 Int
+  user                    User      @relation(fields: [id_user], references: [id_user], onDelete: Cascade, onUpdate: Cascade)
+  token_hash              String    @unique @db.VarChar(64)
+  expires_at              DateTime  @db.Timestamp()
+  used_at                 DateTime? @db.Timestamp()
+  created_at              DateTime  @default(now()) @db.Timestamp()
+
+  @@index([id_user])
+  @@map("password_reset_token")
 }
 
 model Reservation {

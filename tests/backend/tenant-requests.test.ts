@@ -18,6 +18,7 @@ describe("tenant request flow", () => {
       surface: "Sintética",
       capacity: "5 vs 5",
       price: "12000",
+      hasLights: true,
     });
 
     expect(created.ok).toBe(true);
@@ -27,6 +28,7 @@ describe("tenant request flow", () => {
 
     expect(listTenantRequests()).toHaveLength(1);
     expect(listTenantRequests()[0]?.status).toBe("pendiente");
+    expect(listTenantRequests()[0]?.hasLights).toBe(true);
 
     const reviewed = updateTenantRequestStatus({
       requestId: created.request.id,

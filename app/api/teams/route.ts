@@ -1,29 +1,29 @@
+/**
+ * /api/teams — team/roster management, backed directly by Postgres.
+ * GET:  list all teams plus every real user (for the "add to roster" picker).
+ * POST: action-based — `action: "create"` makes a team with a captain,
+ *       `"roster"` adds/removes a player, `"convocation"` notifies the roster
+ *       about an upcoming match (captain-only, enforced in sendConvocation).
+ */
 import { NextRequest, NextResponse } from "next/server";
-import { createTeam, ensureTeamsHydrated, listTeams, sendConvocation, updateTeamRoster } from "@/lib/fieldsync-store";
-import { hydrateStoreUser, listAllRealUsers } from "@/lib/hydrate-user";
+import { createTeam, listTeams, sendConvocation, updateTeamRoster } from "@/lib/services/teams";
+import { listAllRealUsers } from "@/lib/services/users";
 
 export async function GET() {
-  // La lista de jugadores para "agregar a la plantilla" tiene que salir de
-  // Postgres (todos los usuarios reales), no del store en memoria (que solo
-  // conoce a los 4 usuarios de la semilla de demo).
-  const [users] = await Promise.all([listAllRealUsers(), ensureTeamsHydrated()]);
-  return NextResponse.json({ teams: listTeams(), users });
+  const [teams, users] = await Promise.all([listTeams(), listAllRealUsers()]);
+  return NextResponse.json({ teams, users });
 }
 
 export async function POST(request: NextRequest) {
   try {
-    await ensureTeamsHydrated();
     const body = await request.json();
     const action = String(body?.action ?? "roster");
 
     if (action === "create") {
-      const captainUserId = Number(body?.captainUserId);
-      await hydrateStoreUser(captainUserId);
-
       const result = await createTeam({
         tenantId: Number(body?.tenantId ?? 1),
         name: String(body?.name ?? ""),
-        captainUserId,
+        captainUserId: Number(body?.captainUserId),
       });
 
       if (!result.ok) {
@@ -34,14 +34,9 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "roster") {
-      const playerId = Number(body?.playerId);
-      if (body?.rosterAction !== "remove") {
-        await hydrateStoreUser(playerId);
-      }
-
       const result = await updateTeamRoster({
         teamId: Number(body?.teamId),
-        playerId,
+        playerId: Number(body?.playerId),
         action: body?.rosterAction === "remove" ? "remove" : "add",
       });
 

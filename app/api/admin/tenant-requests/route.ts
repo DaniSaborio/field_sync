@@ -1,14 +1,28 @@
+/**
+ * /api/admin/tenant-requests — lifecycle of "become a tenant / add a court" requests.
+ * GET:   list all requests. Admin-only (ADMIN_ROLES).
+ * POST:  submit a new request. Public (any authenticated user can apply).
+ * PATCH: approve or reject a request. Admin-only. Approval promotes the user to
+ *        role "tenant" (if not already), creates the requested Court row, and
+ *        sends an in-app + push notification to the requester.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { upsertStoreUser } from "@/lib/fieldsync-store";
-import { notifyPush } from "@/lib/notify";
+import { notifyUser } from "@/lib/notify";
+import { ADMIN_ROLES, requireRole } from "@/lib/authz";
 import {
   listTenantRequests,
   submitTenantRequest,
   updateTenantRequestStatus,
 } from "@/lib/tenant-requests";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const adminId = request.nextUrl.searchParams.get("adminId");
+  const authz = await requireRole(adminId, ADMIN_ROLES);
+  if (!authz.ok) {
+    return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
+  }
+
   return NextResponse.json({
     requests: listTenantRequests(),
   });
@@ -28,6 +42,7 @@ export async function POST(request: NextRequest) {
       surface: body?.surface,
       capacity: body?.capacity,
       price: body?.price,
+      hasLights: body?.hasLights ?? false,
     });
 
     if (!result.ok) {
@@ -49,6 +64,12 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
+
+    const authz = await requireRole(body?.adminId, ADMIN_ROLES);
+    if (!authz.ok) {
+      return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
+    }
+
     const result = updateTenantRequestStatus({
       requestId: body?.requestId,
       status: body?.status,
@@ -83,18 +104,6 @@ export async function PATCH(request: NextRequest) {
                 include: { role: true },
               });
 
-          if (!wasAlreadyTenant) {
-            upsertStoreUser({
-              id: updatedUser.id_user,
-              fullName: updatedUser.full_name,
-              nickname: updatedUser.nickname,
-              email: updatedUser.email,
-              role: "organizador",
-              tenantId: updatedUser.id_user,
-              notificationsEnabled: updatedUser.notifications_enabled,
-            });
-          }
-
           const price = Number(result.request.price);
 
           await prisma.court.create({
@@ -106,6 +115,7 @@ export async function PATCH(request: NextRequest) {
               surface: result.request.surface || null,
               capacity: result.request.capacity || null,
               price_per_hour: Number.isFinite(price) ? price : null,
+              has_light: result.request.hasLights,
             },
           });
 
@@ -113,14 +123,7 @@ export async function PATCH(request: NextRequest) {
             ? `Tu solicitud para agregar la cancha "${result.request.courtName}" fue aprobada. Ya está disponible en tu panel.`
             : "Tu solicitud como dueño de cancha fue aprobada. Ya podés administrar tu cancha desde tu panel.";
 
-          await prisma.notification.create({
-            data: {
-              id_user: updatedUser.id_user,
-              type: "account-status",
-              message,
-            },
-          });
-          notifyPush(updatedUser.id_user, message);
+          await notifyUser(updatedUser.id_user, updatedUser.notifications_enabled, "account-status", message);
         }
       }
     }

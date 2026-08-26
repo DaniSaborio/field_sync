@@ -12,6 +12,7 @@ export type TenantRequestRecord = {
   surface: string;
   capacity: string;
   price: string;
+  hasLights: boolean;
   status: TenantRequestStatus;
   reviewerName: string | null;
   notes: string | null;
@@ -34,6 +35,7 @@ export function submitTenantRequest(input: {
   surface: string;
   capacity: string;
   price: string;
+  hasLights: boolean;
 }) {
   const trimmed = {
     userId: Number(input.userId),
@@ -46,6 +48,7 @@ export function submitTenantRequest(input: {
     surface: String(input.surface ?? "").trim(),
     capacity: String(input.capacity ?? "").trim(),
     price: String(input.price ?? "").trim(),
+    hasLights: Boolean(input.hasLights),
   };
 
   if (!trimmed.userId || !trimmed.userEmail || !trimmed.complexName || !trimmed.phone || !trimmed.address || !trimmed.courtName) {

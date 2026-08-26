@@ -40,6 +40,7 @@ export type CourtCard = {
   location: string;
   mapsUrl?: string | null;
   surface: "synthetic" | "natural" | "indoor";
+  hasLights: boolean;
   capacity: string;
   pricePerHour: number;
   pricePerHourNight: number | null;
@@ -96,7 +97,8 @@ export type TournamentCard = {
   teamsRequired: number;
   startDate: string;
   endDate: string;
-  status: "draft" | "active";
+  status: "draft" | "active" | "closed";
+  closedAt: string | null;
   requestStatus: "pendiente" | "aprobado" | "rechazado";
   rejectionReason: string | null;
   teamIds: number[];
@@ -158,6 +160,7 @@ export type TenantRequestAdminRow = {
   surface: string;
   capacity: string;
   price: string;
+  hasLights: boolean;
   status: "pendiente" | "aprobado" | "rechazado";
   reviewerName: string | null;
   notes: string | null;

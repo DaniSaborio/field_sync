@@ -86,10 +86,23 @@ function DailyRevenueChart({ data }: { data: DailyRevenuePoint[] }) {
   }
 
   const max = Math.max(1, ...data.map((point) => point.total));
+  const totalVerified = data.reduce((sum, point) => sum + point.verified, 0);
+  const totalPending = data.reduce((sum, point) => sum + point.pending, 0);
+
+  // Reparte hasta 6 etiquetas de fecha a lo largo del eje (en vez de solo la
+  // primera y la última) para que se pueda leer la progresión de los días.
+  const tickCount = Math.min(data.length, 6);
+  const tickIndexes = new Set(
+    Array.from({ length: tickCount }, (_, i) => Math.round((i * (data.length - 1)) / Math.max(1, tickCount - 1))),
+  );
 
   return (
     <div>
-      <div className="flex h-28 items-end gap-1 border-b border-black">
+      <div className="mb-1.5 flex items-center justify-between font-mono text-[9px] uppercase tracking-wider text-muted">
+        <span>₡0</span>
+        <span>Máx ₡{max.toLocaleString("es-CR")}</span>
+      </div>
+      <div className="flex h-28 gap-1 border-b border-black">
         {data.map((point) => {
           const verifiedPct = (point.verified / max) * 100;
           const pendingPct = (point.pending / max) * 100;
@@ -105,13 +118,16 @@ function DailyRevenueChart({ data }: { data: DailyRevenuePoint[] }) {
           );
         })}
       </div>
-      <div className="mt-1.5 flex justify-between font-mono text-[9px] uppercase tracking-wider text-muted">
-        <span>{formatShortDate(data[0].date)}</span>
-        {data.length > 1 ? <span>{formatShortDate(data[data.length - 1].date)}</span> : null}
+      <div className="mt-1.5 flex gap-1 font-mono text-[9px] uppercase tracking-wider text-muted">
+        {data.map((point, index) => (
+          <span key={point.date} className="min-w-[6px] flex-1 text-center">
+            {tickIndexes.has(index) ? formatShortDate(point.date) : ""}
+          </span>
+        ))}
       </div>
       <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1.5">
-        <LegendSwatch tone="positive" label="Verificado" />
-        <LegendSwatch tone="default" label="Pendiente" />
+        <LegendSwatch tone="positive" label={`Verificado ₡${totalVerified.toLocaleString("es-CR")}`} />
+        <LegendSwatch tone="default" label={`Pendiente ₡${totalPending.toLocaleString("es-CR")}`} />
       </div>
     </div>
   );

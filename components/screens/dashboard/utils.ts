@@ -1,11 +1,16 @@
-import type { AppUser, CourtCard } from "./types";
+import { COSTA_RICA_UTC_OFFSET_HOURS } from "@/lib/utils";
+import type { AppUser, CourtCard, TournamentCard } from "./types";
 
 export async function readJson<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+// toISOString() siempre da la fecha en UTC: entre las 18:00 y medianoche hora
+// de Costa Rica, eso ya es "mañana" en UTC, así que hay que restar el offset
+// antes de cortar la fecha o el calendario de hoy se salta un día temprano.
 export function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  const crNow = new Date(Date.now() - COSTA_RICA_UTC_OFFSET_HOURS * 60 * 60 * 1000);
+  return crNow.toISOString().slice(0, 10);
 }
 
 export function formatDateTime(value: string) {
@@ -39,6 +44,12 @@ export function humanRole(role: string) {
     default:
       return "Jugador";
   }
+}
+
+export function tournamentStatusLabel(status: TournamentCard["status"]) {
+  if (status === "closed") return "Cerrado";
+  if (status === "active") return "Activo";
+  return "Borrador";
 }
 
 export function isAdmin(user: AppUser) {

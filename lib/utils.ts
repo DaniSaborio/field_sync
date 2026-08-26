@@ -17,7 +17,7 @@ export function isNightSlot(slot: string) {
 }
 
 // Costa Rica no observa horario de verano: el offset UTC-6 es fijo todo el año.
-const COSTA_RICA_UTC_OFFSET_HOURS = 6;
+export const COSTA_RICA_UTC_OFFSET_HOURS = 6;
 
 // Convierte una fecha + franja en hora local de Costa Rica ("2026-08-12",
 // "20:00") al instante UTC real que representa (20:00 CR = 02:00 UTC del día
@@ -38,4 +38,11 @@ export function utcDateToSlot(date: Date): string {
   const h = crShifted.getUTCHours().toString().padStart(2, "0");
   const m = crShifted.getUTCMinutes().toString().padStart(2, "0");
   return `${h}:${m}`;
+}
+
+// Una franja ya pasó si su instante real (hora de Costa Rica) quedó antes de
+// ahora — cubre tanto fechas pasadas como franjas de hoy anteriores a la hora
+// actual (ej: son las 15:00 y la franja es 14:00).
+export function isSlotInPast(dateIso: string, slot: string): boolean {
+  return slotToUtcDate(dateIso, slot).getTime() < Date.now();
 }

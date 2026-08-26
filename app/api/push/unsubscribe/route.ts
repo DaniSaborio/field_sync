@@ -1,3 +1,7 @@
+/**
+ * /api/push/unsubscribe — POST: remove a Web Push subscription by its
+ * `endpoint` (e.g. when the browser drops/rotates the subscription).
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 

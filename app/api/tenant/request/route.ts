@@ -1,3 +1,9 @@
+/**
+ * /api/tenant/request — POST: public entry point for a user to request
+ * becoming a tenant (or adding another court). Thin wrapper around the same
+ * submitTenantRequest() used by POST /api/admin/tenant-requests; review and
+ * approval happen through the admin route.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { submitTenantRequest } from "@/lib/tenant-requests";
 
@@ -15,6 +21,7 @@ export async function POST(req: NextRequest) {
       surface: body?.surface ?? "",
       capacity: body?.capacity ?? "",
       price: body?.price ?? "",
+      hasLights: body?.hasLights ?? false,
     });
 
     if (!result.ok) {
