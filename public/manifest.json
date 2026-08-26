@@ -1,0 +1,14 @@
+{
+  "name": "FieldSync",
+  "short_name": "FieldSync",
+  "description": "Gestión de reservas, torneos y perfil global para canchas deportivas.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F9F9F7",
+  "theme_color": "#F9F9F7",
+  "lang": "es",
+  "icons": [
+    { "src": "/logo-fieldsync.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

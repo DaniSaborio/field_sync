@@ -1,7 +1,20 @@
+/**
+ * /api/admin/courts — platform-admin view over every court, across all tenants.
+ * GET:   list all courts with their owning tenant's name/email. Admin-only (ADMIN_ROLES).
+ * PATCH: activate/deactivate a court; an inactive court disappears from public
+ *        availability (GET /api/courts filters by is_active). Admin-only.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { ADMIN_ROLES, requireRole } from "@/lib/authz";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const adminId = request.nextUrl.searchParams.get("adminId");
+  const authz = await requireRole(adminId, ADMIN_ROLES);
+  if (!authz.ok) {
+    return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
+  }
+
   const courts = await prisma.court.findMany({
     include: { tenant: true },
     orderBy: [{ id_tenant: "asc" }, { name: "asc" }],
@@ -13,17 +26,19 @@ export async function GET() {
       name: court.name,
       address: court.address,
       surface: court.surface,
+      hasLights: court.has_light,
       pricePerHour: court.price_per_hour !== null ? Number(court.price_per_hour) : null,
       isActive: court.is_active,
       tenantId: court.id_tenant,
       tenantName: court.tenant.full_name,
       tenantEmail: court.tenant.email,
+      
     })),
   });
 }
 
-// Activa o desactiva una cancha: una cancha inactiva deja de aparecer en el
-// listado público de disponibilidad (GET /api/courts ya filtra por is_active).
+// Activates or deactivates a court: an inactive court disappears from the
+// public availability listing (GET /api/courts already filters by is_active).
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
@@ -32,6 +47,11 @@ export async function PATCH(request: NextRequest) {
 
     if (!courtId) {
       return NextResponse.json({ ok: false, error: "Falta el id de la cancha" }, { status: 400 });
+    }
+
+    const authz = await requireRole(body?.adminId, ADMIN_ROLES);
+    if (!authz.ok) {
+      return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
     }
 
     const updated = await prisma.court.update({

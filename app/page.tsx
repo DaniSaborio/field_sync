@@ -12,6 +12,8 @@ export default function Home() {
   const savedUser = localStorage.getItem("user");
 
   if (savedUser) {
+    // localStorage no existe en SSR, por eso esta sincronización debe vivir en el efecto.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setUser(JSON.parse(savedUser));
     setScreen("dashboard");
   }

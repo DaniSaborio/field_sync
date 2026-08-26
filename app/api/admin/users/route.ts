@@ -1,9 +1,22 @@
+/**
+ * /api/admin/users — platform-admin user directory and tenant vetting (HU-11).
+ * GET:   list every user with role/status/verification metadata. Admin-only.
+ * PATCH: verify or suspend a tenant account only — action must target a user
+ *        whose role is "tenant". Writes an EstadoHistorial audit row and
+ *        notifies the affected user. Admin-only.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { notifyPush } from "@/lib/notify";
+import { ADMIN_ROLES, requireRole } from "@/lib/authz";
 
-const ADMIN_ROLES = ["administrador", "admin_plataforma"];
+export async function GET(request: NextRequest) {
+  const adminId = request.nextUrl.searchParams.get("adminId");
+  const authz = await requireRole(adminId, ADMIN_ROLES);
+  if (!authz.ok) {
+    return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
+  }
 
-export async function GET() {
   const users = await prisma.user.findMany({
     include: { role: true, estado: true, verifier: true },
     orderBy: { full_name: "asc" },
@@ -25,23 +38,23 @@ export async function GET() {
   });
 }
 
-// Verifica o suspende una cuenta tenant (HU-11): solo un admin de plataforma
-// puede hacerlo, y solo aplica a usuarios con rol "tenant" (dueños de cancha).
+// Verifies or suspends a tenant account (HU-11): only a platform admin can
+// do this, and it only applies to users with the "tenant" role (court owners).
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
     const targetUserId = Number(body?.userId);
-    const adminId = Number(body?.adminId);
-    const adminRole = typeof body?.adminRole === "string" ? body.adminRole : undefined;
     const action = String(body?.action ?? "");
 
-    if (!targetUserId || !adminId || (action !== "verify" && action !== "suspend")) {
+    if (!targetUserId || (action !== "verify" && action !== "suspend")) {
       return NextResponse.json({ ok: false, error: "Faltan datos para procesar la acción" }, { status: 400 });
     }
 
-    if (!adminRole || !ADMIN_ROLES.includes(adminRole)) {
-      return NextResponse.json({ ok: false, error: "Solo un administrador de plataforma puede hacer esto" }, { status: 403 });
+    const authz = await requireRole(body?.adminId, ADMIN_ROLES);
+    if (!authz.ok) {
+      return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
     }
+    const adminId = authz.userId;
 
     const target = await prisma.user.findUnique({
       where: { id_user: targetUserId },
@@ -93,6 +106,13 @@ export async function PATCH(request: NextRequest) {
         },
       }),
     ]);
+
+    notifyPush(
+      targetUserId,
+      action === "verify"
+        ? "Tu cuenta de dueño de cancha fue verificada. Ya podés publicar canchas y torneos."
+        : "Tu cuenta de dueño de cancha fue suspendida por un administrador de plataforma.",
+    );
 
     return NextResponse.json({
       ok: true,

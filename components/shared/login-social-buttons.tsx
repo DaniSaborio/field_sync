@@ -1,7 +1,7 @@
 "use client";
 
 import { GoogleLogin } from "@react-oauth/google";
-import type { AppUser } from "../dashboard";
+import type { AppUser } from "@/components/screens/dashboard";
 
 type LoginSocialButtonsProps = {
   onLogin?: (user: AppUser) => void;
@@ -11,7 +11,7 @@ export function LoginSocialButtons({
   onLogin,
 }: LoginSocialButtonsProps) {
   return (
-    <div className="flex justify-center">
+    <div className="grid grid-cols-1 gap-3">
       <GoogleLogin
         onSuccess={async (credentialResponse) => {
           try {
@@ -31,7 +31,7 @@ export function LoginSocialButtons({
               alert(data.error);
               return;
             }
-
+            //mantiene la persistencia de la sesión del usuario en el almacenamiento local
             localStorage.setItem("user", JSON.stringify(data.user));
 
             onLogin?.(data.user);

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { LoginBrand } from "../login/login-brand";
+import { LoginBrand } from "@/components/screens/login/login-brand";
 
 type AuthShellProps = {
   tagline?: string;

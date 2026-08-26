@@ -1,8 +1,11 @@
+/**
+ * /api/auth/google — POST: sign in / sign up with a Google ID token. Public.
+ * Verifies the credential server-side with google-auth-library before trusting
+ * it. Creates a new user (role "jugador", status "pendiente") on first login.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { OAuth2Client } from "google-auth-library";
 import { prisma } from "@/lib/prisma";
-import { upsertStoreUser } from "@/lib/fieldsync-store";
-import { DEMO_TENANT_ID, mapPrismaRole } from "@/lib/hydrate-user";
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -41,6 +44,7 @@ export async function POST(req: NextRequest) {
       },
       include: {
         role: true,
+        estado: true,
       },
     });
 
@@ -60,22 +64,10 @@ export async function POST(req: NextRequest) {
         },
         include: {
           role: true,
+          estado: true,
         },
       });
     }
-
-    // Equipos/torneos/perfil viven en el store en memoria, separado de
-    // Postgres: sincronizamos al usuario acá para que esas funciones lo
-    // reconozcan desde el primer login con Google, no solo a los 4 de la semilla.
-    upsertStoreUser({
-      id: user.id_user,
-      fullName: user.full_name,
-      nickname: user.nickname,
-      email: user.email,
-      role: mapPrismaRole(user.role.name),
-      tenantId: DEMO_TENANT_ID,
-      notificationsEnabled: user.notifications_enabled,
-    });
 
     return NextResponse.json({
       success: true,
@@ -85,6 +77,9 @@ export async function POST(req: NextRequest) {
         nickname: user.nickname,
         email: user.email,
         role: user.role.name,
+        tenantId: user.role.name === "tenant" ? user.id_user : null,
+        notificationsEnabled: user.notifications_enabled,
+        status: user.estado.name,
       },
     });
   } catch (error) {

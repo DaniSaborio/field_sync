@@ -1,16 +1,25 @@
+/**
+ * /api/tournaments — tournament lifecycle, backed directly by Postgres.
+ * GET:  full tournament snapshot (all tournaments, brackets/standings).
+ * POST: action-based — `"create"` (round-robin or knockout), `"respond"`
+ *       (approve/reject a court owner's tournament request), `"close"` to
+ *       shut down the tournament (no more enrollments or fixture edits),
+ *       `"enroll"` a team, `"start"` the bracket, `"setManualFixture"` for
+ *       manual pairings, `"result"` to record a match result (goals/cards
+ *       per player; may require a second admin confirmation).
+ */
 import { NextRequest, NextResponse } from "next/server";
 import {
+  closeTournament,
   createTournament,
   enrollTeamToTournament,
   getTournamentSnapshot,
-  recordMatchResult,
   respondToTournamentRequest,
-  setManualFixture,
-  startTournament,
-} from "@/lib/fieldsync-store";
+} from "@/lib/services/tournaments";
+import { recordMatchResult, setManualFixture, startTournament } from "@/lib/services/matches";
 
 export async function GET() {
-  return NextResponse.json(getTournamentSnapshot());
+  return NextResponse.json(await getTournamentSnapshot());
 }
 
 export async function POST(request: NextRequest) {
@@ -19,7 +28,7 @@ export async function POST(request: NextRequest) {
     const action = String(body?.action ?? "create");
 
     if (action === "create") {
-      const result = createTournament({
+      const result = await createTournament({
         createdByUserId: Number(body?.userId ?? 0),
         creatorRole: typeof body?.role === "string" ? body.role : undefined,
         courtId: Number(body?.courtId ?? 0),
@@ -39,7 +48,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "respond") {
-      const result = respondToTournamentRequest({
+      const result = await respondToTournamentRequest({
         tournamentId: Number(body?.tournamentId),
         responderId: Number(body?.userId),
         responderRole: typeof body?.role === "string" ? body.role : undefined,
@@ -54,8 +63,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(result);
     }
 
+    if (action === "close") {
+      const result = await closeTournament({
+        tournamentId: Number(body?.tournamentId),
+        responderId: Number(body?.userId),
+        responderRole: typeof body?.role === "string" ? body.role : undefined,
+      });
+
+      if (!result.ok) {
+        return NextResponse.json(result, { status: 400 });
+      }
+
+      return NextResponse.json(result);
+    }
+
     if (action === "enroll") {
-      const result = enrollTeamToTournament({
+      const result = await enrollTeamToTournament({
         tournamentId: Number(body?.tournamentId),
         teamId: Number(body?.teamId),
       });
@@ -68,7 +91,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "start") {
-      const result = startTournament({
+      const result = await startTournament({
         tournamentId: Number(body?.tournamentId),
       });
 
@@ -87,7 +110,7 @@ export async function POST(request: NextRequest) {
           }))
         : [];
 
-      const result = setManualFixture({
+      const result = await setManualFixture({
         tournamentId: Number(body?.tournamentId),
         pairs,
       });
@@ -119,7 +142,7 @@ export async function POST(request: NextRequest) {
           })
         : [];
 
-      const result = recordMatchResult({
+      const result = await recordMatchResult({
         matchId: Number(body?.matchId),
         stats,
         confirmedByAdmin: Boolean(body?.confirmedByAdmin),

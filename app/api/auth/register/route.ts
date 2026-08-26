@@ -1,8 +1,12 @@
+/**
+ * /api/auth/register — POST: public self-service sign-up.
+ * Always creates the account with role "jugador" regardless of what the
+ * client sends (becoming a tenant goes through /api/tenant/request instead).
+ * Hashes the password with bcrypt and creates the PlayerProfile row.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { upsertStoreUser } from "@/lib/fieldsync-store";
-import { DEMO_TENANT_ID, mapPrismaRole } from "@/lib/hydrate-user";
 
 export async function POST(req: NextRequest) {
   try {
@@ -39,8 +43,8 @@ export async function POST(req: NextRequest) {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // El registro público siempre asigna el rol "jugador", sin importar lo que envíe el cliente.
-    // Los jugadores no pertenecen a un tenant fijo: pueden reservar en cualquier cancha.
+    // Public registration always assigns the "jugador" (player) role, regardless of what the client sends.
+    // Players don't belong to a fixed tenant: they can book at any court.
     const [jugadorRole, pendienteEstado] = await Promise.all([
       prisma.role.findUniqueOrThrow({ where: { name: "jugador" } }),
       prisma.estado.findUniqueOrThrow({ where: { name: "pendiente" } }),
@@ -68,19 +72,6 @@ export async function POST(req: NextRequest) {
         assists: 0,
         matches_played: 0,
       },
-    });
-
-    // Equipos/torneos/perfil viven en el store en memoria, separado de
-    // Postgres: sincronizamos al usuario acá para que esas funciones lo
-    // reconozcan desde el registro, no solo a los 4 de la semilla.
-    upsertStoreUser({
-      id: createdUser.id_user,
-      fullName: createdUser.full_name,
-      nickname: createdUser.nickname,
-      email: createdUser.email,
-      role: mapPrismaRole(createdUser.role.name),
-      tenantId: DEMO_TENANT_ID,
-      notificationsEnabled: createdUser.notifications_enabled,
     });
 
     return NextResponse.json(

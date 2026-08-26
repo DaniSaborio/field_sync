@@ -3,8 +3,8 @@
 import { ArrowLeft, MailCheck } from "lucide-react";
 import type { FormEvent } from "react";
 import { useState } from "react";
-import { AuthShell } from "./auth/auth-shell";
-import { ForgotPasswordForm } from "./forgot-password/forgot-password-form";
+import { AuthShell } from "@/components/shared/auth-shell";
+import { ForgotPasswordForm } from "@/components/forms/forgot-password-form";
 
 
 type ForgotPasswordScreenProps = {
@@ -15,19 +15,25 @@ export function ForgotPasswordScreen({ onBackToLogin }: ForgotPasswordScreenProp
   const [email, setEmail] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSent, setIsSent] = useState(false);
+  const [devResetUrl, setDevResetUrl] = useState<string | null>(null);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsLoading(true);
 
     try {
-      // TODO: reemplazar por el endpoint real, p. ej. POST /api/auth/forgot-password
       // Por seguridad, siempre se muestra el mismo mensaje exista o no la cuenta.
-      await fetch('/api/auth/forgot-password', {
+      const response = await fetch('/api/auth/forgot-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
-      }).catch(() => undefined);
+      });
+      const data = await response.json().catch(() => null);
+      // Modo demo: no hay servicio de email conectado, así que el backend
+      // devuelve el enlace directamente para poder probar el flujo.
+      setDevResetUrl(typeof data?.devResetUrl === "string" ? data.devResetUrl : null);
+    } catch {
+      setDevResetUrl(null);
     } finally {
       setIsLoading(false);
       setIsSent(true);
@@ -55,6 +61,20 @@ export function ForgotPasswordScreen({ onBackToLogin }: ForgotPasswordScreenProp
             Si <span className="font-semibold text-black">{email}</span> tiene una cuenta con
             nosotros, te enviamos un enlace para restablecer tu contraseña.
           </p>
+
+          {devResetUrl ? (
+            <div className="mx-auto mt-4 max-w-xs border border-black bg-black/5 p-3 text-left">
+              <p className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted">
+                Modo demo · sin envío de correo real
+              </p>
+              <a
+                href={devResetUrl}
+                className="mt-1 block break-all font-mono text-[10px] text-black underline"
+              >
+                {devResetUrl}
+              </a>
+            </div>
+          ) : null}
         </div>
       ) : (
         <>

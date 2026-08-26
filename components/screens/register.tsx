@@ -2,10 +2,10 @@
 
 import type { FormEvent } from "react";
 import { useState } from "react";
-import { AuthShell } from "./auth/auth-shell";
-import { LoginSocialButtons } from "./login/login-social-buttons";
+import { AuthShell } from "@/components/shared/auth-shell";
+import { LoginSocialButtons } from "@/components/shared/login-social-buttons";
 import { RegisterFooter } from "./register/register-footer";
-import { RegisterForm } from "./register/register-form";
+import { RegisterForm } from "@/components/forms/register-form";
 
 type RegisterScreenProps = {
   onBackToLogin: () => void;
