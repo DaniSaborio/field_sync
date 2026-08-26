@@ -20,11 +20,18 @@ App de gestión de reservas y torneos de canchas, construida con [Next.js](https
 
    ```bash
    DATABASE_URL=
+   JWT_SECRET=
    GOOGLE_CLIENT_ID=
    GOOGLE_CLIENT_SECRET=
    NEXTAUTH_SECRET=
    NEXTAUTH_URL=
    NEXT_PUBLIC_GOOGLE_CLIENT_ID=
+   ```
+
+   `JWT_SECRET` firma la cookie de sesión (ver [lib/jwt.ts](lib/jwt.ts)) — es obligatoria, cualquier valor random alcanza en local:
+
+   ```bash
+   openssl rand -hex 32
    ```
 
 3. Genera el cliente de Prisma y sincroniza el esquema con la base de datos:
@@ -45,6 +52,17 @@ App de gestión de reservas y torneos de canchas, construida con [Next.js](https
    ```bash
    npm run db:setup
    ```
+
+   El seed crea un usuario de prueba por cada rol (ver [prisma/seed.ts](prisma/seed.ts)):
+
+   | Rol                 | Email                        | Contraseña       |
+   | -------------------- | ----------------------------- | ----------------- |
+   | Admin de plataforma  | `plataforma@fieldsync.test`   | `Plataforma1234!` |
+   | Tenant (dueño de cancha) | `tenant@fieldsync.test`   | `Tenant1234!`      |
+   | Jugador (capitán)    | `capitan@fieldsync.test`      | `Capitan1234!`     |
+   | Jugador              | `jugador@fieldsync.test`      | `Jugador1234!`     |
+
+   Son credenciales solo para entornos de desarrollo/demo — no las reutilices en producción.
 
 4. Levanta el servidor de desarrollo:
 
