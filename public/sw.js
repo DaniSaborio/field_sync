@@ -3,7 +3,7 @@
 // perfil/historial del jugador y calendario de torneos. Las escrituras
 // (reservar, cancelar, etc.) siguen bloqueadas sin conexión desde la propia
 // UI (ver BookingPanel), este service worker no las encola ni reintenta.
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v2";
 const SHELL_CACHE = `fieldsync-shell-${CACHE_VERSION}`;
 const API_CACHE = `fieldsync-api-${CACHE_VERSION}`;
 
@@ -40,6 +40,21 @@ async function networkFirst(request, cacheName) {
   } catch (error) {
     const cached = await cache.match(request);
     if (cached) return cached;
+
+    // Sin conexión y sin un cache exacto para esta URL. /api/courts se pide
+    // con distintas combinaciones de query string según la vista —
+    // disponibilidad (?date=&timeSlot=&surface=) e historial de reservas
+    // (?userId=) son la misma ruta con distinto filtro — así que si el
+    // filtro exacto nunca se cacheó, servimos cualquier respuesta cacheada
+    // de esa misma ruta en vez de mostrar un error.
+    const requestUrl = new URL(request.url);
+    const keys = await cache.keys();
+    const fallbackKey = keys.find((key) => new URL(key.url).pathname === requestUrl.pathname);
+    if (fallbackKey) {
+      const fallback = await cache.match(fallbackKey);
+      if (fallback) return fallback;
+    }
+
     throw error;
   }
 }
