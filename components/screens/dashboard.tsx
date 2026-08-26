@@ -17,7 +17,7 @@ import { TenantCourtsPanel } from "./dashboard/tenant-courts-panel";
 import { TenantPaymentsPanel } from "./dashboard/tenant-payments-panel";
 import { TournamentsPanel } from "./dashboard/tournaments-panel";
 import type { AppUser } from "./dashboard/types";
-import { humanRole, isAdmin, isTenant } from "./dashboard/utils";
+import { humanRole, isAdmin, isSuspendedTenant, isTenant } from "./dashboard/utils";
 
 export type { AppUser } from "./dashboard/types";
 export { GuestBookingScreen } from "./dashboard/guest-booking-screen";
@@ -109,7 +109,7 @@ export function DashboardScreen({ user, onLogout, onUserUpdate }: DashboardScree
         </header>
 
         {activeTab === "reservas" ? (
-          isTenant(user) ? (
+          isTenant(user) && !isSuspendedTenant(user) ? (
             <div key={syncSignal} className="space-y-6">
               <TenantPaymentsPanel user={user} />
               <BookingPanel user={user} restrictToTenantId={user.id} />

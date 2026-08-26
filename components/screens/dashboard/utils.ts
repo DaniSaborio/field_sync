@@ -60,6 +60,13 @@ export function isTenant(user: AppUser) {
   return user.role === "tenant";
 }
 
+// Un tenant suspendido no puede operar su propia cancha (crear torneos ahí,
+// administrar reservas), así que para la pestaña de Reservas se lo trata
+// como jugador: puede seguir reservando en otras canchas normalmente.
+export function isSuspendedTenant(user: AppUser) {
+  return isTenant(user) && user.status === "suspendido";
+}
+
 // Muestra el apodo junto al nombre completo para diferenciar jugadores que comparten nombre.
 export function displayName(person: { fullName: string; nickname?: string | null }) {
   return person.nickname ? `${person.fullName} "${person.nickname}"` : person.fullName;

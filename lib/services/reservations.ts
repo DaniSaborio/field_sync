@@ -51,13 +51,20 @@ export async function createReservation(input: {
   const dateOnly = new Date(`${input.date}T00:00:00.000Z`);
 
   const [courtExists, userExists, pendienteEstado] = await Promise.all([
-    prisma.court.findUnique({ where: { id_court: input.courtId }, include: { rates: true } }),
+    prisma.court.findUnique({
+      where: { id_court: input.courtId },
+      include: { rates: true, tenant: { include: { estado: true } } },
+    }),
     prisma.user.findUnique({ where: { id_user: input.userId } }),
     prisma.estado.findUniqueOrThrow({ where: { name: "pendiente" } }),
   ]);
 
   if (!courtExists || !userExists) {
     return { ok: false as const, error: "No encontramos la cancha o el usuario indicado", status: 404 as const };
+  }
+
+  if (courtExists.tenant.estado.name === "suspendido") {
+    return { ok: false as const, error: "Esta cancha pertenece a un dueño suspendido: no se puede reservar", status: 403 as const };
   }
 
   const [hourPart] = input.timeSlot.split(":");
@@ -141,15 +148,12 @@ export async function createReservation(input: {
     `Reserva en ${courtExists.name} a las ${input.timeSlot} pendiente de confirmación de pago (${paymentLabel}) por el dueño de la cancha.`,
   );
 
-  const tenant = await prisma.user.findUnique({ where: { id_user: courtExists.id_tenant } });
-  if (tenant) {
-    await notifyUser(
-      tenant.id_user,
-      tenant.notifications_enabled,
-      "payment-pending",
-      `Nueva reserva en ${courtExists.name} el ${input.date} a las ${input.timeSlot}. Verifica el pago por ${paymentLabel} (₡${Number(amount)}) para confirmarla.`,
-    );
-  }
+  await notifyUser(
+    courtExists.tenant.id_user,
+    courtExists.tenant.notifications_enabled,
+    "payment-pending",
+    `Nueva reserva en ${courtExists.name} el ${input.date} a las ${input.timeSlot}. Verifica el pago por ${paymentLabel} (₡${Number(amount)}) para confirmarla.`,
+  );
 
   if (input.teamId && input.splitPayment) {
     const team = await getTeamById(input.teamId);
