@@ -198,6 +198,10 @@ model Tournament {
   approved_at      DateTime? @db.Timestamp()
   rejection_reason String?   @db.VarChar(255)
 
+  // --- El dueño de la cancha (o un admin) cierra el torneo manualmente: ya
+  // no se pueden inscribir equipos ni generar/editar su calendario ---
+  closed_at DateTime? @db.Timestamp()
+
   team_tournaments TeamTournament[]
   matches          Match[]
   standings        Standing[]

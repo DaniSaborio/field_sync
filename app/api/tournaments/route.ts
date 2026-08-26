@@ -2,13 +2,15 @@
  * /api/tournaments — tournament lifecycle, backed directly by Postgres.
  * GET:  full tournament snapshot (all tournaments, brackets/standings).
  * POST: action-based — `"create"` (round-robin or knockout), `"respond"`
- *       (approve/reject a court owner's tournament request), `"enroll"` a
- *       team, `"start"` the bracket, `"setManualFixture"` for manual
- *       pairings, `"result"` to record a match result (goals/cards per
- *       player; may require a second admin confirmation).
+ *       (approve/reject a court owner's tournament request), `"close"` to
+ *       shut down the tournament (no more enrollments or fixture edits),
+ *       `"enroll"` a team, `"start"` the bracket, `"setManualFixture"` for
+ *       manual pairings, `"result"` to record a match result (goals/cards
+ *       per player; may require a second admin confirmation).
  */
 import { NextRequest, NextResponse } from "next/server";
 import {
+  closeTournament,
   createTournament,
   enrollTeamToTournament,
   getTournamentSnapshot,
@@ -52,6 +54,20 @@ export async function POST(request: NextRequest) {
         responderRole: typeof body?.role === "string" ? body.role : undefined,
         action: body?.decision === "reject" ? "reject" : "approve",
         reason: typeof body?.reason === "string" ? body.reason : null,
+      });
+
+      if (!result.ok) {
+        return NextResponse.json(result, { status: 400 });
+      }
+
+      return NextResponse.json(result);
+    }
+
+    if (action === "close") {
+      const result = await closeTournament({
+        tournamentId: Number(body?.tournamentId),
+        responderId: Number(body?.userId),
+        responderRole: typeof body?.role === "string" ? body.role : undefined,
       });
 
       if (!result.ok) {

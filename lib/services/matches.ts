@@ -27,7 +27,11 @@ function validateReadyToStart(tournament: {
   team_tournaments: { id_team: number }[];
   min_teams: number;
   format: string;
+  closed_at: Date | null;
 }): string | null {
+  if (tournament.closed_at) {
+    return "El torneo está cerrado: no se puede generar ni editar su calendario";
+  }
   if (tournament.estado.name !== "aprobado") {
     return "El torneo aún no ha sido aprobado por el dueño de la cancha";
   }

@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { fieldClassName } from "./constants";
 import { Badge, MessageBanner, PanelShell, StatusPill } from "./shared-ui";
 import type { ApiResponse, AppUser, CourtCard, Standing, TeamCard, TournamentCard, TournamentMatch, UserOption } from "./types";
-import { displayName, formatDateTime, isAdmin, isTenant, readJson, todayIso } from "./utils";
+import { displayName, formatDateTime, isAdmin, isTenant, readJson, todayIso, tournamentStatusLabel } from "./utils";
 
 function PlayerStatRow({
   name,
@@ -101,6 +101,7 @@ export function TournamentsPanel({ user }: { user: AppUser }) {
     awayTeamId: null,
   });
   const [teamSearch, setTeamSearch] = useState("");
+  const [enrollSearchByTournament, setEnrollSearchByTournament] = useState<Record<number, string>>({});
   const fixtureSectionRef = useRef<HTMLDivElement>(null);
 
   function viewMatches(tournamentId: number) {
@@ -257,6 +258,23 @@ export function TournamentsPanel({ user }: { user: AppUser }) {
       return;
     }
     setMessage(decision === "approve" ? "Solicitud aprobada." : "Solicitud rechazada.");
+    await loadTournaments();
+  }
+
+  async function closeTournament(tournamentId: number) {
+    if (!window.confirm("¿Cerrar este torneo? Ya no se podrán inscribir equipos ni tocar su calendario.")) return;
+
+    const response = await fetch("/api/tournaments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "close", tournamentId, userId: user.id, role: user.role }),
+    });
+    const payload = await readJson<ApiResponse<Record<string, never>>>(response);
+    if (!response.ok) {
+      setMessage(payload.error || "No pudimos cerrar el torneo");
+      return;
+    }
+    setMessage("Torneo cerrado.");
     await loadTournaments();
   }
 
@@ -475,8 +493,14 @@ export function TournamentsPanel({ user }: { user: AppUser }) {
             <Button
               type="button"
               variant="secondary"
-              disabled={!currentTournament || currentTournament.requestStatus !== "aprobado"}
-              title={currentTournament && currentTournament.requestStatus !== "aprobado" ? "Este torneo todavía no fue aprobado" : undefined}
+              disabled={!currentTournament || currentTournament.status === "closed" || currentTournament.requestStatus !== "aprobado"}
+              title={
+                currentTournament?.status === "closed"
+                  ? "Este torneo está cerrado"
+                  : currentTournament && currentTournament.requestStatus !== "aprobado"
+                    ? "Este torneo todavía no fue aprobado"
+                    : undefined
+              }
               onClick={() => selectedTournamentId ? startTournament(selectedTournamentId) : null}
             >
               Iniciar torneo
@@ -553,9 +577,9 @@ export function TournamentsPanel({ user }: { user: AppUser }) {
           <SectionLabel icon={Trophy} className="mb-3">Torneos existentes</SectionLabel>
           <div className="space-y-4">
             {data.tournaments.map((tournament) => {
-              const canRespond =
-                tournament.requestStatus === "pendiente" &&
-                (isAdmin(user) || courts.find((court) => court.id === tournament.courtId)?.tenantId === user.id);
+              const isOwnerOfCourt = courts.find((court) => court.id === tournament.courtId)?.tenantId === user.id;
+              const canManage = isAdmin(user) || isOwnerOfCourt;
+              const canRespond = tournament.requestStatus === "pendiente" && canManage;
 
               const isSelected = tournament.id === currentTournament?.id;
 
@@ -574,17 +598,24 @@ export function TournamentsPanel({ user }: { user: AppUser }) {
                       </p>
                     </div>
                     <div className="flex flex-col items-end gap-1.5">
-                      <Badge>{tournament.status}</Badge>
+                      <Badge>{tournamentStatusLabel(tournament.status)}</Badge>
                       <RowTag tone={tournament.requestStatus === "aprobado" ? "positive" : tournament.requestStatus === "rechazado" ? "negative" : "default"}>
                         {tournament.requestStatus === "pendiente" ? "Solicitud pendiente" : tournament.requestStatus === "aprobado" ? "Aprobado" : "Rechazado"}
                       </RowTag>
                     </div>
                   </div>
 
-                  <Button type="button" variant="secondary" size="sm" onClick={() => viewMatches(tournament.id)}>
-                    <CalendarDays size={14} strokeWidth={2} aria-hidden />
-                    Ver partidos ({tournament.fixture.length})
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" variant="secondary" size="sm" onClick={() => viewMatches(tournament.id)}>
+                      <CalendarDays size={14} strokeWidth={2} aria-hidden />
+                      Ver partidos ({tournament.fixture.length})
+                    </Button>
+                    {canManage && tournament.status !== "closed" ? (
+                      <Button type="button" variant="destructive" size="sm" onClick={() => closeTournament(tournament.id)}>
+                        Cerrar torneo
+                      </Button>
+                    ) : null}
+                  </div>
 
                   {tournament.requestStatus === "rechazado" && tournament.rejectionReason ? (
                     <p className="font-mono text-[11px] uppercase tracking-wider text-muted">Motivo: {tournament.rejectionReason}</p>
@@ -613,35 +644,57 @@ export function TournamentsPanel({ user }: { user: AppUser }) {
                   ) : (
                     (() => {
                       const availableTeams = teams.filter((team) => !tournament.teamIds.includes(team.id));
+                      const alreadyClosed = tournament.status === "closed";
                       const alreadyStarted = tournament.status === "active";
-                      const disabledReason = alreadyStarted
-                        ? "El torneo ya comenzó: no se pueden agregar más equipos"
-                        : tournament.requestStatus !== "aprobado"
-                          ? "Este torneo todavía no fue aprobado"
-                          : undefined;
+                      const disabledReason = alreadyClosed
+                        ? "El torneo está cerrado: no se pueden agregar más equipos"
+                        : alreadyStarted
+                          ? "El torneo ya comenzó: no se pueden agregar más equipos"
+                          : tournament.requestStatus !== "aprobado"
+                            ? "Este torneo todavía no fue aprobado"
+                            : undefined;
+                      const enrollSearch = enrollSearchByTournament[tournament.id] ?? "";
+                      const filteredAvailableTeams = enrollSearch.trim()
+                        ? availableTeams.filter((team) => team.name.toLowerCase().includes(enrollSearch.trim().toLowerCase()))
+                        : availableTeams;
                       return availableTeams.length > 0 ? (
                         <div>
                           <p className="mb-1 font-mono text-[10px] uppercase tracking-wider text-muted">Agregar equipo:</p>
-                          {alreadyStarted ? (
+                          {disabledReason ? (
                             <p className="mb-1 font-mono text-[11px] uppercase tracking-wider text-muted">{disabledReason}</p>
                           ) : null}
+                          {availableTeams.length > 5 ? (
+                            <input
+                              type="search"
+                              placeholder="Buscar equipo por nombre…"
+                              value={enrollSearch}
+                              onChange={(event) =>
+                                setEnrollSearchByTournament((current) => ({ ...current, [tournament.id]: event.target.value }))
+                              }
+                              className={`${fieldClassName} mb-1.5 h-9`}
+                            />
+                          ) : null}
                           <div className="flex flex-wrap gap-1.5">
-                            {availableTeams.map((team) => (
-                              <Button
-                                key={team.id}
-                                type="button"
-                                variant="secondary"
-                                size="sm"
-                                disabled={disabledReason !== undefined}
-                                title={disabledReason}
-                                onClick={() => {
-                                  setSelectedTournamentId(tournament.id);
-                                  void enrollTeam(team.id);
-                                }}
-                              >
-                                + {team.name}
-                              </Button>
-                            ))}
+                            {filteredAvailableTeams.length > 0 ? (
+                              filteredAvailableTeams.map((team) => (
+                                <Button
+                                  key={team.id}
+                                  type="button"
+                                  variant="secondary"
+                                  size="sm"
+                                  disabled={disabledReason !== undefined}
+                                  title={disabledReason}
+                                  onClick={() => {
+                                    setSelectedTournamentId(tournament.id);
+                                    void enrollTeam(team.id);
+                                  }}
+                                >
+                                  + {team.name}
+                                </Button>
+                              ))
+                            ) : (
+                              <p className="font-mono text-[11px] uppercase tracking-wider text-muted">Sin resultados para esa búsqueda.</p>
+                            )}
                           </div>
                         </div>
                       ) : null;

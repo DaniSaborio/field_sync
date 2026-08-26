@@ -97,7 +97,8 @@ export type TournamentCard = {
   teamsRequired: number;
   startDate: string;
   endDate: string;
-  status: "draft" | "active";
+  status: "draft" | "active" | "closed";
+  closedAt: string | null;
   requestStatus: "pendiente" | "aprobado" | "rechazado";
   rejectionReason: string | null;
   teamIds: number[];

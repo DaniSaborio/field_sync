@@ -161,6 +161,32 @@ export async function respondToTournamentRequest(input: {
   return { ok: true as const };
 }
 
+// El dueño de la cancha (o un admin de plataforma) cierra el torneo: ya no se
+// pueden inscribir equipos ni tocar su calendario. No requiere que ya haya
+// iniciado — permite cancelar uno en borrador o cerrar uno en curso.
+export async function closeTournament(input: { tournamentId: number; responderId: number; responderRole?: string }) {
+  const tournament = await prisma.tournament.findUnique({ where: { id_tournament: input.tournamentId } });
+  if (!tournament) {
+    return { ok: false as const, error: "No encontramos el torneo" };
+  }
+
+  if (tournament.closed_at) {
+    return { ok: false as const, error: "Este torneo ya estaba cerrado" };
+  }
+
+  const isPlatformAdmin = input.responderRole === "admin_plataforma";
+  if (!isPlatformAdmin && tournament.id_tenant !== input.responderId) {
+    return { ok: false as const, error: "Este torneo no pertenece a una de tus canchas" };
+  }
+
+  await prisma.tournament.update({
+    where: { id_tournament: tournament.id_tournament },
+    data: { closed_at: new Date() },
+  });
+
+  return { ok: true as const };
+}
+
 export async function enrollTeamToTournament(input: { tournamentId: number; teamId: number }) {
   const [tournament, team] = await Promise.all([
     prisma.tournament.findUnique({
@@ -172,6 +198,10 @@ export async function enrollTeamToTournament(input: { tournamentId: number; team
 
   if (!tournament || !team) {
     return { ok: false as const, error: "No encontramos el torneo o el equipo" };
+  }
+
+  if (tournament.closed_at) {
+    return { ok: false as const, error: "El torneo está cerrado: no se pueden agregar más equipos" };
   }
 
   if (tournament.estado.name !== "aprobado") {
@@ -229,7 +259,8 @@ export async function getTournaments() {
     teamsRequired: tournament.min_teams,
     startDate: tournament.start_date.toISOString().slice(0, 10),
     endDate: tournament.end_date.toISOString().slice(0, 10),
-    status: (tournament.matches.length > 0 ? "active" : "draft") as "draft" | "active",
+    status: (tournament.closed_at ? "closed" : tournament.matches.length > 0 ? "active" : "draft") as "draft" | "active" | "closed",
+    closedAt: tournament.closed_at ? tournament.closed_at.toISOString() : null,
     requestStatus: tournament.estado.name as "pendiente" | "aprobado" | "rechazado",
     rejectionReason: tournament.rejection_reason,
     teamIds: tournament.team_tournaments.map((tt) => tt.id_team),

@@ -9,7 +9,7 @@ import { RowTag } from "@/components/ui/row";
 import { fieldClassName } from "./constants";
 import { Badge, MessageBanner, PanelShell, StatusPill } from "./shared-ui";
 import type { ApiResponse, AppUser, CourtCard, TeamCard, TournamentCard } from "./types";
-import { formatDateTime, readJson, todayIso } from "./utils";
+import { formatDateTime, readJson, todayIso, tournamentStatusLabel } from "./utils";
 
 export function MyTournamentsPanel({ user }: { user: AppUser }) {
   const [tournaments, setTournaments] = useState<TournamentCard[]>([]);
@@ -219,7 +219,7 @@ export function MyTournamentsPanel({ user }: { user: AppUser }) {
                   </p>
                 </div>
                 <div className="flex flex-col items-end gap-1.5">
-                  <Badge>{tournament.status}</Badge>
+                  <Badge>{tournamentStatusLabel(tournament.status)}</Badge>
                   <RowTag tone={tournament.requestStatus === "aprobado" ? "positive" : tournament.requestStatus === "rechazado" ? "negative" : "default"}>
                     {tournament.requestStatus === "pendiente" ? "Solicitud pendiente" : tournament.requestStatus === "aprobado" ? "Aprobado" : "Rechazado"}
                   </RowTag>

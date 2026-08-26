@@ -1,5 +1,5 @@
 import { COSTA_RICA_UTC_OFFSET_HOURS } from "@/lib/utils";
-import type { AppUser, CourtCard } from "./types";
+import type { AppUser, CourtCard, TournamentCard } from "./types";
 
 export async function readJson<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
@@ -44,6 +44,12 @@ export function humanRole(role: string) {
     default:
       return "Jugador";
   }
+}
+
+export function tournamentStatusLabel(status: TournamentCard["status"]) {
+  if (status === "closed") return "Cerrado";
+  if (status === "active") return "Activo";
+  return "Borrador";
 }
 
 export function isAdmin(user: AppUser) {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createTeam } from "@/lib/services/teams";
-import { createTournament, enrollTeamToTournament, getTournaments } from "@/lib/services/tournaments";
+import { closeTournament, createTournament, enrollTeamToTournament, getTournaments } from "@/lib/services/tournaments";
 import { recordMatchResult, startTournament } from "@/lib/services/matches";
 import { prisma } from "@/lib/prisma";
 
@@ -143,6 +143,77 @@ describe("tournaments + matches services", () => {
         await prisma.matchStat.deleteMany({ where: { match: { id_tournament: tournamentId } } });
         await prisma.match.deleteMany({ where: { id_tournament: tournamentId } });
         await prisma.standing.deleteMany({ where: { id_tournament: tournamentId } });
+        await prisma.teamTournament.deleteMany({ where: { id_tournament: tournamentId } });
+        await prisma.tournament.delete({ where: { id_tournament: tournamentId } });
+      }
+      await prisma.teamPlayer.deleteMany({ where: { id_team: { in: testTeamIds } } });
+      await prisma.team.deleteMany({ where: { id_team: { in: testTeamIds } } });
+    }
+  }, 20000);
+
+  it("closes a tournament and blocks further enrollment or fixture changes", async () => {
+    const suffix = Date.now();
+    const teamD = await createTeam({ tenantId: 2, name: `Equipo Test D ${suffix}`, captainUserId: 4 });
+    const teamE = await createTeam({ tenantId: 2, name: `Equipo Test E ${suffix}`, captainUserId: 3 });
+    expect(teamD.ok).toBe(true);
+    expect(teamE.ok).toBe(true);
+    if (!teamD.ok || !teamE.ok) {
+      throw new Error("No se pudieron crear los equipos de prueba");
+    }
+
+    let tournamentId: number | null = null;
+    const testTeamIds = [teamD.team.id, teamE.team.id];
+
+    try {
+      const tournament = await createTournament({
+        createdByUserId: 2,
+        creatorRole: "tenant",
+        courtId: 1,
+        name: `Torneo a Cerrar ${suffix}`,
+        format: "todos-contra-todos",
+        teamIds: [teamD.team.id, teamE.team.id],
+        startDate: "2026-08-01",
+        endDate: "2026-08-21",
+      });
+      expect(tournament.ok).toBe(true);
+      if (!tournament.ok) {
+        throw new Error(tournament.error);
+      }
+      tournamentId = tournament.tournamentId;
+
+      // Un jugador sin relación con la cancha no puede cerrar el torneo de otro dueño.
+      const unauthorizedClose = await closeTournament({ tournamentId, responderId: 4, responderRole: "jugador" });
+      expect(unauthorizedClose.ok).toBe(false);
+      if (!unauthorizedClose.ok) {
+        expect(unauthorizedClose.error).toContain("no pertenece");
+      }
+
+      const closed = await closeTournament({ tournamentId, responderId: 2, responderRole: "tenant" });
+      expect(closed.ok).toBe(true);
+
+      const afterClose = (await getTournaments()).find((t) => t.id === tournamentId);
+      expect(afterClose?.status).toBe("closed");
+      expect(afterClose?.closedAt).not.toBeNull();
+
+      const enrollAfterClose = await enrollTeamToTournament({ tournamentId, teamId: teamD.team.id });
+      expect(enrollAfterClose.ok).toBe(false);
+      if (!enrollAfterClose.ok) {
+        expect(enrollAfterClose.error).toContain("cerrado");
+      }
+
+      const startAfterClose = await startTournament({ tournamentId });
+      expect(startAfterClose.ok).toBe(false);
+      if (!startAfterClose.ok) {
+        expect(startAfterClose.error).toContain("cerrado");
+      }
+
+      const doubleClose = await closeTournament({ tournamentId, responderId: 2, responderRole: "tenant" });
+      expect(doubleClose.ok).toBe(false);
+      if (!doubleClose.ok) {
+        expect(doubleClose.error).toContain("ya estaba cerrado");
+      }
+    } finally {
+      if (tournamentId) {
         await prisma.teamTournament.deleteMany({ where: { id_tournament: tournamentId } });
         await prisma.tournament.delete({ where: { id_tournament: tournamentId } });
       }
