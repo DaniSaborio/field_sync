@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Bell, Building2, LogOut, MapPin, Settings2, ShieldCheck, Trophy, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { useOnlineStatus } from "@/lib/use-online-status";
 import { TenantRequestScreen } from "./tenant-request";
 import { AdminPanel } from "./dashboard/admin-panel";
 import { BookingPanel } from "./dashboard/booking-panel";
@@ -40,6 +41,10 @@ export function DashboardScreen({ user, onLogout, onUserUpdate }: DashboardScree
   type DashboardTab = "reservas" | "torneos" | "perfil" | "equipo" | "notificaciones" | "tenant-request" |"mis-canchas" |"administracion";
 
   const [activeTab, setActiveTab] = useState<DashboardTab>("reservas");
+  // Al volver la conexión, syncSignal cambia y usamos ese valor como parte de
+  // la key del panel activo: React lo desmonta y remonta, así su useEffect de
+  // carga vuelve a correr y trae datos frescos en vez de solo avisar "Sincronizado".
+  const { syncSignal } = useOnlineStatus();
   const visibleTabs = [
   ...tabButtons.filter(
     (tab) => tab.id !== "administracion"
@@ -105,23 +110,31 @@ export function DashboardScreen({ user, onLogout, onUserUpdate }: DashboardScree
 
         {activeTab === "reservas" ? (
           isTenant(user) ? (
-            <div className="space-y-6">
+            <div key={syncSignal} className="space-y-6">
               <TenantPaymentsPanel user={user} />
               <BookingPanel user={user} restrictToTenantId={user.id} />
             </div>
           ) : (
-            <BookingPanel user={user} />
+            <BookingPanel key={syncSignal} user={user} />
           )
         ) : null}
-        {activeTab === "torneos" ? (isAdmin(user) || isTenant(user) ? <TournamentsPanel user={user} /> : <MyTournamentsPanel user={user} />) : null}
-        {activeTab === "perfil" ? (<ProfilePanel user={user} onRequestTenant={() => setActiveTab("tenant-request")} onUserUpdate={onUserUpdate} />) : null}
-        {activeTab === "equipo" ? <TeamsPanel user={user} /> : null}
+        {activeTab === "torneos" ? (
+          isAdmin(user) || isTenant(user) ? (
+            <TournamentsPanel key={syncSignal} user={user} />
+          ) : (
+            <MyTournamentsPanel key={syncSignal} user={user} />
+          )
+        ) : null}
+        {activeTab === "perfil" ? (
+          <ProfilePanel key={syncSignal} user={user} onRequestTenant={() => setActiveTab("tenant-request")} onUserUpdate={onUserUpdate} />
+        ) : null}
+        {activeTab === "equipo" ? <TeamsPanel key={syncSignal} user={user} /> : null}
         {activeTab === "mis-canchas" && isTenant(user) ? (
-          <TenantCourtsPanel user={user} onRequestMoreCourts={() => setActiveTab("tenant-request")} />
+          <TenantCourtsPanel key={syncSignal} user={user} onRequestMoreCourts={() => setActiveTab("tenant-request")} />
         ) : null}
         {activeTab === "tenant-request" ? (<TenantRequestScreen user={user} isTenant={isTenant(user)} />) : null}
-        {activeTab === "notificaciones" ? <NotificationsPanel user={user} /> : null}
-        {activeTab === "administracion" && isAdmin(user) ? <AdminPanel user={user} /> : null}
+        {activeTab === "notificaciones" ? <NotificationsPanel key={syncSignal} user={user} /> : null}
+        {activeTab === "administracion" && isAdmin(user) ? <AdminPanel key={syncSignal} user={user} /> : null}
       </div>
     </div>
   );

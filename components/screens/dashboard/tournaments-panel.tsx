@@ -350,6 +350,11 @@ export function TournamentsPanel({ user }: { user: AppUser }) {
   async function saveMatchResult() {
     if (!resultModalMatch) return;
 
+    if (!navigator.onLine) {
+      setMessage("No es posible ingresar el resultado sin conexión.");
+      return;
+    }
+
     const stats = Object.entries(statsDraft).map(([key, stat]) => {
       const [teamIdText, playerIdText] = key.split(":");
       return {
@@ -843,6 +848,8 @@ export function TournamentsPanel({ user }: { user: AppUser }) {
                 </span>
               </label>
             ) : null}
+
+            {message ? <MessageBanner message={message} /> : null}
 
             <Button type="button" className="w-full" disabled={savingResult} onClick={saveMatchResult}>
               {savingResult ? "Guardando…" : "Guardar resultado"}

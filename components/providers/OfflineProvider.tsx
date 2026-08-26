@@ -1,17 +1,23 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { FloatingAlert } from "@/components/ui/floating-alert";
+import { useOnlineStatus } from "@/lib/use-online-status";
 
 function formatTime(date: Date) {
   return date.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" });
 }
 
 export function OfflineProvider() {
-  const [isOnline, setIsOnline] = useState(true);
-  const [lastOnlineAt, setLastOnlineAt] = useState<Date | null>(null);
+  const { isOnline, lastOnlineAt, syncSignal } = useOnlineStatus();
   const [showSynced, setShowSynced] = useState(false);
-  const wasOffline = useRef(false);
+
+  useEffect(() => {
+    if (syncSignal > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setShowSynced(true);
+    }
+  }, [syncSignal]);
 
   useEffect(() => {
     if ("serviceWorker" in navigator) {
@@ -32,33 +38,6 @@ export function OfflineProvider() {
         }
       }
     }
-
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setIsOnline(navigator.onLine);
-    if (navigator.onLine) {
-      setLastOnlineAt(new Date());
-    }
-
-    function handleOnline() {
-      setIsOnline(true);
-      setLastOnlineAt(new Date());
-      if (wasOffline.current) {
-        setShowSynced(true);
-        wasOffline.current = false;
-      }
-    }
-
-    function handleOffline() {
-      setIsOnline(false);
-      wasOffline.current = true;
-    }
-
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
   }, []);
 
   return (
