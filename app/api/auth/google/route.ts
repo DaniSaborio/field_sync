@@ -6,6 +6,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { OAuth2Client } from "google-auth-library";
 import { prisma } from "@/lib/prisma";
+import { signSessionToken, setSessionCookie } from "@/lib/jwt";
+import { toSessionUser } from "@/lib/services/users";
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -69,19 +71,14 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({
+    const token = signSessionToken({ userId: user.id_user, role: user.role.name });
+
+    const response = NextResponse.json({
       success: true,
-      user: {
-        id: user.id_user,
-        fullName: user.full_name,
-        nickname: user.nickname,
-        email: user.email,
-        role: user.role.name,
-        tenantId: user.role.name === "tenant" ? user.id_user : null,
-        notificationsEnabled: user.notifications_enabled,
-        status: user.estado.name,
-      },
+      user: toSessionUser(user),
     });
+    setSessionCookie(response, token);
+    return response;
   } catch (error) {
     console.error("Google Login:", error);
 

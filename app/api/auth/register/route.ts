@@ -7,6 +7,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
+import { signSessionToken, setSessionCookie } from "@/lib/jwt";
+import { toSessionUser } from "@/lib/services/users";
 
 export async function POST(req: NextRequest) {
   try {
@@ -60,7 +62,7 @@ export async function POST(req: NextRequest) {
         id_estado: pendienteEstado.id_estado,
         notifications_enabled: true,
       },
-      include: { role: true },
+      include: { role: true, estado: true },
     });
 
     await prisma.playerProfile.create({
@@ -74,20 +76,17 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json(
+    const token = signSessionToken({ userId: createdUser.id_user, role: createdUser.role.name });
+
+    const response = NextResponse.json(
       {
         message: "User created successfully",
-        user: {
-          id: createdUser.id_user,
-          email: createdUser.email,
-          fullName: createdUser.full_name,
-          nickname: createdUser.nickname,
-          role: createdUser.role.name,
-          notificationsEnabled: createdUser.notifications_enabled,
-        },
+        user: toSessionUser(createdUser),
       },
       { status: 201 }
     );
+    setSessionCookie(response, token);
+    return response;
   } catch (error) {
     console.error("Register error:", error);
     return NextResponse.json(

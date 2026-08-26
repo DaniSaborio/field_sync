@@ -1,23 +1,22 @@
 /**
  * /api/profile — GET: returns a tenant-shaped profile (owned courts + booking
- * stats/revenue) or a player-shaped profile (stats/visibility/tournaments),
- * depending on the user's role. Both are read directly from Postgres.
- * PATCH: update visibility, nickname, or the notifications toggle for a user.
+ * stats/revenue) or a player-shaped profile (stats/visibility/tournaments)
+ * for the authenticated user, depending on their role. Both are read directly
+ * from Postgres.
+ * PATCH: update visibility, nickname, or the notifications toggle for the
+ * authenticated user.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireAuth } from "@/lib/authz";
 import { getPlayerProfile, getTenantProfile, updateProfileVisibility } from "@/lib/services/profiles";
 
 export async function GET(request: NextRequest) {
-const url = new URL(request.url);
-const userId = Number(url.searchParams.get("userId") ?? 0);
-
-if (!userId) {
-return NextResponse.json(
-{ ok: false, error: "userId es obligatorio" },
-{ status: 400 }
-);
+const authz = await requireAuth(request);
+if (!authz.ok) {
+  return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
 }
+const userId = authz.userId;
 
 try {
 const dbUser = await prisma.user.findUnique({
@@ -72,16 +71,13 @@ error instanceof Error
 
 export async function PATCH(request: NextRequest) {
 try {
-const body = await request.json();
-const userId = Number(body?.userId);
-
-
-if (!userId) {
-  return NextResponse.json(
-    { ok: false, error: "userId es obligatorio" },
-    { status: 400 }
-  );
+const authz = await requireAuth(request);
+if (!authz.ok) {
+  return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
 }
+const userId = authz.userId;
+
+const body = await request.json();
 
 if (typeof body?.visibility === "string") {
   const result = await updateProfileVisibility({

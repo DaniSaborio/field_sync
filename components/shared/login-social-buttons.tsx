@@ -31,9 +31,6 @@ export function LoginSocialButtons({
               alert(data.error);
               return;
             }
-            //mantiene la persistencia de la sesión del usuario en el almacenamiento local
-            localStorage.setItem("user", JSON.stringify(data.user));
-
             onLogin?.(data.user);
           } catch (error) {
             console.error("Error iniciando sesión con Google:", error);

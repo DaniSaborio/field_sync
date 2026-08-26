@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { notifyUser } from "@/lib/notify";
-import { ADMIN_ROLES, requireRole } from "@/lib/authz";
+import { ADMIN_ROLES, requireAuth, requireRole } from "@/lib/authz";
 import {
   listTenantRequests,
   submitTenantRequest,
@@ -17,8 +17,7 @@ import {
 } from "@/lib/tenant-requests";
 
 export async function GET(request: NextRequest) {
-  const adminId = request.nextUrl.searchParams.get("adminId");
-  const authz = await requireRole(adminId, ADMIN_ROLES);
+  const authz = await requireRole(request, ADMIN_ROLES);
   if (!authz.ok) {
     return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
   }
@@ -30,9 +29,14 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const authz = await requireAuth(request);
+    if (!authz.ok) {
+      return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
+    }
+
     const body = await request.json();
     const result = submitTenantRequest({
-      userId: body?.userId,
+      userId: authz.userId,
       userEmail: body?.userEmail,
       complexName: body?.complexName,
       phone: body?.phone,
@@ -65,7 +69,7 @@ export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
 
-    const authz = await requireRole(body?.adminId, ADMIN_ROLES);
+    const authz = await requireRole(request, ADMIN_ROLES);
     if (!authz.ok) {
       return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
     }

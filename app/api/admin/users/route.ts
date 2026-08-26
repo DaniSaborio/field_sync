@@ -11,8 +11,7 @@ import { notifyPush } from "@/lib/notify";
 import { ADMIN_ROLES, requireRole } from "@/lib/authz";
 
 export async function GET(request: NextRequest) {
-  const adminId = request.nextUrl.searchParams.get("adminId");
-  const authz = await requireRole(adminId, ADMIN_ROLES);
+  const authz = await requireRole(request, ADMIN_ROLES);
   if (!authz.ok) {
     return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
   }
@@ -50,7 +49,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ ok: false, error: "Faltan datos para procesar la acción" }, { status: 400 });
     }
 
-    const authz = await requireRole(body?.adminId, ADMIN_ROLES);
+    const authz = await requireRole(request, ADMIN_ROLES);
     if (!authz.ok) {
       return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
     }

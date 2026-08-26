@@ -57,9 +57,6 @@ export function LoginScreen({ onBack, onNavigate }: LoginScreenProps) {
       if (!response.ok) {
         throw new Error(data.error || 'No se pudo iniciar sesión');
       }
-      //mantiene la persistencia de la sesión del usuario en el almacenamiento local
-      localStorage.setItem("user", JSON.stringify(data.user));
-
       onNavigate?.("dashboard", data.user);
     } catch (error) {
       console.error('Login failed:', error);

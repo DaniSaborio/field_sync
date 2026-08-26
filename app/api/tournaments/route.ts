@@ -9,6 +9,7 @@
  *       per player; may require a second admin confirmation).
  */
 import { NextRequest, NextResponse } from "next/server";
+import { requireAuth } from "@/lib/authz";
 import {
   closeTournament,
   createTournament,
@@ -24,13 +25,18 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const authz = await requireAuth(request);
+    if (!authz.ok) {
+      return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
+    }
+
     const body = await request.json();
     const action = String(body?.action ?? "create");
 
     if (action === "create") {
       const result = await createTournament({
-        createdByUserId: Number(body?.userId ?? 0),
-        creatorRole: typeof body?.role === "string" ? body.role : undefined,
+        createdByUserId: authz.userId,
+        creatorRole: authz.role,
         courtId: Number(body?.courtId ?? 0),
         name: String(body?.name ?? ""),
         format: body?.format === "eliminatorio" ? "eliminatorio" : "todos-contra-todos",
@@ -50,8 +56,8 @@ export async function POST(request: NextRequest) {
     if (action === "respond") {
       const result = await respondToTournamentRequest({
         tournamentId: Number(body?.tournamentId),
-        responderId: Number(body?.userId),
-        responderRole: typeof body?.role === "string" ? body.role : undefined,
+        responderId: authz.userId,
+        responderRole: authz.role,
         action: body?.decision === "reject" ? "reject" : "approve",
         reason: typeof body?.reason === "string" ? body.reason : null,
       });
@@ -66,8 +72,8 @@ export async function POST(request: NextRequest) {
     if (action === "close") {
       const result = await closeTournament({
         tournamentId: Number(body?.tournamentId),
-        responderId: Number(body?.userId),
-        responderRole: typeof body?.role === "string" ? body.role : undefined,
+        responderId: authz.userId,
+        responderRole: authz.role,
       });
 
       if (!result.ok) {

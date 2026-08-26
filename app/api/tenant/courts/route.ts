@@ -2,12 +2,12 @@
  * /api/tenant/courts — PATCH: a tenant edits one of their own courts (name,
  * location, surface, capacity, base price) and its per-schedule rates
  * (morning/afternoon/night). Ownership is checked by comparing the court's
- * `id_tenant` to the `tenantId` sent in the request body — unlike the admin
- * routes, this does not re-verify the caller's role/identity via requireRole,
- * so it trusts whatever tenantId the client sends.
+ * `id_tenant` to the caller's own id, taken from the verified session — never
+ * from a client-supplied tenantId.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireRole } from "@/lib/authz";
 import { resolveRateForSchedule, scheduleTypeLabel, SCHEDULE_TYPES, type RateCandidate, type ScheduleType } from "@/lib/rates";
 
 const SURFACES = ["synthetic", "natural", "indoor"] as const;
@@ -21,11 +21,16 @@ function isSurface(value: unknown): value is (typeof SURFACES)[number] {
 // their own courts.
 export async function PATCH(request: NextRequest) {
   try {
+    const authz = await requireRole(request, ["tenant"]);
+    if (!authz.ok) {
+      return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
+    }
+    const tenantId = authz.userId;
+
     const body = await request.json();
-    const tenantId = Number(body?.tenantId);
     const courtId = Number(body?.courtId);
 
-    if (!tenantId || !courtId) {
+    if (!courtId) {
       return NextResponse.json({ ok: false, error: "Faltan datos para actualizar la cancha" }, { status: 400 });
     }
 

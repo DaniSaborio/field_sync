@@ -1,19 +1,19 @@
 /**
- * /api/notifications — GET: list a user's notifications, newest first.
- * Requires `userId` as a query param (no further role check — any caller who
- * knows a userId can read that user's notifications).
+ * /api/notifications — GET: list the authenticated user's own notifications,
+ * newest first. The user id comes from the verified session, never from a
+ * client-supplied query param.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireAuth } from "@/lib/authz";
 import { expireStalePendingReservations } from "@/lib/reservation-expiry";
 
 export async function GET(request: NextRequest) {
-  const url = new URL(request.url);
-  const userId = Number(url.searchParams.get("userId") ?? 0);
-
-  if (!userId) {
-    return NextResponse.json({ ok: false, error: "userId es obligatorio" }, { status: 400 });
+  const authz = await requireAuth(request);
+  if (!authz.ok) {
+    return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
   }
+  const userId = authz.userId;
 
   try {
     await expireStalePendingReservations();

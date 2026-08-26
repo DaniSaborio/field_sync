@@ -9,6 +9,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireAuth } from "@/lib/authz";
 import { getTeamById } from "@/lib/services/teams";
 import { notifyPush } from "@/lib/notify";
 import { utcDateToSlot } from "@/lib/utils";
@@ -142,13 +143,18 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
+    const authz = await requireAuth(request);
+    if (!authz.ok) {
+      return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
+    }
+    const actingUserId = authz.userId;
+
     const body = await request.json();
     const reservationId = Number(body?.reservationId);
     const playerId = Number(body?.playerId);
     const paid = Boolean(body?.paid);
-    const actingUserId = Number(body?.actingUserId);
 
-    if (!reservationId || !playerId || !actingUserId) {
+    if (!reservationId || !playerId) {
       return NextResponse.json({ ok: false, error: "Faltan datos para actualizar el checklist" }, { status: 400 });
     }
 
@@ -222,11 +228,16 @@ export async function PATCH(request: NextRequest) {
 // deliberately confirm it — it's not enough for the checklist to be all true.
 export async function POST(request: NextRequest) {
   try {
+    const authz = await requireAuth(request);
+    if (!authz.ok) {
+      return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
+    }
+    const actingUserId = authz.userId;
+
     const body = await request.json();
     const reservationId = Number(body?.reservationId);
-    const actingUserId = Number(body?.actingUserId);
 
-    if (!reservationId || !actingUserId) {
+    if (!reservationId) {
       return NextResponse.json({ ok: false, error: "Faltan datos para cerrar el partido" }, { status: 400 });
     }
 

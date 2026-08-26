@@ -6,6 +6,7 @@
  *       about an upcoming match (captain-only, enforced in sendConvocation).
  */
 import { NextRequest, NextResponse } from "next/server";
+import { requireAuth } from "@/lib/authz";
 import { createTeam, listTeams, sendConvocation, updateTeamRoster } from "@/lib/services/teams";
 import { listAllRealUsers } from "@/lib/services/users";
 
@@ -16,6 +17,11 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const authz = await requireAuth(request);
+    if (!authz.ok) {
+      return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
+    }
+
     const body = await request.json();
     const action = String(body?.action ?? "roster");
 
@@ -23,7 +29,7 @@ export async function POST(request: NextRequest) {
       const result = await createTeam({
         tenantId: Number(body?.tenantId ?? 1),
         name: String(body?.name ?? ""),
-        captainUserId: Number(body?.captainUserId),
+        captainUserId: authz.userId,
       });
 
       if (!result.ok) {
@@ -50,7 +56,7 @@ export async function POST(request: NextRequest) {
     if (action === "convocation") {
       const result = await sendConvocation({
         teamId: Number(body?.teamId),
-        senderUserId: Number(body?.userId),
+        senderUserId: authz.userId,
         scheduledAt: String(body?.scheduledAt ?? ""),
         courtName: String(body?.courtName ?? ""),
       });

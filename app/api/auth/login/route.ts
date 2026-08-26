@@ -5,6 +5,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
+import { signSessionToken, setSessionCookie } from "@/lib/jwt";
+import { toSessionUser } from "@/lib/services/users";
 
 export async function POST(req: NextRequest) {
   try {
@@ -39,22 +41,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    return NextResponse.json(
+    const token = signSessionToken({ userId: dbUser.id_user, role: dbUser.role.name });
+
+    const response = NextResponse.json(
       {
         message: "Login successful",
-        user: {
-          id: dbUser.id_user,
-          email: dbUser.email,
-          fullName: dbUser.full_name,
-          nickname: dbUser.nickname,
-          role: dbUser.role.name,
-          tenantId: dbUser.role.name === "tenant" ? dbUser.id_user : null,
-          notificationsEnabled: dbUser.notifications_enabled,
-          status: dbUser.estado.name,
-        },
+        user: toSessionUser(dbUser),
       },
       { status: 200 }
     );
+    setSessionCookie(response, token);
+    return response;
   } catch (error) {
     console.error("Login error:", error);
     return NextResponse.json(

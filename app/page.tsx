@@ -7,29 +7,37 @@ import { LoginScreen } from "@/components/screens/login";
 export default function Home() {
   const [screen, setScreen] = useState<"guest" | "login" | "dashboard">("guest");
   const [user, setUser] = useState<AppUser | null>(null);
-// Verifica si hay un usuario guardado en el almacenamiento local al cargar la página
-  useEffect(() => {
-  const savedUser = localStorage.getItem("user");
 
-  if (savedUser) {
-    // localStorage no existe en SSR, por eso esta sincronización debe vivir en el efecto.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setUser(JSON.parse(savedUser));
-    setScreen("dashboard");
-  }
-}, []);
+  // La sesión vive en una cookie httpOnly, así que el cliente no puede leerla
+  // directamente: le pedimos a /api/auth/me que la verifique y nos diga quién
+  // sos, en vez de confiar en algo guardado por el propio navegador.
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch("/api/auth/me")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.ok) return;
+        setUser(data.user);
+        setScreen("dashboard");
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (screen === "dashboard" && user) {
     return (
       <DashboardScreen
         user={user}
         onLogout={() => {
-        localStorage.removeItem("user"); // Elimina el usuario del almacenamiento local al cerrar sesión
-        setUser(null);// Restablece el estado del usuario a null
-        setScreen("guest"); // Vuelve a la vista de invitado al cerrar sesión, sin forzar el login
-      }}
+          fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+          setUser(null);
+          setScreen("guest"); // Vuelve a la vista de invitado al cerrar sesión, sin forzar el login
+        }}
         onUserUpdate={(updatedUser) => {
-          localStorage.setItem("user", JSON.stringify(updatedUser));
           setUser(updatedUser);
         }}
       />

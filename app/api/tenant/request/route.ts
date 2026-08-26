@@ -5,13 +5,19 @@
  * approval happen through the admin route.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { requireAuth } from "@/lib/authz";
 import { submitTenantRequest } from "@/lib/tenant-requests";
 
 export async function POST(req: NextRequest) {
   try {
+    const authz = await requireAuth(req);
+    if (!authz.ok) {
+      return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
+    }
+
     const body = await req.json();
     const result = submitTenantRequest({
-      userId: body?.userId ?? 0,
+      userId: authz.userId,
       userEmail: body?.userEmail ?? "",
       complexName: body?.complexName ?? "",
       phone: body?.phone ?? "",

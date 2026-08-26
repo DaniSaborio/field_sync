@@ -17,6 +17,7 @@
  * translates the service result into an HTTP response.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { requireAuth, requireRole } from "@/lib/authz";
 import { listCourts } from "@/lib/services/courts";
 import { cancelReservation, createReservation, isPaymentMethod, verifyPayment } from "@/lib/services/reservations";
 
@@ -27,8 +28,19 @@ export async function GET(request: NextRequest) {
   const surface = url.searchParams.get("surface") ?? undefined;
   const userId = url.searchParams.get("userId");
   const hasLights = url.searchParams.get("hasLights") === "true" ? true : undefined;
-  const tenantIdParam = url.searchParams.get("tenantId");
   const manage = url.searchParams.get("manage") === "true";
+
+  // `manage=true` expone todas las reservas (nombre, email, monto) de las
+  // canchas de un tenant — solo el propio tenant autenticado puede pedirla,
+  // nunca un tenantId que mande el cliente.
+  let tenantId: number | undefined;
+  if (manage) {
+    const authz = await requireRole(request, ["tenant"]);
+    if (!authz.ok) {
+      return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
+    }
+    tenantId = authz.userId;
+  }
 
   try {
     const courts = await listCourts({
@@ -38,7 +50,7 @@ export async function GET(request: NextRequest) {
       hasLights,
       manage,
       userId: userId ? Number(userId) : undefined,
-      tenantId: tenantIdParam ? Number(tenantIdParam) : undefined,
+      tenantId,
     });
 
     return NextResponse.json({ courts });
@@ -53,11 +65,16 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const authz = await requireAuth(request);
+    if (!authz.ok) {
+      return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
+    }
+
     const body = await request.json();
     const rawPaymentMethod = body?.paymentMethod;
 
     const result = await createReservation({
-      userId: Number(body?.userId),
+      userId: authz.userId,
       courtId: Number(body?.courtId),
       date: String(body?.date ?? ""),
       timeSlot: String(body?.timeSlot ?? ""),
@@ -87,11 +104,16 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const authz = await requireAuth(request);
+    if (!authz.ok) {
+      return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
+    }
+
     const body = await request.json();
 
     const result = await cancelReservation({
       reservationId: Number(body?.reservationId),
-      userId: Number(body?.userId),
+      userId: authz.userId,
       now: body?.now ? new Date(String(body.now)) : undefined,
     });
 
@@ -111,11 +133,16 @@ export async function DELETE(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
+    const authz = await requireRole(request, ["tenant"]);
+    if (!authz.ok) {
+      return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
+    }
+
     const body = await request.json();
 
     const result = await verifyPayment({
       reservationId: Number(body?.reservationId),
-      tenantId: Number(body?.tenantId),
+      tenantId: authz.userId,
       action: String(body?.action ?? "") as "confirm" | "reject",
       reason: body?.reason ? String(body.reason) : null,
     });

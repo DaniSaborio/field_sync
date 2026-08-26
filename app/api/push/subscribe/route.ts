@@ -5,13 +5,19 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireAuth } from "@/lib/authz";
 
 export async function POST(request: NextRequest) {
+  const authz = await requireAuth(request);
+  if (!authz.ok) {
+    return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
+  }
+  const userId = authz.userId;
+
   const body = await request.json().catch(() => null);
-  const userId = Number(body?.userId ?? 0);
   const subscription = body?.subscription;
 
-  if (!userId || !subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
+  if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
     return NextResponse.json({ ok: false, error: "Suscripción inválida" }, { status: 400 });
   }
 
