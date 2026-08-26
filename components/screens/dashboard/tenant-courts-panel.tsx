@@ -89,7 +89,7 @@ function DailyRevenueChart({ data }: { data: DailyRevenuePoint[] }) {
 
   return (
     <div>
-      <div className="flex h-28 items-end gap-1 border-b border-black">
+      <div className="flex h-28 gap-1 border-b border-black">
         {data.map((point) => {
           const verifiedPct = (point.verified / max) * 100;
           const pendingPct = (point.pending / max) * 100;
