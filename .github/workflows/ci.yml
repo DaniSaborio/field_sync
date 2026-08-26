@@ -26,6 +26,7 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fieldsync_test
+      JWT_SECRET: ci-test-secret-not-for-production
 
     steps:
       - name: Checkout del código
@@ -48,6 +49,9 @@ jobs:
 
       - name: Aplicar el schema a la base de test
         run: npx prisma db push
+
+      - name: Poblar la base de test con el seed
+        run: npx prisma db seed
 
       - name: Tests
         run: npm test
