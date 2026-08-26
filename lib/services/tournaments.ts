@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { notifyUser } from "@/lib/notify";
-import { findSharedPlayerConflict } from "@/lib/services/teams";
+import { findSharedPlayerConflict, listTeams } from "@/lib/services/teams";
 
 // Torneos creados por el dueño de la cancha o un admin de plataforma quedan
 // aprobados al instante; cualquier otro rol (jugador, capitán) solo puede
@@ -40,9 +40,16 @@ export async function createTournament(input: {
     return { ok: false as const, error: "No pudimos identificar tu rol de usuario" };
   }
 
-  const court = await prisma.court.findUnique({ where: { id_court: input.courtId } });
+  const court = await prisma.court.findUnique({
+    where: { id_court: input.courtId },
+    include: { tenant: { include: { estado: true } } },
+  });
   if (!court) {
     return { ok: false as const, error: "Selecciona una cancha válida para el torneo" };
+  }
+
+  if (court.tenant.estado.name === "suspendido") {
+    return { ok: false as const, error: "El dueño de esta cancha está suspendido: no se pueden crear torneos ahí" };
   }
 
   const teamIds = Array.from(new Set(input.teamIds));
@@ -234,7 +241,7 @@ export async function enrollTeamToTournament(input: { tournamentId: number; team
   return { ok: true as const };
 }
 
-export async function getTournaments() {
+export async function getTournaments(viewer?: { userId: number; role: string }) {
   const tournaments = await prisma.tournament.findMany({
     include: {
       estado: true,
@@ -248,7 +255,7 @@ export async function getTournaments() {
     orderBy: { id_tournament: "asc" },
   });
 
-  return tournaments.map((tournament) => ({
+  const mapped = tournaments.map((tournament) => ({
     id: tournament.id_tournament,
     tenantId: tournament.id_tenant,
     createdByUserId: tournament.id_requested_by,
@@ -298,10 +305,28 @@ export async function getTournaments() {
       points: standing.points,
     })),
   }));
+
+  // Sin viewer (uso interno) o admin de plataforma: se ve todo. Cualquier
+  // otro rol solo ve los torneos de sus propias canchas (tenant) o en los
+  // que participa alguno de sus equipos — no el calendario de canchas ajenas.
+  if (!viewer || viewer.role === "admin_plataforma") {
+    return mapped;
+  }
+
+  const teams = await listTeams();
+  const myTeamIds = new Set(
+    teams
+      .filter((team) => team.captainUserId === viewer.userId || team.playerIds.includes(viewer.userId))
+      .map((team) => team.id),
+  );
+
+  return mapped.filter(
+    (tournament) => tournament.tenantId === viewer.userId || tournament.teamIds.some((teamId) => myTeamIds.has(teamId)),
+  );
 }
 
-export async function getTournamentSnapshot() {
-  const tournaments = await getTournaments();
+export async function getTournamentSnapshot(viewer?: { userId: number; role: string }) {
+  const tournaments = await getTournaments(viewer);
   return {
     tournaments,
     matches: tournaments.flatMap((t) => t.fixture),

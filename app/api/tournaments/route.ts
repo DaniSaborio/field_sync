@@ -19,8 +19,13 @@ import {
 } from "@/lib/services/tournaments";
 import { recordMatchResult, setManualFixture, startTournament } from "@/lib/services/matches";
 
-export async function GET() {
-  return NextResponse.json(await getTournamentSnapshot());
+export async function GET(request: NextRequest) {
+  const authz = await requireAuth(request);
+  if (!authz.ok) {
+    return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
+  }
+
+  return NextResponse.json(await getTournamentSnapshot({ userId: authz.userId, role: authz.role }));
 }
 
 export async function POST(request: NextRequest) {
